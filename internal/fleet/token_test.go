@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/fleet"
 )
 
 func TestIssueAndRedeemToken(t *testing.T) {

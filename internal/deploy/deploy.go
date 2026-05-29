@@ -16,15 +16,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/idgen"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
-// ControlPort is the port a buoy listens on for helm's gRPC control plane.
+// ControlPort is the port a buoy listens on for coxswain's gRPC control plane.
 const ControlPort = 8444
 
-// On-node layout and the helm↔buoy CLI contract. These are confirmed against
+// On-node layout and the coxswain↔buoy CLI contract. These are confirmed against
 // buoy/BUILD.md when that repo lands.
 const (
 	buoyBinaryPath = "/usr/local/bin/buoy"
@@ -145,7 +145,7 @@ func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 	}
 
 	// buoy generates its keypair on the node and returns a CSR; the node's
-	// private key never crosses to helm.
+	// private key never crosses to coxswain.
 	csrPEM, err := remote.Run(ctx, cmdGenCSR, nil)
 	if err != nil {
 		return AddResult{}, fmt.Errorf("deploy: buoy gen-csr: %w", err)

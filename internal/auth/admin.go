@@ -8,7 +8,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/PharosVPN/helm/internal/account"
+	"github.com/PharosVPN/coxswain/internal/account"
 )
 
 // SyncConfigAdmin reconciles the fixed controller-admin account with the

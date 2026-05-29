@@ -1,4 +1,4 @@
-module github.com/PharosVPN/helm
+module github.com/PharosVPN/coxswain
 
 go 1.25.7
 

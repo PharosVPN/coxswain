@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 // Node lifecycle states.
@@ -21,7 +21,7 @@ const (
 	StatusPending      = "pending"      // record created, no VM yet
 	StatusProvisioning = "provisioning" // cloud VM being created
 	StatusEnrolling    = "enrolling"    // VM up, bootstrap token outstanding
-	StatusActive       = "active"       // enrolled, under helm's control
+	StatusActive       = "active"       // enrolled, under coxswain's control
 	StatusStopped      = "stopped"      // VM stopped (pre-positioned idle node)
 	StatusUnreachable  = "unreachable"  // missed control-plane heartbeats
 	StatusError        = "error"        // provisioning or enrollment failed
@@ -38,7 +38,7 @@ type Node struct {
 	EndpointIPs []string
 	ControlAddr string
 	CloudID     string
-	// SSHHost, SSHUser, SSHPort are how helm reaches the node to install and
+	// SSHHost, SSHUser, SSHPort are how coxswain reaches the node to install and
 	// update the buoy agent (DESIGN §5). SSH is a deployment channel only.
 	SSHHost string
 	SSHUser string
@@ -58,7 +58,7 @@ type Node struct {
 	Masquerade bool
 	Isolation  bool
 	Status     string
-	// ConfigRevision is the last PushConfig revision helm assigned to this
+	// ConfigRevision is the last PushConfig revision coxswain assigned to this
 	// node (B2 — buoy rejects stale revisions with FailedPrecondition).
 	ConfigRevision int64
 	Version        int
@@ -230,7 +230,7 @@ func DeleteNode(ctx context.Context, db *sql.DB, id string) error {
 }
 
 // NextNodeConfigRevision atomically bumps and returns the next PushConfig
-// revision for the node — helm's monotonic counter that buoy enforces via
+// revision for the node — coxswain's monotonic counter that buoy enforces via
 // FailedPrecondition on stale values (B2). A missing node yields ErrNotFound.
 func NextNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) (int64, error) {
 	var rev int64
@@ -248,7 +248,7 @@ func NextNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) (int
 }
 
 // SetNodeAmneziaWG records the AmneziaWG server identity buoy reported for a
-// node — its public key and obfuscation parameter set. helm calls this when it
+// node — its public key and obfuscation parameter set. coxswain calls this when it
 // learns the values from a node's GetStatus; buoy is the source of truth, so
 // the write is unconditional (no optimistic-version check) but still bumps
 // version and updated_at. A missing row yields ErrNotFound.

@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
-// Relay kinds (the `relays` table). The embedded relay runs in helm's own
-// process; a remote relay is a beacon binary helm enrols over SSH and reaches
+// Relay kinds (the `relays` table). The embedded relay runs in coxswain's own
+// process; a remote relay is a beacon binary coxswain enrols over SSH and reaches
 // by dialling out to its reverse-tunnel listener (DESIGN §2).
 const (
 	RelayKindEmbedded = "embedded"
@@ -26,7 +26,7 @@ type Relay struct {
 	ID   string
 	Name string
 	Kind string
-	// Endpoint is the reverse-tunnel address helm dials for a remote relay.
+	// Endpoint is the reverse-tunnel address coxswain dials for a remote relay.
 	// Empty for the embedded relay.
 	Endpoint  string
 	Status    string

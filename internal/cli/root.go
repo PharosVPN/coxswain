@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package cli wires up the helm command-line interface.
+// Package cli wires up the coxswain command-line interface.
 package cli
 
 import (
@@ -13,14 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is the helm build version. Overridable at link time.
+// version is the coxswain build version. Overridable at link time.
 var version = "0.1.0-dev"
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "helm",
+		Use:           "cox",
 		Short:         "PharosVPN controller",
-		Long:          "helm — the PharosVPN controller and management plane.\n\nhelm is the source of truth for the fleet: it holds the CA, drives every\nVPN node over outbound mTLS, and serves the admin UI. It opens no inbound\nports.",
+		Long:          "coxswain — the PharosVPN controller and management plane.\n\ncoxswain is the source of truth for the fleet: it holds the CA, drives every\nVPN node over outbound mTLS, and serves the admin UI. It opens no inbound\nports.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -37,8 +37,8 @@ func newRootCmd() *cobra.Command {
 	return root
 }
 
-// Execute runs the helm CLI. The command context is cancelled on SIGINT or
-// SIGTERM so long-running commands (helm serve) shut down gracefully.
+// Execute runs the coxswain CLI. The command context is cancelled on SIGINT or
+// SIGTERM so long-running commands (cox serve) shut down gracefully.
 func Execute() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

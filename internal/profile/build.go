@@ -6,7 +6,7 @@ package profile
 import (
 	"encoding/json"
 
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 // ProtocolVersionAmneziaWG is the version tag for amneziawg protocol blocks.

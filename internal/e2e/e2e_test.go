@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/e2e"
 )
 
 func TestPassphraseWrapRoundTrip(t *testing.T) {

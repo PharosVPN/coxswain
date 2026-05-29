@@ -15,12 +15,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/live"
-	"github.com/PharosVPN/helm/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/live"
+	"github.com/PharosVPN/coxswain/internal/provision"
 )
 
 const testAdminPassword = "test-admin-password"

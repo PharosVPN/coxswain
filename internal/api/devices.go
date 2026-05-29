@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/profile"
-	"github.com/PharosVPN/helm/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/provision"
 )
 
 // deviceView is the API representation of a device.

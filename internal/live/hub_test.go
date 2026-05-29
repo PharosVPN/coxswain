@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

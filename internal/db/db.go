@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package db opens helm's SQLite state database and applies Goose migrations.
+// Package db opens coxswain's SQLite state database and applies Goose migrations.
 package db
 
 import (

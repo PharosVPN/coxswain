@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/profile"
-	"github.com/PharosVPN/helm/internal/provision"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 var opts = provision.Options{

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/enroll"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/enroll"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/spf13/cobra"
 )
 

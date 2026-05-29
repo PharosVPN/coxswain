@@ -7,8 +7,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
 )
 
 // minPasswordLen is the minimum length for a UI-created admin password.

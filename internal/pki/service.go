@@ -18,24 +18,25 @@ import (
 	"time"
 )
 
-// Service-certificate roles (the `service_certs` table) — helm's certs for the
+// Service-certificate roles (the `service_certs` table) — coxswain's certs for the
 // beacon relay tier (DESIGN §2, M6b-2).
 const (
-	// ServiceGRPC is helm's account/sync gRPC server cert. The relay dials it
-	// with SNI "helm-grpc".
+	// ServiceGRPC is coxswain's account/sync gRPC server cert. The relay dials it
+	// with SNI "coxswain-grpc".
 	ServiceGRPC = "grpc"
 	// ServiceRelay is the relay's single dual-EKU Fleet-CA leaf, also used as
-	// helm's client cert on the remote reverse-tunnel leg (helm/BUILD.md).
+	// coxswain's client cert on the remote reverse-tunnel leg (coxswain/BUILD.md).
 	ServiceRelay = "relay"
 
-	// relayOrg is the delegation Organization helm's auth path keys off.
+	// relayOrg is the delegation Organization coxswain's auth path keys off.
 	relayOrg = "PharosVPN Relay"
-	// grpcName is the CN/SAN of helm's gRPC-leg leaf.
-	grpcName = "helm-grpc"
+	// GRPCServerName is the CN/SAN of coxswain's gRPC-leg leaf; the relay verifies
+	// coxswain's backend cert against it (relay.Config.BackendServerName).
+	GRPCServerName = "coxswain-grpc"
 )
 
-// ServiceCert is a stored service certificate and its key. helm holds both —
-// these are helm's own / the embedded relay's identities.
+// ServiceCert is a stored service certificate and its key. coxswain holds both —
+// these are coxswain's own / the embedded relay's identities.
 type ServiceCert struct {
 	Role    string
 	Cert    *x509.Certificate
@@ -43,7 +44,7 @@ type ServiceCert struct {
 	KeyPEM  []byte
 }
 
-// EnsureServiceCert returns helm's service certificate for the given role,
+// EnsureServiceCert returns coxswain's service certificate for the given role,
 // issuing it off the Fleet CA on first call.
 func EnsureServiceCert(ctx context.Context, db *sql.DB, fleet Authority, role string) (ServiceCert, error) {
 	var certPEM, keyPEM string
@@ -97,8 +98,8 @@ func issueServiceCert(fleet Authority, role string) (ServiceCert, error) {
 	}
 	switch role {
 	case ServiceGRPC:
-		tmpl.Subject = pkix.Name{CommonName: grpcName, Organization: []string{"PharosVPN"}}
-		tmpl.DNSNames = []string{grpcName}
+		tmpl.Subject = pkix.Name{CommonName: GRPCServerName, Organization: []string{"PharosVPN"}}
+		tmpl.DNSNames = []string{GRPCServerName}
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 	case ServiceRelay:
 		// One dual-EKU leaf: public listener (server), backend + tunnel

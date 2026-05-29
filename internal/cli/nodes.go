@@ -11,14 +11,14 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/control"
-	"github.com/PharosVPN/helm/internal/deploy"
-	"github.com/PharosVPN/helm/internal/fleet"
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
-	"github.com/PharosVPN/helm/internal/pki"
-	"github.com/PharosVPN/helm/internal/profile"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/control"
+	"github.com/PharosVPN/coxswain/internal/deploy"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/wg"
 	"github.com/spf13/cobra"
 )
 
@@ -148,10 +148,10 @@ func newNodesAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
 		Short: "Onboard a new buoy node over SSH",
-		Long: "Onboard a buoy node (DESIGN §5). helm connects to <ssh-host>\n" +
+		Long: "Onboard a buoy node (DESIGN §5). coxswain connects to <ssh-host>\n" +
 			"over SSH, installs the buoy agent, signs the certificate request\n" +
 			"the agent generates on the node, and starts the service.\n\n" +
-			"Add helm's SSH key (see `helm ssh-key`) to the host first.",
+			"Add coxswain's SSH key (see `cox ssh-key`) to the host first.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -236,7 +236,7 @@ func newNodesListCmd() *cobra.Command {
 				return err
 			}
 			if len(nodes) == 0 {
-				fmt.Println("no nodes — run `helm nodes add <ssh-host> --region <region>`")
+				fmt.Println("no nodes — run `cox nodes add <ssh-host> --region <region>`")
 				return nil
 			}
 
@@ -253,7 +253,7 @@ func newNodesListCmd() *cobra.Command {
 	return cmd
 }
 
-// toBuoyAmneziaWGPeers converts helm's fleet.Peer rows for one node into the
+// toBuoyAmneziaWGPeers converts coxswain's fleet.Peer rows for one node into the
 // proto Peer messages PushAmneziaWGConfig expects. Non-AmneziaWG peers are
 // skipped — XRay lands in B3 with its own encoder.
 func toBuoyAmneziaWGPeers(peers []fleet.Peer) []*buoyv1.Peer {
@@ -278,9 +278,9 @@ func newNodesPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push <node-id>",
 		Short: "Push the current peer set to a node's AmneziaWG data plane",
-		Long: "Reconcile a node by pushing helm's current AmneziaWG peer set\n" +
+		Long: "Reconcile a node by pushing coxswain's current AmneziaWG peer set\n" +
 			"over the control channel (PushConfig — full-replace). buoy bumps\n" +
-			"awg0 in place, no tunnel drops. helm assigns a monotonic revision\n" +
+			"awg0 in place, no tunnel drops. coxswain assigns a monotonic revision\n" +
 			"per node; buoy rejects stale revisions with FailedPrecondition.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -345,7 +345,7 @@ func newNodesPushPolicyCmd() *cobra.Command {
 		Long: "Apply the node's stored forwarding / masquerade / isolation\n" +
 			"policy (DESIGN §3, decision 16) to its data plane via\n" +
 			"SetNetworkConfig. Run this after editing policy in the admin UI\n" +
-			"or `helm nodes update` to make the new rules take effect.",
+			"or `cox nodes update` to make the new rules take effect.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

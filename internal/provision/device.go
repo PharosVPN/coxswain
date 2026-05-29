@@ -11,10 +11,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/profile"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 // Options carries the fleet settings provisioning needs (from the config).
@@ -38,7 +38,7 @@ type Result struct {
 // the device's owner. A node is "ready" once it has reported its WG public
 // key and has a public address.
 //
-// The peer records are helm's desired state; pushing them to buoy over the
+// The peer records are coxswain's desired state; pushing them to buoy over the
 // control channel is the control loop's job.
 func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Options) (Result, error) {
 	device, err := account.GetDevice(ctx, db, deviceID)

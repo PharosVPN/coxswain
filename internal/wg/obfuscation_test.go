@@ -6,7 +6,7 @@ package wg_test
 import (
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 func TestObfuscationIsZero(t *testing.T) {

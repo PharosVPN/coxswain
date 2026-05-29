@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/profile"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -66,7 +66,7 @@ func OpenPassword(data []byte, password string) (profile.Profile, error) {
 }
 
 // OpenAccount decrypts an enc=account file with the recipient's X25519 private
-// key, verifying it against helm's profile-signing public key.
+// key, verifying it against coxswain's profile-signing public key.
 func OpenAccount(data, recipientPrivate []byte, signerPublic ed25519.PublicKey) (profile.Profile, error) {
 	env, err := parse(data)
 	if err != nil {

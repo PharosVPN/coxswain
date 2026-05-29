@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Copyright (C) 2026 The PharosVPN Authors
 --
--- Per-node PushConfig revision counter. helm assigns a monotonically
+-- Per-node PushConfig revision counter. coxswain assigns a monotonically
 -- increasing revision on every PushConfig to a buoy node; buoy rejects a
 -- stale revision with FailedPrecondition (B2). 0 means "nothing pushed yet".
 

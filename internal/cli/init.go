@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/spf13/cobra"
 )
 
@@ -29,8 +29,8 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialise a new helm controller",
-		Long: "Initialise a new helm controller from a deployment preset.\n\n" +
+		Short: "Initialise a new coxswain controller",
+		Long: "Initialise a new coxswain controller from a deployment preset.\n\n" +
 			"Writes a config file, creates the state directory, applies the\n" +
 			"SQLite schema, and generates the in-repo certificate authority.\n" +
 			"Safe to inspect before first run; re-running is refused unless\n" +
@@ -121,7 +121,7 @@ func runInit(ctx context.Context, opt initOptions) error {
 		return err
 	}
 
-	fmt.Printf("helm initialised — %s posture\n", cfg.Posture)
+	fmt.Printf("coxswain initialised — %s posture\n", cfg.Posture)
 	fmt.Printf("  config       %s\n", opt.cfgPath)
 	fmt.Printf("  state        %s\n", cfg.StateDir)
 	fmt.Printf("  database     %s\n", dbPath)

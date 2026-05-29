@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/db"
+	"github.com/PharosVPN/coxswain/internal/db"
 )
 
 // newDB returns a migrated, empty database scoped to the test.

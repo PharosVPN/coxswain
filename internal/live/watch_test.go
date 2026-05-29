@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/control"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/fleet"
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/control"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

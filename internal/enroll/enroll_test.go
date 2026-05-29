@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/enroll"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/enroll"
 )
 
 func TestIssueTicket(t *testing.T) {

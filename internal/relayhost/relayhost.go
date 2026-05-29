@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package relayhost wires helm's account/sync gRPC service to the beacon
+// Package relayhost wires coxswain's account/sync gRPC service to the beacon
 // relay tier (DESIGN §2, M6b-2): an in-process embedded relay over an
 // in-memory pipe, and a dialer for remote relays over the reverse tunnel.
 package relayhost
@@ -18,15 +18,15 @@ import (
 
 	"github.com/PharosVPN/beacon/relay"
 	"github.com/PharosVPN/beacon/tunnel"
-	"github.com/PharosVPN/helm/internal/accountsvc"
-	accountv1 "github.com/PharosVPN/helm/internal/gen/pharos/account/v1"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/accountsvc"
+	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-// AccountServer builds helm's AccountSync gRPC server with mTLS: it presents
-// the helm-grpc leaf and requires a client cert chaining to the Fleet CA — the
+// AccountServer builds coxswain's AccountSync gRPC server with mTLS: it presents
+// the coxswain-grpc leaf and requires a client cert chaining to the Fleet CA — the
 // relay's cert. The same server value is served on the embedded pipe and on
 // remote-tunnel substreams.
 func AccountServer(db *sql.DB, grpcCert pki.ServiceCert, fleetCAPEM []byte) (*grpc.Server, error) {
@@ -54,7 +54,7 @@ type EmbeddedConfig struct {
 	ClientListen string
 	// RelayCert is the relay's dual-EKU Fleet-CA leaf.
 	RelayCert pki.ServiceCert
-	// DeviceCAPEM verifies caravel device leaves; FleetCAPEM verifies helm's
+	// DeviceCAPEM verifies caravel device leaves; FleetCAPEM verifies coxswain's
 	// gRPC-leg cert.
 	DeviceCAPEM []byte
 	FleetCAPEM  []byte
@@ -75,12 +75,13 @@ func StartEmbedded(srv *grpc.Server, cfg EmbeddedConfig) (*Embedded, error) {
 	go func() { _ = srv.Serve(pipe) }()
 
 	r, err := relay.Start(relay.Config{
-		ClientListenAddr: cfg.ClientListen,
-		RelayCertPEM:     cfg.RelayCert.CertPEM,
-		RelayKeyPEM:      cfg.RelayCert.KeyPEM,
-		ClientTrustPEM:   cfg.DeviceCAPEM,
-		BackendTrustPEM:  cfg.FleetCAPEM,
-		BackendDialer:    pipe.DialContext,
+		ClientListenAddr:  cfg.ClientListen,
+		RelayCertPEM:      cfg.RelayCert.CertPEM,
+		RelayKeyPEM:       cfg.RelayCert.KeyPEM,
+		ClientTrustPEM:    cfg.DeviceCAPEM,
+		BackendTrustPEM:   cfg.FleetCAPEM,
+		BackendServerName: pki.GRPCServerName,
+		BackendDialer:     pipe.DialContext,
 	})
 	if err != nil {
 		srv.Stop()
@@ -101,7 +102,7 @@ func (e *Embedded) Stop() {
 }
 
 // RunRemote dials a remote beacon and serves srv over the reverse tunnel,
-// reconnecting forever until ctx is cancelled. helm keeps zero inbound ports —
+// reconnecting forever until ctx is cancelled. coxswain keeps zero inbound ports —
 // it dials out. relayAddr is the remote beacon's tunnel listener.
 func RunRemote(ctx context.Context, srv *grpc.Server, relayAddr string, relayCert pki.ServiceCert, fleetCAPEM []byte) error {
 	cert, err := tls.X509KeyPair(relayCert.CertPEM, relayCert.KeyPEM)

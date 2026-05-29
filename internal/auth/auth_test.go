@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
-	"github.com/PharosVPN/helm/internal/db"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/db"
 )
 
 func newDB(t *testing.T) *sql.DB {

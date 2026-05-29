@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/profile"
 )
 
 func newDB(t *testing.T) *sql.DB {
@@ -81,7 +81,7 @@ func TestIssueAndOpenRoundTrip(t *testing.T) {
 	}
 
 	// A user device opens the bundle: unwrap the private key with the
-	// passphrase, verify against helm's signing key, decrypt.
+	// passphrase, verify against coxswain's signing key, decrypt.
 	var bundle e2e.SealedBundle
 	if err := json.Unmarshal(ciphertext, &bundle); err != nil {
 		t.Fatalf("unmarshal bundle: %v", err)

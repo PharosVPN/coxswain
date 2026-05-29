@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package api is helm's localhost admin HTTP server: the JSON API behind the
+// Package api is coxswain's localhost admin HTTP server: the JSON API behind the
 // admin UI, the live-event WebSocket, and (from M5 phase B) the embedded
-// SvelteKit SPA. helm opens no public ports — this binds to localhost.
+// SvelteKit SPA. coxswain opens no public ports — this binds to localhost.
 package api
 
 import (
@@ -13,13 +13,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/live"
-	"github.com/PharosVPN/helm/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/live"
+	"github.com/PharosVPN/coxswain/internal/provision"
 )
 
 const (
 	// sessionCookie carries the opaque login session token.
-	sessionCookie   = "helm_session"
+	sessionCookie   = "cox_session"
 	shutdownTimeout = 5 * time.Second
 )
 

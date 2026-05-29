@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/control"
-	"github.com/PharosVPN/helm/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/control"
+	"github.com/PharosVPN/coxswain/internal/fleet"
 )
 
 const (

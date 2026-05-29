@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package ssh is helm's SSH layer: its own outbound SSH identity and the
+// Package ssh is coxswain's SSH layer: its own outbound SSH identity and the
 // client used to install and update the buoy agent on a node (DESIGN §5).
 // SSH is a deployment channel only — all node control is gRPC.
 package ssh
@@ -20,16 +20,16 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
-// Identity is helm's outbound SSH credential. The operator adds AuthorizedKey
-// to a new node's authorized_keys; helm dials out with the matching key.
+// Identity is coxswain's outbound SSH credential. The operator adds AuthorizedKey
+// to a new node's authorized_keys; coxswain dials out with the matching key.
 type Identity struct {
-	// Signer authenticates helm when dialing a node.
+	// Signer authenticates coxswain when dialing a node.
 	Signer cryptossh.Signer
 	// AuthorizedKey is the public key in OpenSSH authorized_keys format.
 	AuthorizedKey string
 }
 
-// EnsureIdentity returns helm's SSH identity, generating and persisting an
+// EnsureIdentity returns coxswain's SSH identity, generating and persisting an
 // Ed25519 keypair on first call. The boolean reports whether one was created.
 func EnsureIdentity(ctx context.Context, db *sql.DB) (Identity, bool, error) {
 	id, err := loadIdentity(ctx, db)
@@ -54,7 +54,7 @@ func EnsureIdentity(ctx context.Context, db *sql.DB) (Identity, bool, error) {
 	if err != nil {
 		return Identity{}, false, err
 	}
-	authKey := strings.TrimSpace(string(cryptossh.MarshalAuthorizedKey(sshPub))) + " helm@pharosvpn"
+	authKey := strings.TrimSpace(string(cryptossh.MarshalAuthorizedKey(sshPub))) + " cox@pharosvpn"
 
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO ssh_identity (id, public_key, private_key) VALUES (1, ?, ?)`,

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 func TestNodeCRUD(t *testing.T) {

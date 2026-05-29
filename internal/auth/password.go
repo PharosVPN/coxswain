@@ -2,7 +2,7 @@
 // Copyright (C) 2026 The PharosVPN Authors
 
 // Package auth handles password hashing, login sessions, and the config-driven
-// admin account for helm's admin Web UI (DESIGN §8).
+// admin account for coxswain's admin Web UI (DESIGN §8).
 package auth
 
 import (

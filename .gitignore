@@ -1,5 +1,5 @@
 # Build output
-/helm
+/cox
 /dist/
 
 # Runtime state — never committed (DESIGN §10)
@@ -8,8 +8,8 @@
 *.db-wal
 *.db-shm
 
-# Operator config written by `helm init`
-/helm.yaml
+# Operator config written by `cox init`
+/coxswain.yaml
 
 # OS / editor cruft
 .DS_Store

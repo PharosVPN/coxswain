@@ -8,8 +8,8 @@
 // source: pharos/account/v1/sync.proto
 
 // Package pharos.account.v1 is the relayed client account & sync contract
-// (DESIGN §8). caravel reaches AccountSync through a beacon relay; helm never
-// exposes it on a public port. helm serves only ciphertext — a compromised
+// (DESIGN §8). caravel reaches AccountSync through a beacon relay; coxswain never
+// exposes it on a public port. coxswain serves only ciphertext — a compromised
 // remote beacon cannot read user profiles.
 
 package accountv1
@@ -271,7 +271,7 @@ type GetProfileResponse struct {
 	// ciphertext is the sealed profile bundle (an e2e.SealedBundle).
 	Ciphertext []byte `protobuf:"bytes,1,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
 	Revision   int64  `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	// signing_public_key is helm's Ed25519 profile-signing key — the device
+	// signing_public_key is coxswain's Ed25519 profile-signing key — the device
 	// verifies the bundle against it.
 	SigningPublicKey []byte `protobuf:"bytes,3,opt,name=signing_public_key,json=signingPublicKey,proto3" json:"signing_public_key,omitempty"`
 	// wrapped_private_key is the user's passphrase-wrapped X25519 private key,
@@ -369,8 +369,8 @@ const file_pharos_account_v1_sync_proto_rawDesc = "" +
 	"\n" +
 	"EnrollKeys\x12$.pharos.account.v1.EnrollKeysRequest\x1a%.pharos.account.v1.EnrollKeysResponse\x12Y\n" +
 	"\n" +
-	"GetProfile\x12$.pharos.account.v1.GetProfileRequest\x1a%.pharos.account.v1.GetProfileResponseB\xcc\x01\n" +
-	"\x15com.pharos.account.v1B\tSyncProtoP\x01ZBgithub.com/PharosVPN/helm/internal/gen/pharos/account/v1;accountv1\xa2\x02\x03PAX\xaa\x02\x11Pharos.Account.V1\xca\x02\x11Pharos\\Account\\V1\xe2\x02\x1dPharos\\Account\\V1\\GPBMetadata\xea\x02\x13Pharos::Account::V1b\x06proto3"
+	"GetProfile\x12$.pharos.account.v1.GetProfileRequest\x1a%.pharos.account.v1.GetProfileResponseB\xd0\x01\n" +
+	"\x15com.pharos.account.v1B\tSyncProtoP\x01ZFgithub.com/PharosVPN/coxswain/internal/gen/pharos/account/v1;accountv1\xa2\x02\x03PAX\xaa\x02\x11Pharos.Account.V1\xca\x02\x11Pharos\\Account\\V1\xe2\x02\x1dPharos\\Account\\V1\\GPBMetadata\xea\x02\x13Pharos::Account::V1b\x06proto3"
 
 var (
 	file_pharos_account_v1_sync_proto_rawDescOnce sync.Once

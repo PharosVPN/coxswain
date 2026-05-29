@@ -8,9 +8,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/pharos"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/pharos"
+	"github.com/PharosVPN/coxswain/internal/profile"
 )
 
 func sampleProfile() profile.Profile {

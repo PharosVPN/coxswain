@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package profile builds the VPN profiles helm issues to users, seals them
+// Package profile builds the VPN profiles coxswain issues to users, seals them
 // end-to-end (DESIGN §8), and stores the ciphertext. The Profile structure is
 // also the plaintext inside a `.pharos` account-mode file (DESIGN §9).
 package profile

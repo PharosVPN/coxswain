@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 // Device is a user's enrolled endpoint — a caravel install or admin browser

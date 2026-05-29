@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 )
 
 // Issue seals profile p to the user end-to-end and stores the ciphertext as a
-// new revision. helm keeps only ciphertext — the plaintext is discarded once
+// new revision. coxswain keeps only ciphertext — the plaintext is discarded once
 // sealed. It returns the new revision number.
 func Issue(ctx context.Context, db *sql.DB, userID string, p Profile) (int64, error) {
 	recipient, _, err := account.GetEncryptionKey(ctx, db, userID)
@@ -78,7 +78,7 @@ func Issue(ctx context.Context, db *sql.DB, userID string, p Profile) (int64, er
 }
 
 // LatestCiphertext returns the most recent sealed profile bundle for a user,
-// as the JSON-encoded e2e.SealedBundle helm stores.
+// as the JSON-encoded e2e.SealedBundle coxswain stores.
 func LatestCiphertext(ctx context.Context, db *sql.DB, userID string) (ciphertext []byte, revision int64, err error) {
 	err = db.QueryRowContext(ctx,
 		`SELECT ciphertext, revision FROM profiles

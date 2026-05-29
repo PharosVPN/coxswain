@@ -78,7 +78,7 @@
 	}
 </script>
 
-<svelte:head><title>Admins — helm</title></svelte:head>
+<svelte:head><title>Admins — coxswain</title></svelte:head>
 
 <div class="flex items-end justify-between">
 	<div>

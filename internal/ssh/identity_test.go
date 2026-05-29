@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/ssh"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 )
 
 func TestEnsureIdentity(t *testing.T) {

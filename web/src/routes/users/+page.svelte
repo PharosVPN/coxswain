@@ -138,7 +138,7 @@
 	}
 </script>
 
-<svelte:head><title>Users — helm</title></svelte:head>
+<svelte:head><title>Users — coxswain</title></svelte:head>
 
 <div class="flex items-end justify-between">
 	<div>

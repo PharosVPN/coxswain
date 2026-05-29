@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package config defines helm's configuration model, the personal/enterprise
+// Package config defines coxswain's configuration model, the personal/enterprise
 // presets, and the koanf-based loader.
 package config
 
-// Posture is the deployment posture chosen at `helm init`.
+// Posture is the deployment posture chosen at `cox init`.
 type Posture string
 
 const (
@@ -15,7 +15,7 @@ const (
 	PostureEnterprise Posture = "enterprise"
 )
 
-// Config is the full helm configuration. It is persisted as YAML and reloaded
+// Config is the full coxswain configuration. It is persisted as YAML and reloaded
 // on every start. Field tags are shared between koanf (load) and yaml (write).
 type Config struct {
 	// Posture records which preset this deployment was initialised from.
@@ -36,19 +36,19 @@ type Config struct {
 }
 
 // AdminConfig holds the fixed controller-admin account (DESIGN §8). The
-// password here is the source of truth — helm re-syncs it into the database
+// password here is the source of truth — coxswain re-syncs it into the database
 // on every start, so editing it and restarting changes the admin login.
 type AdminConfig struct {
-	// Password is the fixed admin's login password. `helm init` generates a
+	// Password is the fixed admin's login password. `cox init` generates a
 	// strong random value; the operator may replace it and restart.
 	Password string `koanf:"password" yaml:"password"`
 }
 
-// NodeConfig holds defaults for SSH-based node onboarding (DESIGN §5). helm
+// NodeConfig holds defaults for SSH-based node onboarding (DESIGN §5). coxswain
 // reaches a node over SSH only to install and update the buoy agent.
 type NodeConfig struct {
 	// BuoyBinaryURL is the default download URL for the buoy agent, used by
-	// `helm nodes add` when no local binary is supplied.
+	// `cox nodes add` when no local binary is supplied.
 	BuoyBinaryURL string `koanf:"buoy_binary_url" yaml:"buoy_binary_url"`
 	// SSHUser is the default SSH user for reaching new nodes.
 	SSHUser string `koanf:"ssh_user" yaml:"ssh_user"`
@@ -63,7 +63,7 @@ type LogConfig struct {
 }
 
 // UIConfig controls the embedded admin Web UI. It binds to localhost only —
-// helm opens no inbound ports.
+// coxswain opens no inbound ports.
 type UIConfig struct {
 	// Listen is the localhost address the admin UI binds to.
 	Listen string `koanf:"listen" yaml:"listen"`
@@ -77,17 +77,17 @@ type ProtocolsConfig struct {
 
 // BeaconConfig controls the relay tier (DESIGN §2).
 type BeaconConfig struct {
-	// Embedded runs a beacon relay in-process inside helm.
+	// Embedded runs a beacon relay in-process inside coxswain.
 	Embedded bool `koanf:"embedded" yaml:"embedded"`
 	// Remote enables dialing out to remote beacon relays over a reverse tunnel.
 	Remote bool `koanf:"remote" yaml:"remote"`
 	// RemoteEndpoints are the tunnel-listener addresses of remote beacon
-	// relays helm dials out to (DESIGN §2). helm keeps zero inbound ports —
+	// relays coxswain dials out to (DESIGN §2). coxswain keeps zero inbound ports —
 	// it reconnects to each forever. Used only when Remote is true. Relays
-	// enrolled with `helm relays add` are dialed in addition to these.
+	// enrolled with `cox relays add` are dialed in addition to these.
 	RemoteEndpoints []string `koanf:"remote_endpoints" yaml:"remote_endpoints"`
 	// BinaryURL is the default download URL for the beacon binary, used by
-	// `helm relays add` when no local binary is supplied.
+	// `cox relays add` when no local binary is supplied.
 	BinaryURL string `koanf:"binary_url" yaml:"binary_url"`
 	// PublicEndpoint is the address clients reach a beacon at — baked into
 	// enrollment tickets so a scanned device knows where to connect.
@@ -121,7 +121,7 @@ type FleetConfig struct {
 	Regions []string `koanf:"regions" yaml:"regions"`
 	// IdleNodes encourages pre-positioned, stopped nodes (enterprise).
 	IdleNodes bool `koanf:"idle_nodes" yaml:"idle_nodes"`
-	// VPNSubnet is the CIDR helm allocates per-device tunnel addresses from.
+	// VPNSubnet is the CIDR coxswain allocates per-device tunnel addresses from.
 	VPNSubnet string `koanf:"vpn_subnet" yaml:"vpn_subnet"`
 	// EndpointPortMin/Max is the UDP port range each node accepts AmneziaWG
 	// on (DESIGN §3, decision 17) — the breadth of the endpoint pool.

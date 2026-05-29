@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package pki generates and stores helm's in-repo certificate authority: the
+// Package pki generates and stores coxswain's in-repo certificate authority: the
 // self-signed root and the Fleet/Device intermediates (DESIGN §4).
 package pki
 
@@ -61,7 +61,7 @@ func (b Bundle) All() []Authority {
 }
 
 // GenerateBundle mints a fresh root CA and its two intermediates. It is called
-// once, on helm's first run.
+// once, on coxswain's first run.
 func GenerateBundle() (Bundle, error) {
 	root, err := generateRoot()
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 // ErrSubnetExhausted is returned when the VPN subnet has no free address.

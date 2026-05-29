@@ -56,7 +56,7 @@
 	<div class="flex min-h-[calc(100vh-3px)]">
 		<aside class="flex w-56 flex-none flex-col border-r border-line bg-toolbar p-4">
 			<div class="px-2 py-3">
-				<div class="text-xl font-bold text-ink">helm</div>
+				<div class="text-xl font-bold text-ink">coxswain</div>
 				<div class="text-xs text-ink-3">PharosVPN controller</div>
 			</div>
 			<nav class="mt-4 flex flex-col gap-1">

@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/accountsvc"
-	"github.com/PharosVPN/helm/internal/auth"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/e2e"
-	accountv1 "github.com/PharosVPN/helm/internal/gen/pharos/account/v1"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/accountsvc"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
+	"github.com/PharosVPN/coxswain/internal/profile"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -104,7 +104,7 @@ func TestAuthenticateAndProfileRoundTrip(t *testing.T) {
 		t.Fatalf("EnrollKeys: %v", err)
 	}
 
-	// helm issues a profile for the user.
+	// coxswain issues a profile for the user.
 	if _, err := profile.Issue(ctx, conn, userID, profile.Profile{FleetID: "fleet-1"}); err != nil {
 		t.Fatalf("profile.Issue: %v", err)
 	}

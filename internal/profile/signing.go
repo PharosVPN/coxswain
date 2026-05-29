@@ -10,17 +10,17 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/e2e"
 )
 
-// SigningKey is helm's Ed25519 profile-signing keypair. helm signs every
+// SigningKey is coxswain's Ed25519 profile-signing keypair. coxswain signs every
 // sealed profile bundle with it; devices pin the public key to verify origin.
 type SigningKey struct {
 	Public  ed25519.PublicKey
 	Private ed25519.PrivateKey
 }
 
-// EnsureSigningKey returns helm's profile-signing key, generating one on first
+// EnsureSigningKey returns coxswain's profile-signing key, generating one on first
 // call. The boolean reports whether a key was created.
 func EnsureSigningKey(ctx context.Context, db *sql.DB) (SigningKey, bool, error) {
 	var pub, priv []byte

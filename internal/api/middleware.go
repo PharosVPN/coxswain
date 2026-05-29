@@ -7,8 +7,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
 )
 
 type ctxKey int

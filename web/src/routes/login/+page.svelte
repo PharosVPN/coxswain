@@ -25,11 +25,11 @@
 	}
 </script>
 
-<svelte:head><title>Sign in — helm</title></svelte:head>
+<svelte:head><title>Sign in — coxswain</title></svelte:head>
 
 <div class="flex min-h-[calc(100vh-3px)] items-center justify-center bg-bg p-4">
 	<div class="card anim-fade w-full max-w-[360px] p-6">
-		<div class="text-2xl font-bold text-ink">helm</div>
+		<div class="text-2xl font-bold text-ink">coxswain</div>
 		<p class="overline mt-1">PharosVPN controller</p>
 
 		<form class="mt-6 flex flex-col gap-4" onsubmit={submit}>

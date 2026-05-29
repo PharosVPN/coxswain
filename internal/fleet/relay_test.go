@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/fleet"
 )
 
 func TestRelayCRUD(t *testing.T) {

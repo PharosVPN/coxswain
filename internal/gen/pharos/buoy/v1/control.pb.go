@@ -7,9 +7,9 @@
 // 	protoc        (unknown)
 // source: pharos/buoy/v1/control.proto
 
-// Package pharos.buoy.v1 is the buoy node control contract. helm is the gRPC
-// client; the buoy node is the server. helm dials out over mTLS — the node
-// opens no connection to helm (DESIGN §2, §6, §7).
+// Package pharos.buoy.v1 is the buoy node control contract. coxswain is the gRPC
+// client; the buoy node is the server. coxswain dials out over mTLS — the node
+// opens no connection to coxswain (DESIGN §2, §6, §7).
 
 package buoyv1
 
@@ -139,10 +139,10 @@ func (EventType) EnumDescriptor() ([]byte, []int) {
 	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{1}
 }
 
-// Peer is one end-user tunnel credential as helm defines it.
+// Peer is one end-user tunnel credential as coxswain defines it.
 type Peer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id is helm's peer identifier, echoed back for correlation.
+	// id is coxswain's peer identifier, echoed back for correlation.
 	Id       string   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Protocol Protocol `protobuf:"varint,2,opt,name=protocol,proto3,enum=pharos.buoy.v1.Protocol" json:"protocol,omitempty"`
 	// public_key is the AmneziaWG public key, or the XRay client UUID.
@@ -830,7 +830,7 @@ func (x *GetMetricsResponse) GetErrorsTotal() uint64 {
 type PushConfigRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Protocol Protocol               `protobuf:"varint,1,opt,name=protocol,proto3,enum=pharos.buoy.v1.Protocol" json:"protocol,omitempty"`
-	// revision is helm's monotonically increasing config revision.
+	// revision is coxswain's monotonically increasing config revision.
 	Revision int64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	// config is the protocol-specific config document. The encoding is fixed
 	// per protocol so buoy can decode it without out-of-band knowledge:
@@ -948,9 +948,9 @@ func (x *PushConfigResponse) GetReloaded() bool {
 }
 
 // AmneziaWGConfig is the PushConfigRequest.config payload for
-// PROTOCOL_AMNEZIAWG: the full peer set helm wants the node to apply. The
+// PROTOCOL_AMNEZIAWG: the full peer set coxswain wants the node to apply. The
 // node-level obfuscation parameters are intentionally absent — buoy owns
-// them (AmneziaWGObfuscation, decision-14 follow-up); helm sends peers,
+// them (AmneziaWGObfuscation, decision-14 follow-up); coxswain sends peers,
 // nothing else.
 type AmneziaWGConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1511,7 +1511,7 @@ func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
 	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{22}
 }
 
-// Event is one live event streamed from a node to helm.
+// Event is one live event streamed from a node to coxswain.
 type Event struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	At       *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=at,proto3" json:"at,omitempty"`
@@ -1718,8 +1718,8 @@ const file_pharos_buoy_v1_control_proto_rawDesc = "" +
 	"\tListPeers\x12 .pharos.buoy.v1.ListPeersRequest\x1a!.pharos.buoy.v1.ListPeersResponse\x12_\n" +
 	"\x0eRestartService\x12%.pharos.buoy.v1.RestartServiceRequest\x1a&.pharos.buoy.v1.RestartServiceResponse\x12e\n" +
 	"\x10SetNetworkConfig\x12'.pharos.buoy.v1.SetNetworkConfigRequest\x1a(.pharos.buoy.v1.SetNetworkConfigResponse\x12J\n" +
-	"\vWatchEvents\x12\".pharos.buoy.v1.WatchEventsRequest\x1a\x15.pharos.buoy.v1.Event0\x01B\xba\x01\n" +
-	"\x12com.pharos.buoy.v1B\fControlProtoP\x01Z<github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1;buoyv1\xa2\x02\x03PBX\xaa\x02\x0ePharos.Buoy.V1\xca\x02\x0ePharos\\Buoy\\V1\xe2\x02\x1aPharos\\Buoy\\V1\\GPBMetadata\xea\x02\x10Pharos::Buoy::V1b\x06proto3"
+	"\vWatchEvents\x12\".pharos.buoy.v1.WatchEventsRequest\x1a\x15.pharos.buoy.v1.Event0\x01B\xbe\x01\n" +
+	"\x12com.pharos.buoy.v1B\fControlProtoP\x01Z@github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1;buoyv1\xa2\x02\x03PBX\xaa\x02\x0ePharos.Buoy.V1\xca\x02\x0ePharos\\Buoy\\V1\xe2\x02\x1aPharos\\Buoy\\V1\\GPBMetadata\xea\x02\x10Pharos::Buoy::V1b\x06proto3"
 
 var (
 	file_pharos_buoy_v1_control_proto_rawDescOnce sync.Once

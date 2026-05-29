@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 // RecordNodeCert persists a signed node certificate in the `node_certs` table.
-// Only the certificate is stored — helm never holds the node's private key. It
+// Only the certificate is stored — coxswain never holds the node's private key. It
 // returns the new record's ID.
 func RecordNodeCert(ctx context.Context, db *sql.DB, nodeID string, cert SignedCert) (string, error) {
 	id := idgen.New("ncrt")

@@ -1,9 +1,9 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Copyright (C) 2026 The PharosVPN Authors
 --
--- helm's own controller client certificate (DESIGN §4). helm presents this
+-- coxswain's own controller client certificate (DESIGN §4). coxswain presents this
 -- when it dials a buoy node's mTLS control port. Unlike user/node keys, this
--- private key legitimately belongs to helm.
+-- private key legitimately belongs to coxswain.
 
 -- +goose Up
 

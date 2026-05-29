@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Copyright (C) 2026 The PharosVPN Authors
 --
--- Initial helm state schema. See DESIGN §10 (Persistence). Every mutable row
+-- Initial coxswain state schema. See DESIGN §10 (Persistence). Every mutable row
 -- carries `version` + `updated_at` for the optimistic concurrency in DESIGN §7.
 
 -- +goose Up
@@ -44,7 +44,7 @@ CREATE TABLE relays (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- users are authentication principals (DESIGN §8). helm holds only the public
+-- users are authentication principals (DESIGN §8). coxswain holds only the public
 -- key and the passphrase-wrapped private key blob — never a usable secret.
 CREATE TABLE users (
     id              TEXT PRIMARY KEY,
@@ -81,7 +81,7 @@ CREATE TABLE devices (
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- profiles holds E2E-encrypted profile bundles. helm stores only ciphertext.
+-- profiles holds E2E-encrypted profile bundles. coxswain stores only ciphertext.
 CREATE TABLE profiles (
     id         TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

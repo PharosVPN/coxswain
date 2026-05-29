@@ -3,7 +3,7 @@
 --
 -- Peer provisioning: each node's AmneziaWG server public key. buoy generates
 -- the node's data-plane keypair on the node (same principle as its mTLS key,
--- decision 14) and reports the public key; helm needs it to build the peer
+-- decision 14) and reports the public key; coxswain needs it to build the peer
 -- entry in a user's profile.
 
 -- +goose Up

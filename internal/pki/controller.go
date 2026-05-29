@@ -17,9 +17,9 @@ import (
 	"time"
 )
 
-// ControllerCert is helm's own client certificate, presented when helm dials a
-// buoy node's mTLS control port (DESIGN §4). helm legitimately holds this
-// private key — it is helm's own identity.
+// ControllerCert is coxswain's own client certificate, presented when coxswain dials a
+// buoy node's mTLS control port (DESIGN §4). coxswain legitimately holds this
+// private key — it is coxswain's own identity.
 type ControllerCert struct {
 	Cert    *x509.Certificate
 	CertPEM []byte
@@ -27,7 +27,7 @@ type ControllerCert struct {
 	Serial  string
 }
 
-// EnsureControllerCert returns helm's controller certificate, issuing one off
+// EnsureControllerCert returns coxswain's controller certificate, issuing one off
 // the Fleet CA on first call. The boolean reports whether one was created.
 func EnsureControllerCert(ctx context.Context, db *sql.DB, fleet Authority) (ControllerCert, bool, error) {
 	existing, err := loadControllerCert(ctx, db)
@@ -52,7 +52,7 @@ func EnsureControllerCert(ctx context.Context, db *sql.DB, fleet Authority) (Con
 	return cc, true, nil
 }
 
-// issueControllerCert mints a client certificate off the Fleet CA. helm dials
+// issueControllerCert mints a client certificate off the Fleet CA. coxswain dials
 // nodes, so it is the TLS client: ClientAuth.
 func issueControllerCert(fleet Authority) (ControllerCert, error) {
 	if fleet.Role != RoleFleet {
@@ -70,7 +70,7 @@ func issueControllerCert(fleet Authority) (ControllerCert, error) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   "helm-controller",
+			CommonName:   "coxswain-controller",
 			Organization: []string{"PharosVPN"},
 		},
 		NotBefore:             now.Add(-5 * time.Minute),

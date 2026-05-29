@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -25,7 +25,7 @@ import (
 // short TTL, one-use).
 const TicketTTL = 24 * time.Hour
 
-// Ticket is a stored enrollment ticket. helm keeps only the token's hash.
+// Ticket is a stored enrollment ticket. coxswain keeps only the token's hash.
 type Ticket struct {
 	ID        string
 	UserID    string

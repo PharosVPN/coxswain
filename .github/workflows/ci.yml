@@ -1,4 +1,4 @@
-# CI for helm — build the admin SPA, then build/vet/test/lint the Go binary.
+# CI for coxswain — build the admin SPA, then build/vet/test/lint the Go binary.
 name: ci
 
 on:

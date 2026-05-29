@@ -16,10 +16,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/deploy"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/deploy"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
 // fakeRemote stands in for an SSH connection to a node.

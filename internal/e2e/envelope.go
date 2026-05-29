@@ -29,7 +29,7 @@ var (
 // SealedBundle is a profile encrypted to one user (DESIGN §8): the payload is
 // sealed with a random data key under XChaCha20-Poly1305; the data key is
 // wrapped to the user's X25519 public key via an ephemeral key; the whole
-// bundle is signed by helm so devices can verify its origin.
+// bundle is signed by coxswain so devices can verify its origin.
 type SealedBundle struct {
 	V          int    `json:"v"`
 	EphPublic  []byte `json:"epk"`
@@ -40,13 +40,13 @@ type SealedBundle struct {
 	Signature  []byte `json:"sig"`
 }
 
-// GenerateSigningKey mints helm's Ed25519 profile-signing keypair.
+// GenerateSigningKey mints coxswain's Ed25519 profile-signing keypair.
 func GenerateSigningKey() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	return ed25519.GenerateKey(rand.Reader)
 }
 
 // Seal encrypts plaintext to recipientPublic (an X25519 public key) and signs
-// the bundle with signer (helm's profile-signing key).
+// the bundle with signer (coxswain's profile-signing key).
 func Seal(plaintext, recipientPublic []byte, signer ed25519.PrivateKey) (SealedBundle, error) {
 	dataKey := randomBytes(keySize)
 

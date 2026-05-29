@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 // SessionTTL is how long a login session stays valid.

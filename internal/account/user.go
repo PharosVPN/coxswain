@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package account is helm's domain layer over user accounts — the
+// Package account is coxswain's domain layer over user accounts — the
 // authentication principals of DESIGN §8. M5 uses it for admin accounts;
 // M6 extends it with end-user accounts and E2E profile keys.
 package account
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 var (

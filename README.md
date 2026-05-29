@@ -1,8 +1,8 @@
-# helm
+# coxswain
 
 > The ship's wheel — where you steer the fleet from.
 
-**`helm` is the PharosVPN controller / management plane.** It is the source of
+**`coxswain` is the PharosVPN controller / management plane.** It is the source of
 truth for the fleet, the admin Web UI, the certificate authority, the account &
 profile-sync service, and the engine that drives every VPN node.
 
@@ -13,7 +13,7 @@ full architecture.
 ## Role
 
 - **Private, behind NAT — zero inbound ports.** Every connection is
-  helm-initiated *outbound*. The controller never appears in public DNS.
+  coxswain-initiated *outbound*. The controller never appears in public DNS.
 - **Drives the fleet.** Holds a long-lived mTLS/gRPC connection to each `buoy`
   node: pushes config and peers, receives a live event stream.
 - **Issues credentials.** Holds the in-repo CA; mints node, relay, and

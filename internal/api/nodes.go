@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/netpolicy"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/netpolicy"
 )
 
 // nodeView is the API representation of a fleet node.

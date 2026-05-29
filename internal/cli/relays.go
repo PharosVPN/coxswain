@@ -9,10 +9,10 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/deploy"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/deploy"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/spf13/cobra"
 )
 
@@ -45,12 +45,12 @@ func newRelaysAddCmd() *cobra.Command {
 		Use:   "add <ssh-host>",
 		Short: "Enroll a new beacon relay over SSH",
 		Long: "Enroll a remote beacon relay (BUILD.md \"Relay enrollment\n" +
-			"contract\"). helm connects to <ssh-host> over SSH, installs the\n" +
+			"contract\"). coxswain connects to <ssh-host> over SSH, installs the\n" +
 			"beacon binary, signs the relay certificate request the binary\n" +
 			"generates on the host, pushes the trust material, and starts the\n" +
-			"service. helm then reaches the relay by dialling out to its\n" +
+			"service. coxswain then reaches the relay by dialling out to its\n" +
 			"reverse tunnel — no inbound port.\n\n" +
-			"Add helm's SSH key (see `helm ssh-key`) to the host first.",
+			"Add coxswain's SSH key (see `cox ssh-key`) to the host first.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -61,7 +61,7 @@ func newRelaysAddCmd() *cobra.Command {
 			defer conn.Close()
 
 			if endpoint == "" {
-				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address helm dials)")
+				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address coxswain dials)")
 			}
 			if hostname == "" {
 				hostname = hostOnly(cfg.Beacon.PublicEndpoint)
@@ -113,13 +113,13 @@ func newRelaysAddCmd() *cobra.Command {
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
 			fmt.Printf("  beacon version %s\n", dash(res.AgentVersion))
 			fmt.Printf("  status         %s\n", res.Relay.Status)
-			fmt.Println("  helm serve will dial this relay on its next start.")
+			fmt.Println("  cox serve will dial this relay on its next start.")
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "relay name (generated if empty)")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address helm dials (required)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address coxswain dials (required)")
 	cmd.Flags().StringVar(&hostname, "hostname", "", "relay cert hostname (defaults to beacon.public_endpoint)")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user)")
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
@@ -146,7 +146,7 @@ func newRelaysListCmd() *cobra.Command {
 				return err
 			}
 			if len(relays) == 0 {
-				fmt.Println("no relays — run `helm relays add <ssh-host> --endpoint <addr>`")
+				fmt.Println("no relays — run `cox relays add <ssh-host> --endpoint <addr>`")
 				return nil
 			}
 
@@ -169,8 +169,8 @@ func newRelaysRemoveCmd() *cobra.Command {
 		Use:     "remove <relay-id>",
 		Aliases: []string{"rm"},
 		Short:   "Remove a relay from the inventory",
-		Long: "Remove a relay record. helm stops dialling it on the next\n" +
-			"`helm serve`. The beacon binary keeps running on the host until\n" +
+		Long: "Remove a relay record. coxswain stops dialling it on the next\n" +
+			"`cox serve`. The beacon binary keeps running on the host until\n" +
 			"the operator stops it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

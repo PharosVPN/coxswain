@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/control"
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/pki"
-	"github.com/PharosVPN/helm/internal/ssh"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/control"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 )
 
 // openState loads the config file and opens the migrated state database. The
@@ -64,7 +64,7 @@ func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, er
 }
 
 // newControlDialer builds the mTLS gRPC dialer for the buoy control plane,
-// ensuring helm's CA and controller certificate exist.
+// ensuring coxswain's CA and controller certificate exist.
 func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error) {
 	bundle, _, err := pki.EnsureCA(ctx, conn)
 	if err != nil {

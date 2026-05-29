@@ -4,7 +4,7 @@
 // Package accountsvc implements the AccountSync gRPC service (DESIGN §8) — the
 // relayed client service that authenticates end users and serves their
 // end-to-end-encrypted profile bundles. caravel reaches it through a beacon
-// relay; helm serves only ciphertext.
+// relay; coxswain serves only ciphertext.
 package accountsvc
 
 import (
@@ -12,10 +12,10 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
-	accountv1 "github.com/PharosVPN/helm/internal/gen/pharos/account/v1"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
+	"github.com/PharosVPN/coxswain/internal/profile"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

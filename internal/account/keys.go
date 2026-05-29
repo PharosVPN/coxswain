@@ -12,7 +12,7 @@ import (
 )
 
 // SetEncryptionKey stores a user's X25519 public key and the passphrase-wrapped
-// private key blob (DESIGN §8). helm holds the public key clear and the private
+// private key blob (DESIGN §8). coxswain holds the public key clear and the private
 // key only as an opaque, passphrase-sealed blob.
 func SetEncryptionKey(ctx context.Context, db *sql.DB, userID string, publicKey, wrappedPrivate []byte) error {
 	res, err := db.ExecContext(ctx,

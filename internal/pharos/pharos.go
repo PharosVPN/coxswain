@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/profile"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -124,7 +124,7 @@ func WritePassword(p profile.Profile, password string) ([]byte, error) {
 }
 
 // WriteAccount renders an account-encrypted `.pharos` file: the profile is
-// sealed to recipientPublic (an X25519 key) and signed by signer (helm's
+// sealed to recipientPublic (an X25519 key) and signed by signer (coxswain's
 // profile-signing key). The payload is an e2e sealed bundle (DESIGN §8).
 func WriteAccount(p profile.Profile, recipientPublic []byte, signer ed25519.PrivateKey) ([]byte, error) {
 	plaintext, err := json.Marshal(p)
@@ -139,7 +139,7 @@ func WriteAccount(p profile.Profile, recipientPublic []byte, signer ed25519.Priv
 }
 
 // WrapSealedBundle renders an account-mode `.pharos` file around an
-// already-sealed bundle. helm stores only ciphertext, so this is how it
+// already-sealed bundle. coxswain stores only ciphertext, so this is how it
 // exports a stored profile — no re-sealing, no plaintext.
 func WrapSealedBundle(bundle e2e.SealedBundle) ([]byte, error) {
 	payload, err := json.Marshal(bundle)

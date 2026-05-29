@@ -16,7 +16,7 @@ func TestPresetWriteLoadRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Preset: %v", err)
 			}
-			path := filepath.Join(t.TempDir(), "helm.yaml")
+			path := filepath.Join(t.TempDir(), "cox.yaml")
 			if err := Write(path, want, false); err != nil {
 				t.Fatalf("Write: %v", err)
 			}
@@ -41,7 +41,7 @@ func TestPresetWriteLoadRoundTrip(t *testing.T) {
 }
 
 func TestWriteRefusesOverwrite(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "helm.yaml")
+	path := filepath.Join(t.TempDir(), "cox.yaml")
 	cfg, _ := Preset(PosturePersonal)
 	if err := Write(path, cfg, false); err != nil {
 		t.Fatalf("first Write: %v", err)
@@ -55,13 +55,13 @@ func TestWriteRefusesOverwrite(t *testing.T) {
 }
 
 func TestEnvOverride(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "helm.yaml")
+	path := filepath.Join(t.TempDir(), "cox.yaml")
 	cfg, _ := Preset(PosturePersonal)
 	if err := Write(path, cfg, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	t.Setenv("HELM_UI__LISTEN", "127.0.0.1:9999")
-	t.Setenv("HELM_LOG__LEVEL", "debug")
+	t.Setenv("COX_UI__LISTEN", "127.0.0.1:9999")
+	t.Setenv("COX_LOG__LEVEL", "debug")
 	got, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)

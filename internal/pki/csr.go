@@ -18,7 +18,7 @@ import (
 // and relay certs are valid one year, then auto-rotated).
 const leafValidity = 365 * 24 * time.Hour
 
-// SignedCert is a certificate helm issued from a node-supplied CSR. helm never
+// SignedCert is a certificate coxswain issued from a node-supplied CSR. coxswain never
 // sees the private key — the node generated and kept it.
 type SignedCert struct {
 	Serial  string
@@ -28,9 +28,9 @@ type SignedCert struct {
 
 // SignNodeCSR validates a buoy node's certificate request and signs it with
 // the Fleet CA, yielding a one-year server certificate (DESIGN §5). The node
-// keeps its private key; only the CSR crosses to helm.
+// keeps its private key; only the CSR crosses to coxswain.
 //
-// extraIPs and extraDNS are SANs helm adds on top of those in the CSR — helm
+// extraIPs and extraDNS are SANs coxswain adds on top of those in the CSR — coxswain
 // pins the address it will dial rather than trusting the request alone.
 func SignNodeCSR(fleet Authority, csrPEM []byte, extraIPs []net.IP, extraDNS []string) (SignedCert, error) {
 	if fleet.Role != RoleFleet {
@@ -83,11 +83,11 @@ func SignNodeCSR(fleet Authority, csrPEM []byte, extraIPs []net.IP, extraDNS []s
 
 // SignRelayCSR signs a remote beacon relay's certificate request with the
 // Fleet CA (BUILD.md "Relay enrollment contract"). Unlike SignNodeCSR it takes
-// only the CSR's public key: helm is the sole authority on a relay's identity,
+// only the CSR's public key: coxswain is the sole authority on a relay's identity,
 // so it overrides the subject and EKUs rather than trust the request.
 //
 // The result is the pinned relay leaf — one Fleet-CA certificate carrying
-// Organization "PharosVPN Relay" (helm's gRPC auth path keys delegation off
+// Organization "PharosVPN Relay" (coxswain's gRPC auth path keys delegation off
 // it), both the ServerAuth and ClientAuth EKUs, and hostname as a SAN (the
 // public client endpoint caravel verifies). The relay keeps its private key.
 func SignRelayCSR(fleet Authority, csrPEM []byte, hostname string) (SignedCert, error) {

@@ -1,4 +1,4 @@
-# Contributing to helm
+# Contributing to coxswain
 
 Thanks for helping build PharosVPN. Before you start, read
 [`docs/DESIGN.md`](https://github.com/PharosVPN/docs/blob/main/DESIGN.md) — the
@@ -44,7 +44,7 @@ Never commit secrets — not even in test fixtures.
 
 ## Licence
 
-helm is licensed **AGPL-3.0-or-later**. Every source file carries the SPDX
+coxswain is licensed **AGPL-3.0-or-later**. Every source file carries the SPDX
 header:
 
 ```

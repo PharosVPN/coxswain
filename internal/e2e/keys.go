@@ -5,7 +5,7 @@
 // §8): per-user X25519 keypairs, passphrase-wrapped private keys, and a signed
 // hybrid envelope (XChaCha20-Poly1305 payload + X25519-wrapped data key).
 //
-// helm only ever seals — it holds users' public keys and passphrase-wrapped
+// coxswain only ever seals — it holds users' public keys and passphrase-wrapped
 // private blobs, never a usable private key. Open is the device-side operation
 // and lives here as the format's executable specification.
 package e2e
@@ -33,7 +33,7 @@ const (
 // ErrWrongPassphrase is returned when a passphrase-wrapped key fails to open.
 var ErrWrongPassphrase = errors.New("e2e: wrong passphrase or corrupt key blob")
 
-// KeyPair is a user's X25519 encryption keypair. helm keeps Public and a
+// KeyPair is a user's X25519 encryption keypair. coxswain keeps Public and a
 // passphrase-wrapped Private; only the user's devices ever hold Private clear.
 type KeyPair struct {
 	Public  []byte
@@ -59,7 +59,7 @@ type wrappedKey struct {
 }
 
 // WrapPrivateKey seals private under a key derived (Argon2id) from passphrase.
-// The result is the opaque blob helm stores; helm never holds the passphrase.
+// The result is the opaque blob coxswain stores; coxswain never holds the passphrase.
 func WrapPrivateKey(passphrase string, private []byte) ([]byte, error) {
 	salt := randomBytes(saltSize)
 	aead, err := chacha20poly1305.NewX(deriveKEK(passphrase, salt))

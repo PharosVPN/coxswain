@@ -3,7 +3,7 @@
 
 // Package netpolicy turns a node's network policy — forwarding, masquerade,
 // client isolation — into the canonical PreUp/PostUp/PostDown rule set
-// (DESIGN §3, decision 16). It is the single source of truth helm shows in
+// (DESIGN §3, decision 16). It is the single source of truth coxswain shows in
 // the admin UI; buoy applies the same set.
 package netpolicy
 

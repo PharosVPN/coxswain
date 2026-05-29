@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package control is helm's outbound gRPC control plane: it dials each buoy
+// Package control is coxswain's outbound gRPC control plane: it dials each buoy
 // node over mTLS and drives the NodeControl service (DESIGN §6, §7).
 package control
 
@@ -11,18 +11,18 @@ import (
 	"errors"
 	"fmt"
 
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 // Dialer opens mTLS gRPC connections to buoy nodes. It is built once from
-// helm's controller certificate and reused for every node.
+// coxswain's controller certificate and reused for every node.
 type Dialer struct {
 	creds credentials.TransportCredentials
 }
 
-// NewDialer builds a Dialer. clientChainPEM is helm's controller certificate
+// NewDialer builds a Dialer. clientChainPEM is coxswain's controller certificate
 // followed by the Fleet intermediate (so nodes can verify the chain);
 // clientKeyPEM is its key; rootCAPEM is the root CA that node certificates
 // must chain to.

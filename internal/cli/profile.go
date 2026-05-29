@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/e2e"
-	"github.com/PharosVPN/helm/internal/pharos"
-	"github.com/PharosVPN/helm/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/e2e"
+	"github.com/PharosVPN/coxswain/internal/pharos"
+	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ func newProfileExportCmd() *cobra.Command {
 		Use:   "export <user-id>",
 		Short: "Export a user's latest profile as an account-mode .pharos file",
 		Long: "Export a user's latest sealed profile as a `.pharos` file in\n" +
-			"account mode (DESIGN §9). helm stores only ciphertext, so the file\n" +
+			"account mode (DESIGN §9). coxswain stores only ciphertext, so the file\n" +
 			"is the sealed bundle — only the user's device can decrypt it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

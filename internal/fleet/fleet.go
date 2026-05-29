@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package fleet is helm's domain layer over the buoy node inventory and the
+// Package fleet is coxswain's domain layer over the buoy node inventory and the
 // one-time bootstrap tokens used to enrol new nodes (DESIGN §5).
 package fleet
 

@@ -4,8 +4,8 @@
 syntax = "proto3";
 
 // Package pharos.account.v1 is the relayed client account & sync contract
-// (DESIGN §8). caravel reaches AccountSync through a beacon relay; helm never
-// exposes it on a public port. helm serves only ciphertext — a compromised
+// (DESIGN §8). caravel reaches AccountSync through a beacon relay; coxswain never
+// exposes it on a public port. coxswain serves only ciphertext — a compromised
 // remote beacon cannot read user profiles.
 package pharos.account.v1;
 
@@ -50,7 +50,7 @@ message GetProfileResponse {
   // ciphertext is the sealed profile bundle (an e2e.SealedBundle).
   bytes ciphertext = 1;
   int64 revision = 2;
-  // signing_public_key is helm's Ed25519 profile-signing key — the device
+  // signing_public_key is coxswain's Ed25519 profile-signing key — the device
   // verifies the bundle against it.
   bytes signing_public_key = 3;
   // wrapped_private_key is the user's passphrase-wrapped X25519 private key,

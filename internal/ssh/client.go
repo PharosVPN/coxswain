@@ -25,7 +25,7 @@ type DialConfig struct {
 	Host string
 	Port int // 0 means 22
 	User string
-	// Signer authenticates helm to the node — helm's SSH identity.
+	// Signer authenticates coxswain to the node — coxswain's SSH identity.
 	Signer cryptossh.Signer
 	// KnownHostKey, if set, is the node's pinned host key in authorized_keys
 	// format; the connection fails on mismatch. Empty enables trust-on-first-
@@ -78,7 +78,7 @@ func Dial(ctx context.Context, cfg DialConfig) (*Conn, error) {
 }
 
 // HostKey returns the node's SSH host key observed during Dial, in
-// authorized_keys format. helm pins this for subsequent connections.
+// authorized_keys format. coxswain pins this for subsequent connections.
 func (c *Conn) HostKey() string { return c.hostKey }
 
 // Close terminates the connection.

@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/deploy"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/deploy"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
 func TestAddRelay(t *testing.T) {

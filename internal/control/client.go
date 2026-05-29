@@ -7,13 +7,13 @@ import (
 	"context"
 	"fmt"
 
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
-	"github.com/PharosVPN/helm/internal/wg"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	"github.com/PharosVPN/coxswain/internal/wg"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
-// Client is helm's control connection to one buoy node. It is safe for
+// Client is coxswain's control connection to one buoy node. It is safe for
 // concurrent use; close it when done.
 type Client struct {
 	cc  *grpc.ClientConn
@@ -61,7 +61,7 @@ func (c *Client) Metrics(ctx context.Context) (*buoyv1.GetMetricsResponse, error
 }
 
 // PushAmneziaWGConfig encodes a full AmneziaWG peer set and replaces the
-// node's data-plane config in one call. helm sends peers only — node-level
+// node's data-plane config in one call. coxswain sends peers only — node-level
 // obfuscation is buoy's domain (decision-14 follow-up) and stays out of the
 // payload.
 func (c *Client) PushAmneziaWGConfig(ctx context.Context, revision int64, peers []*buoyv1.Peer) (*buoyv1.PushConfigResponse, error) {

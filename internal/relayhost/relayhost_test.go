@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
-	"github.com/PharosVPN/helm/internal/db"
-	accountv1 "github.com/PharosVPN/helm/internal/gen/pharos/account/v1"
-	"github.com/PharosVPN/helm/internal/pki"
-	"github.com/PharosVPN/helm/internal/relayhost"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/db"
+	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/relayhost"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -33,7 +33,7 @@ const passphrase = "the-account-passphrase"
 
 // TestEmbeddedRelayRoundTrip drives the full embedded data path: a caravel-like
 // client presenting a Device-CA leaf dials the in-process relay's public mTLS
-// listener, and the relay forwards the AccountSync RPC to helm's gRPC server
+// listener, and the relay forwards the AccountSync RPC to coxswain's gRPC server
 // over the in-memory pipe — the same auth path the remote tunnel uses.
 func TestEmbeddedRelayRoundTrip(t *testing.T) {
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func TestEmbeddedRelayRoundTrip(t *testing.T) {
 
 // TestRunRemoteStopsOnContextCancel checks that the remote reverse-tunnel
 // dialer reconnects against an unreachable beacon and unwinds cleanly when its
-// context is cancelled — helm's shutdown path must not hang on a dead relay.
+// context is cancelled — coxswain's shutdown path must not hang on a dead relay.
 func TestRunRemoteStopsOnContextCancel(t *testing.T) {
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))
 	if err != nil {

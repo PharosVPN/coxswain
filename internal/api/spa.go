@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PharosVPN/helm/internal/webui"
+	"github.com/PharosVPN/coxswain/internal/webui"
 )
 
 // spaHandler serves the embedded SvelteKit admin SPA. Real asset paths are

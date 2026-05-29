@@ -9,15 +9,15 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/PharosVPN/helm/internal/api"
-	"github.com/PharosVPN/helm/internal/auth"
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/live"
-	"github.com/PharosVPN/helm/internal/pki"
-	"github.com/PharosVPN/helm/internal/profile"
-	"github.com/PharosVPN/helm/internal/provision"
-	"github.com/PharosVPN/helm/internal/relayhost"
+	"github.com/PharosVPN/coxswain/internal/api"
+	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/live"
+	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/relayhost"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +26,7 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the admin server and live plane",
-		Long: "Run helm's admin server: the localhost JSON API and admin UI,\n" +
+		Long: "Run coxswain's admin server: the localhost JSON API and admin UI,\n" +
 			"plus the live plane (DESIGN §7) — a WatchEvents stream held open\n" +
 			"to every enrolled node, fanned out to admin browsers over a\n" +
 			"WebSocket. Runs until interrupted.",
@@ -93,7 +93,7 @@ func newServeCmd() *cobra.Command {
 				},
 			}
 			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts)
-			fmt.Printf("helm admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
+			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)
 
@@ -106,8 +106,8 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
-// remoteRelayEndpoints is the set of remote beacon tunnel addresses helm dials:
-// the relays enrolled with `helm relays add` (active, kind "remote") unioned
+// remoteRelayEndpoints is the set of remote beacon tunnel addresses coxswain dials:
+// the relays enrolled with `cox relays add` (active, kind "remote") unioned
 // with any beacon.remote_endpoints in the config. Enrolled relays are dialed
 // whenever they are active; config endpoints honour the beacon.remote toggle.
 func remoteRelayEndpoints(ctx context.Context, cfg config.Config, conn *sql.DB) ([]string, error) {
@@ -137,7 +137,7 @@ func remoteRelayEndpoints(ctx context.Context, cfg config.Config, conn *sql.DB) 
 	return out, nil
 }
 
-// startBeaconRelay issues helm's beacon-tier service certs and brings up the
+// startBeaconRelay issues coxswain's beacon-tier service certs and brings up the
 // relay tier behind the account/sync gRPC service: the in-process relay (when
 // beacon.embedded) and a reverse tunnel to each remote beacon. It returns a
 // stop func, or nil if nothing started. Any failure prints a warning and is

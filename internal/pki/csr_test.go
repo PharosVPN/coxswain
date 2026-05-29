@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/db"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
 // makeCSR generates a node keypair and a PEM-encoded CSR, as buoy would on the
@@ -80,7 +80,7 @@ func TestSignRelayCSR(t *testing.T) {
 		t.Fatalf("SignRelayCSR: %v", err)
 	}
 
-	// helm dictates the relay identity — the CSR's subject is ignored.
+	// coxswain dictates the relay identity — the CSR's subject is ignored.
 	if cn := signed.Cert.Subject.CommonName; cn != "PharosVPN Relay" {
 		t.Errorf("subject CN: got %q want PharosVPN Relay", cn)
 	}
@@ -101,7 +101,7 @@ func TestSignRelayCSR(t *testing.T) {
 	if !hasServer || !hasClient {
 		t.Errorf("EKU: server=%t client=%t, want both", hasServer, hasClient)
 	}
-	// The hostname helm passed — not the CSR's — is the SAN.
+	// The hostname coxswain passed — not the CSR's — is the SAN.
 	if len(signed.Cert.DNSNames) != 1 || signed.Cert.DNSNames[0] != "beacon.example.net" {
 		t.Errorf("DNS SAN: got %v want [beacon.example.net]", signed.Cert.DNSNames)
 	}

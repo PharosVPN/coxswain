@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/PharosVPN/helm/internal/gen
+      value: github.com/PharosVPN/coxswain/internal/gen
 plugins:
   - local: protoc-gen-go
     out: internal/gen

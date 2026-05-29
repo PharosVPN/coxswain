@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/account"
-	"github.com/PharosVPN/helm/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/auth"
 )
 
 // userView is the API representation of a user — never includes the hash.

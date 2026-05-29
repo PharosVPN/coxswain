@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PharosVPN/helm/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/idgen"
 )
 
 // TokenTTL is the lifetime of a bootstrap token (DESIGN §4: 24 hours).
@@ -33,7 +33,7 @@ var (
 	ErrTokenUsed    = errors.New("fleet: bootstrap token already used")
 )
 
-// Token is a one-time enrollment token (the `bootstrap_tokens` table). helm
+// Token is a one-time enrollment token (the `bootstrap_tokens` table). coxswain
 // stores only the SHA-256 of the secret — never the secret itself.
 type Token struct {
 	ID        string

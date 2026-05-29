@@ -8,12 +8,12 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/fleet"
-	"github.com/PharosVPN/helm/internal/idgen"
-	"github.com/PharosVPN/helm/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/idgen"
+	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
-// On-host layout and the helm↔beacon CLI contract for relay enrollment
+// On-host layout and the coxswain↔beacon CLI contract for relay enrollment
 // (BUILD.md "Relay enrollment contract"). It mirrors the buoy contract above.
 const (
 	beaconBinaryPath = "/usr/local/bin/beacon"
@@ -23,7 +23,7 @@ const (
 	beaconUnitPath   = "/etc/systemd/system/beacon.service"
 
 	// cmdRelayGenCSR makes beacon generate its keypair on the host and print
-	// a plain CSR; helm overrides the identity when it signs (SignRelayCSR).
+	// a plain CSR; coxswain overrides the identity when it signs (SignRelayCSR).
 	cmdRelayGenCSR = beaconBinaryPath + " gen-csr"
 	// cmdRelayVersion prints the installed beacon version.
 	cmdRelayVersion = beaconBinaryPath + " version"
@@ -46,10 +46,10 @@ WantedBy=multi-user.target
 // RelayParams are the inputs to AddRelay.
 type RelayParams struct {
 	Name string // generated if empty
-	// Endpoint is the reverse-tunnel address helm will dial — stored on the
-	// relay record and used by `helm serve`. Required.
+	// Endpoint is the reverse-tunnel address coxswain will dial — stored on the
+	// relay record and used by `cox serve`. Required.
 	Endpoint string
-	// Hostname is the relay's public client endpoint; helm signs it into the
+	// Hostname is the relay's public client endpoint; coxswain signs it into the
 	// relay cert as a SAN so caravel can verify the relay. Required.
 	Hostname string
 	SSHHost  string // required
@@ -114,7 +114,7 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 	}
 
 	// beacon generates its keypair on the host and returns a plain CSR; the
-	// relay private key never crosses to helm.
+	// relay private key never crosses to coxswain.
 	csrPEM, err := remote.Run(ctx, cmdRelayGenCSR, nil)
 	if err != nil {
 		return RelayResult{}, fmt.Errorf("deploy: beacon gen-csr: %w", err)

@@ -18,11 +18,11 @@ import (
 
 	"reflect"
 
-	"github.com/PharosVPN/helm/internal/control"
-	"github.com/PharosVPN/helm/internal/db"
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
-	"github.com/PharosVPN/helm/internal/pki"
-	"github.com/PharosVPN/helm/internal/wg"
+	"github.com/PharosVPN/coxswain/internal/control"
+	"github.com/PharosVPN/coxswain/internal/db"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/wg"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -165,7 +165,7 @@ func (fakeNode) AddPeer(_ context.Context, req *buoyv1.AddPeerRequest) (*buoyv1.
 }
 
 // TestControlClientOverMTLS dials a fake buoy server over the full mTLS path:
-// helm's controller cert vs a Fleet-CA node cert, both chaining to the root.
+// coxswain's controller cert vs a Fleet-CA node cert, both chaining to the root.
 func TestControlClientOverMTLS(t *testing.T) {
 	ctx := context.Background()
 

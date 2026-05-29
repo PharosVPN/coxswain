@@ -6,7 +6,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/PharosVPN/helm/internal/netpolicy"
+	"github.com/PharosVPN/coxswain/internal/netpolicy"
 )
 
 // handleNetworkPolicyPreview returns the canonical PreUp/PostUp/PostDown rule

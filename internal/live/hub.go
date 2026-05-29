@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package live is helm's live plane (DESIGN §7): it holds each buoy node's
+// Package live is coxswain's live plane (DESIGN §7): it holds each buoy node's
 // WatchEvents stream open and fans events out through a Hub to subscribers.
 // The admin WebSocket that serves browsers from the Hub lives in package api.
 package live
@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	buoyv1 "github.com/PharosVPN/helm/internal/gen/pharos/buoy/v1"
+	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
 )
 
 // subscriberBuffer is how many events a slow subscriber may fall behind before
 // further events are dropped for it.
 const subscriberBuffer = 64
 
-// Event is a live node event in helm's own shape, ready for JSON fan-out.
+// Event is a live node event in coxswain's own shape, ready for JSON fan-out.
 type Event struct {
 	NodeID   string    `json:"node_id"`
 	At       time.Time `json:"at"`

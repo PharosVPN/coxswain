@@ -173,7 +173,7 @@
 	}
 </script>
 
-<svelte:head><title>Fleet — helm</title></svelte:head>
+<svelte:head><title>Fleet — coxswain</title></svelte:head>
 
 <h1 class="section-title">Fleet</h1>
 <p class="section-subtitle">buoy nodes under this controller.</p>
@@ -196,7 +196,7 @@
 		<div class="p-8 text-center">
 			<div class="text-base font-semibold text-ink">No nodes yet</div>
 			<p class="mt-1 text-sm text-ink-2">
-				Onboard one with <code>helm nodes add &lt;ssh-host&gt; --region &lt;region&gt;</code>.
+				Onboard one with <code>cox nodes add &lt;ssh-host&gt; --region &lt;region&gt;</code>.
 			</p>
 		</div>
 	{:else}

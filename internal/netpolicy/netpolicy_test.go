@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PharosVPN/helm/internal/netpolicy"
+	"github.com/PharosVPN/coxswain/internal/netpolicy"
 )
 
 func TestValidate(t *testing.T) {

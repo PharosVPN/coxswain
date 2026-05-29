@@ -6,8 +6,8 @@ package cli
 import (
 	"fmt"
 
-	"github.com/PharosVPN/helm/internal/config"
-	"github.com/PharosVPN/helm/internal/ssh"
+	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 	"github.com/spf13/cobra"
 )
 
@@ -15,10 +15,10 @@ func newSSHKeyCmd() *cobra.Command {
 	var cfgPath string
 	cmd := &cobra.Command{
 		Use:   "ssh-key",
-		Short: "Print helm's SSH public key",
-		Long: "Print helm's outbound SSH public key. Add this key to a new\n" +
+		Short: "Print coxswain's SSH public key",
+		Long: "Print coxswain's outbound SSH public key. Add this key to a new\n" +
 			"node's ~/.ssh/authorized_keys (or the cloud provider's SSH keys)\n" +
-			"before running `helm nodes add` — helm dials out with it to\n" +
+			"before running `cox nodes add` — coxswain dials out with it to\n" +
 			"install the buoy agent.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

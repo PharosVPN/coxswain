@@ -6,7 +6,7 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		// Single-page app: the Go binary embeds this output and serves
-		// index.html for every non-asset route. helm opens no public ports.
+		// index.html for every non-asset route. coxswain opens no public ports.
 		adapter: adapter({
 			pages: '../internal/webui/dist',
 			assets: '../internal/webui/dist',

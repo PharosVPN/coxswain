@@ -6,7 +6,7 @@ package config
 import "fmt"
 
 // Preset returns the starting Config for a deployment posture. These encode the
-// "personal vs enterprise" defaults table in DESIGN §12. `helm init` writes the
+// "personal vs enterprise" defaults table in DESIGN §12. `cox init` writes the
 // result to disk; the operator edits it from there.
 func Preset(p Posture) (Config, error) {
 	switch p {
