@@ -1005,7 +1005,12 @@ type NetworkConfig struct {
 	// masquerade source-NATs forwarded traffic to the node's address.
 	Masquerade bool `protobuf:"varint,2,opt,name=masquerade,proto3" json:"masquerade,omitempty"`
 	// isolation drops client-to-client forwarded traffic.
-	Isolation     bool `protobuf:"varint,3,opt,name=isolation,proto3" json:"isolation,omitempty"`
+	Isolation bool `protobuf:"varint,3,opt,name=isolation,proto3" json:"isolation,omitempty"`
+	// transits route specific devices into an inner link instead of the public
+	// egress — the entry-node side of node cascade (DESIGN §3, decision 18). A
+	// device named here is policy-routed into its inner_interface and is NOT
+	// masqueraded to the internet; the exit node does that.
+	Transits      []*TransitRoute `protobuf:"bytes,4,rep,name=transits,proto3" json:"transits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1061,6 +1066,89 @@ func (x *NetworkConfig) GetIsolation() bool {
 	return false
 }
 
+func (x *NetworkConfig) GetTransits() []*TransitRoute {
+	if x != nil {
+		return x.Transits
+	}
+	return nil
+}
+
+// TransitRoute policy-routes one cascaded device's tunnel traffic into an inner
+// AmneziaWG interface toward its chosen exit, instead of masquerading it
+// locally (DESIGN §3, the entry-node `transit` rule). coxswain computes the
+// mark and table; buoy installs the mangle MARK + ip rule + ip route.
+type TransitRoute struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// device_cidr is the client's tunnel address, e.g. "10.8.0.5/32".
+	DeviceCidr string `protobuf:"bytes,1,opt,name=device_cidr,json=deviceCidr,proto3" json:"device_cidr,omitempty"`
+	// inner_interface is the inner link this device egresses through, e.g. "awg1".
+	InnerInterface string `protobuf:"bytes,2,opt,name=inner_interface,json=innerInterface,proto3" json:"inner_interface,omitempty"`
+	// mark is the fwmark applied to this device's packets.
+	Mark uint32 `protobuf:"varint,3,opt,name=mark,proto3" json:"mark,omitempty"`
+	// table is the policy routing table id the mark looks up.
+	Table         uint32 `protobuf:"varint,4,opt,name=table,proto3" json:"table,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransitRoute) Reset() {
+	*x = TransitRoute{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransitRoute) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransitRoute) ProtoMessage() {}
+
+func (x *TransitRoute) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransitRoute.ProtoReflect.Descriptor instead.
+func (*TransitRoute) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *TransitRoute) GetDeviceCidr() string {
+	if x != nil {
+		return x.DeviceCidr
+	}
+	return ""
+}
+
+func (x *TransitRoute) GetInnerInterface() string {
+	if x != nil {
+		return x.InnerInterface
+	}
+	return ""
+}
+
+func (x *TransitRoute) GetMark() uint32 {
+	if x != nil {
+		return x.Mark
+	}
+	return 0
+}
+
+func (x *TransitRoute) GetTable() uint32 {
+	if x != nil {
+		return x.Table
+	}
+	return 0
+}
+
 type SetNetworkConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Config        *NetworkConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
@@ -1070,7 +1158,7 @@ type SetNetworkConfigRequest struct {
 
 func (x *SetNetworkConfigRequest) Reset() {
 	*x = SetNetworkConfigRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[13]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1082,7 +1170,7 @@ func (x *SetNetworkConfigRequest) String() string {
 func (*SetNetworkConfigRequest) ProtoMessage() {}
 
 func (x *SetNetworkConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[13]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1095,7 +1183,7 @@ func (x *SetNetworkConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetNetworkConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetNetworkConfigRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{13}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SetNetworkConfigRequest) GetConfig() *NetworkConfig {
@@ -1114,7 +1202,7 @@ type SetNetworkConfigResponse struct {
 
 func (x *SetNetworkConfigResponse) Reset() {
 	*x = SetNetworkConfigResponse{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[14]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1126,7 +1214,7 @@ func (x *SetNetworkConfigResponse) String() string {
 func (*SetNetworkConfigResponse) ProtoMessage() {}
 
 func (x *SetNetworkConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[14]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1139,12 +1227,297 @@ func (x *SetNetworkConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetNetworkConfigResponse.ProtoReflect.Descriptor instead.
 func (*SetNetworkConfigResponse) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{14}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SetNetworkConfigResponse) GetApplied() bool {
 	if x != nil {
 		return x.Applied
+	}
+	return false
+}
+
+// InnerLinkConfig describes one node→node inner AmneziaWG link on the entry
+// node (DESIGN §3, node cascade). buoy supplies this node's private key from
+// its own identity; coxswain supplies everything that must match the exit.
+type InnerLinkConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// interface is the inner wg interface name, e.g. "awg1". It is distinct from
+	// the client interface (awg0) and from any other inner link.
+	Interface string `protobuf:"bytes,1,opt,name=interface,proto3" json:"interface,omitempty"`
+	// listen_port is the inner interface's local UDP port. It must not collide
+	// with the client interface (443) or another inner link.
+	ListenPort uint32 `protobuf:"varint,2,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
+	// mtu is the computed path MTU for the link; it must keep the nested tunnel
+	// at or above the IPv6 floor of 1280 (DESIGN §3 hop limit). 0 = node default.
+	Mtu uint32 `protobuf:"varint,3,opt,name=mtu,proto3" json:"mtu,omitempty"`
+	// peer_obfuscation is the EXIT node's obfuscation set. The entry's inner
+	// interface adopts it so its handshake to the exit's interface matches.
+	PeerObfuscation *AmneziaWGObfuscation `protobuf:"bytes,4,opt,name=peer_obfuscation,json=peerObfuscation,proto3" json:"peer_obfuscation,omitempty"`
+	// exit is the exit node as a peer: its AmneziaWG public key, public endpoint
+	// (this node dials it), AllowedIPs (0.0.0.0/0 — all cascaded traffic), and an
+	// optional preshared key for the link.
+	Exit          *Peer `protobuf:"bytes,5,opt,name=exit,proto3" json:"exit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InnerLinkConfig) Reset() {
+	*x = InnerLinkConfig{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InnerLinkConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InnerLinkConfig) ProtoMessage() {}
+
+func (x *InnerLinkConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InnerLinkConfig.ProtoReflect.Descriptor instead.
+func (*InnerLinkConfig) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *InnerLinkConfig) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *InnerLinkConfig) GetListenPort() uint32 {
+	if x != nil {
+		return x.ListenPort
+	}
+	return 0
+}
+
+func (x *InnerLinkConfig) GetMtu() uint32 {
+	if x != nil {
+		return x.Mtu
+	}
+	return 0
+}
+
+func (x *InnerLinkConfig) GetPeerObfuscation() *AmneziaWGObfuscation {
+	if x != nil {
+		return x.PeerObfuscation
+	}
+	return nil
+}
+
+func (x *InnerLinkConfig) GetExit() *Peer {
+	if x != nil {
+		return x.Exit
+	}
+	return nil
+}
+
+type ConfigureInnerLinkRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Config *InnerLinkConfig       `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	// revision is coxswain's monotonically increasing revision for this inner
+	// link, with the same semantics as PushConfigRequest.revision.
+	Revision      int64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigureInnerLinkRequest) Reset() {
+	*x = ConfigureInnerLinkRequest{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigureInnerLinkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigureInnerLinkRequest) ProtoMessage() {}
+
+func (x *ConfigureInnerLinkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigureInnerLinkRequest.ProtoReflect.Descriptor instead.
+func (*ConfigureInnerLinkRequest) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ConfigureInnerLinkRequest) GetConfig() *InnerLinkConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *ConfigureInnerLinkRequest) GetRevision() int64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+type ConfigureInnerLinkResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AppliedRevision int64                  `protobuf:"varint,1,opt,name=applied_revision,json=appliedRevision,proto3" json:"applied_revision,omitempty"`
+	Reloaded        bool                   `protobuf:"varint,2,opt,name=reloaded,proto3" json:"reloaded,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ConfigureInnerLinkResponse) Reset() {
+	*x = ConfigureInnerLinkResponse{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigureInnerLinkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigureInnerLinkResponse) ProtoMessage() {}
+
+func (x *ConfigureInnerLinkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigureInnerLinkResponse.ProtoReflect.Descriptor instead.
+func (*ConfigureInnerLinkResponse) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ConfigureInnerLinkResponse) GetAppliedRevision() int64 {
+	if x != nil {
+		return x.AppliedRevision
+	}
+	return 0
+}
+
+func (x *ConfigureInnerLinkResponse) GetReloaded() bool {
+	if x != nil {
+		return x.Reloaded
+	}
+	return false
+}
+
+type RemoveInnerLinkRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// interface is the inner link to tear down, e.g. "awg1".
+	Interface     string `protobuf:"bytes,1,opt,name=interface,proto3" json:"interface,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveInnerLinkRequest) Reset() {
+	*x = RemoveInnerLinkRequest{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveInnerLinkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveInnerLinkRequest) ProtoMessage() {}
+
+func (x *RemoveInnerLinkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveInnerLinkRequest.ProtoReflect.Descriptor instead.
+func (*RemoveInnerLinkRequest) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RemoveInnerLinkRequest) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+type RemoveInnerLinkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Removed       bool                   `protobuf:"varint,1,opt,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveInnerLinkResponse) Reset() {
+	*x = RemoveInnerLinkResponse{}
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveInnerLinkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveInnerLinkResponse) ProtoMessage() {}
+
+func (x *RemoveInnerLinkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveInnerLinkResponse.ProtoReflect.Descriptor instead.
+func (*RemoveInnerLinkResponse) Descriptor() ([]byte, []int) {
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *RemoveInnerLinkResponse) GetRemoved() bool {
+	if x != nil {
+		return x.Removed
 	}
 	return false
 }
@@ -1158,7 +1531,7 @@ type AddPeerRequest struct {
 
 func (x *AddPeerRequest) Reset() {
 	*x = AddPeerRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[15]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1170,7 +1543,7 @@ func (x *AddPeerRequest) String() string {
 func (*AddPeerRequest) ProtoMessage() {}
 
 func (x *AddPeerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[15]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1183,7 +1556,7 @@ func (x *AddPeerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddPeerRequest.ProtoReflect.Descriptor instead.
 func (*AddPeerRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{15}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AddPeerRequest) GetPeer() *Peer {
@@ -1203,7 +1576,7 @@ type RemovePeerRequest struct {
 
 func (x *RemovePeerRequest) Reset() {
 	*x = RemovePeerRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[16]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1215,7 +1588,7 @@ func (x *RemovePeerRequest) String() string {
 func (*RemovePeerRequest) ProtoMessage() {}
 
 func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[16]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1228,7 +1601,7 @@ func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovePeerRequest.ProtoReflect.Descriptor instead.
 func (*RemovePeerRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{16}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RemovePeerRequest) GetProtocol() Protocol {
@@ -1256,7 +1629,7 @@ type PeerResponse struct {
 
 func (x *PeerResponse) Reset() {
 	*x = PeerResponse{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[17]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1268,7 +1641,7 @@ func (x *PeerResponse) String() string {
 func (*PeerResponse) ProtoMessage() {}
 
 func (x *PeerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[17]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1281,7 +1654,7 @@ func (x *PeerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerResponse.ProtoReflect.Descriptor instead.
 func (*PeerResponse) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{17}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *PeerResponse) GetPeerId() string {
@@ -1308,7 +1681,7 @@ type ListPeersRequest struct {
 
 func (x *ListPeersRequest) Reset() {
 	*x = ListPeersRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[18]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1693,7 @@ func (x *ListPeersRequest) String() string {
 func (*ListPeersRequest) ProtoMessage() {}
 
 func (x *ListPeersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[18]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1706,7 @@ func (x *ListPeersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeersRequest.ProtoReflect.Descriptor instead.
 func (*ListPeersRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{18}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListPeersRequest) GetProtocol() Protocol {
@@ -1352,7 +1725,7 @@ type ListPeersResponse struct {
 
 func (x *ListPeersResponse) Reset() {
 	*x = ListPeersResponse{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[19]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +1737,7 @@ func (x *ListPeersResponse) String() string {
 func (*ListPeersResponse) ProtoMessage() {}
 
 func (x *ListPeersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[19]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1377,7 +1750,7 @@ func (x *ListPeersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeersResponse.ProtoReflect.Descriptor instead.
 func (*ListPeersResponse) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{19}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListPeersResponse) GetPeers() []*PeerState {
@@ -1396,7 +1769,7 @@ type RestartServiceRequest struct {
 
 func (x *RestartServiceRequest) Reset() {
 	*x = RestartServiceRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[20]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1408,7 +1781,7 @@ func (x *RestartServiceRequest) String() string {
 func (*RestartServiceRequest) ProtoMessage() {}
 
 func (x *RestartServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[20]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1421,7 +1794,7 @@ func (x *RestartServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartServiceRequest.ProtoReflect.Descriptor instead.
 func (*RestartServiceRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{20}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RestartServiceRequest) GetProtocol() Protocol {
@@ -1440,7 +1813,7 @@ type RestartServiceResponse struct {
 
 func (x *RestartServiceResponse) Reset() {
 	*x = RestartServiceResponse{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[21]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1825,7 @@ func (x *RestartServiceResponse) String() string {
 func (*RestartServiceResponse) ProtoMessage() {}
 
 func (x *RestartServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[21]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1838,7 @@ func (x *RestartServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartServiceResponse.ProtoReflect.Descriptor instead.
 func (*RestartServiceResponse) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{21}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RestartServiceResponse) GetRestarted() bool {
@@ -1483,7 +1856,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[22]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1495,7 +1868,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[22]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1508,7 +1881,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{22}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{28}
 }
 
 // Event is one live event streamed from a node to coxswain.
@@ -1526,7 +1899,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[23]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1538,7 +1911,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_pharos_buoy_v1_control_proto_msgTypes[23]
+	mi := &file_pharos_buoy_v1_control_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1551,7 +1924,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{23}
+	return file_pharos_buoy_v1_control_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Event) GetAt() *timestamppb.Timestamp {
@@ -1658,7 +2031,7 @@ const file_pharos_buoy_v1_control_proto_rawDesc = "" +
 	"\x10applied_revision\x18\x01 \x01(\x03R\x0fappliedRevision\x12\x1a\n" +
 	"\breloaded\x18\x02 \x01(\bR\breloaded\"=\n" +
 	"\x0fAmneziaWGConfig\x12*\n" +
-	"\x05peers\x18\x01 \x03(\v2\x14.pharos.buoy.v1.PeerR\x05peers\"m\n" +
+	"\x05peers\x18\x01 \x03(\v2\x14.pharos.buoy.v1.PeerR\x05peers\"\xa7\x01\n" +
 	"\rNetworkConfig\x12\x1e\n" +
 	"\n" +
 	"forwarding\x18\x01 \x01(\bR\n" +
@@ -1666,11 +2039,35 @@ const file_pharos_buoy_v1_control_proto_rawDesc = "" +
 	"\n" +
 	"masquerade\x18\x02 \x01(\bR\n" +
 	"masquerade\x12\x1c\n" +
-	"\tisolation\x18\x03 \x01(\bR\tisolation\"P\n" +
+	"\tisolation\x18\x03 \x01(\bR\tisolation\x128\n" +
+	"\btransits\x18\x04 \x03(\v2\x1c.pharos.buoy.v1.TransitRouteR\btransits\"\x82\x01\n" +
+	"\fTransitRoute\x12\x1f\n" +
+	"\vdevice_cidr\x18\x01 \x01(\tR\n" +
+	"deviceCidr\x12'\n" +
+	"\x0finner_interface\x18\x02 \x01(\tR\x0einnerInterface\x12\x12\n" +
+	"\x04mark\x18\x03 \x01(\rR\x04mark\x12\x14\n" +
+	"\x05table\x18\x04 \x01(\rR\x05table\"P\n" +
 	"\x17SetNetworkConfigRequest\x125\n" +
 	"\x06config\x18\x01 \x01(\v2\x1d.pharos.buoy.v1.NetworkConfigR\x06config\"4\n" +
 	"\x18SetNetworkConfigResponse\x12\x18\n" +
-	"\aapplied\x18\x01 \x01(\bR\aapplied\":\n" +
+	"\aapplied\x18\x01 \x01(\bR\aapplied\"\xdd\x01\n" +
+	"\x0fInnerLinkConfig\x12\x1c\n" +
+	"\tinterface\x18\x01 \x01(\tR\tinterface\x12\x1f\n" +
+	"\vlisten_port\x18\x02 \x01(\rR\n" +
+	"listenPort\x12\x10\n" +
+	"\x03mtu\x18\x03 \x01(\rR\x03mtu\x12O\n" +
+	"\x10peer_obfuscation\x18\x04 \x01(\v2$.pharos.buoy.v1.AmneziaWGObfuscationR\x0fpeerObfuscation\x12(\n" +
+	"\x04exit\x18\x05 \x01(\v2\x14.pharos.buoy.v1.PeerR\x04exit\"p\n" +
+	"\x19ConfigureInnerLinkRequest\x127\n" +
+	"\x06config\x18\x01 \x01(\v2\x1f.pharos.buoy.v1.InnerLinkConfigR\x06config\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x03R\brevision\"c\n" +
+	"\x1aConfigureInnerLinkResponse\x12)\n" +
+	"\x10applied_revision\x18\x01 \x01(\x03R\x0fappliedRevision\x12\x1a\n" +
+	"\breloaded\x18\x02 \x01(\bR\breloaded\"6\n" +
+	"\x16RemoveInnerLinkRequest\x12\x1c\n" +
+	"\tinterface\x18\x01 \x01(\tR\tinterface\"3\n" +
+	"\x17RemoveInnerLinkResponse\x12\x18\n" +
+	"\aremoved\x18\x01 \x01(\bR\aremoved\":\n" +
 	"\x0eAddPeerRequest\x12(\n" +
 	"\x04peer\x18\x01 \x01(\v2\x14.pharos.buoy.v1.PeerR\x04peer\"h\n" +
 	"\x11RemovePeerRequest\x124\n" +
@@ -1705,7 +2102,7 @@ const file_pharos_buoy_v1_control_proto_rawDesc = "" +
 	"\x19EVENT_TYPE_HANDSHAKE_DOWN\x10\x02\x12\x1d\n" +
 	"\x19EVENT_TYPE_PEER_CONNECTED\x10\x03\x12 \n" +
 	"\x1cEVENT_TYPE_PEER_DISCONNECTED\x10\x04\x12\x14\n" +
-	"\x10EVENT_TYPE_ERROR\x10\x052\x87\x06\n" +
+	"\x10EVENT_TYPE_ERROR\x10\x052\xd8\a\n" +
 	"\vNodeControl\x12P\n" +
 	"\tGetStatus\x12 .pharos.buoy.v1.GetStatusRequest\x1a!.pharos.buoy.v1.GetStatusResponse\x12S\n" +
 	"\n" +
@@ -1717,7 +2114,9 @@ const file_pharos_buoy_v1_control_proto_rawDesc = "" +
 	"RemovePeer\x12!.pharos.buoy.v1.RemovePeerRequest\x1a\x1c.pharos.buoy.v1.PeerResponse\x12P\n" +
 	"\tListPeers\x12 .pharos.buoy.v1.ListPeersRequest\x1a!.pharos.buoy.v1.ListPeersResponse\x12_\n" +
 	"\x0eRestartService\x12%.pharos.buoy.v1.RestartServiceRequest\x1a&.pharos.buoy.v1.RestartServiceResponse\x12e\n" +
-	"\x10SetNetworkConfig\x12'.pharos.buoy.v1.SetNetworkConfigRequest\x1a(.pharos.buoy.v1.SetNetworkConfigResponse\x12J\n" +
+	"\x10SetNetworkConfig\x12'.pharos.buoy.v1.SetNetworkConfigRequest\x1a(.pharos.buoy.v1.SetNetworkConfigResponse\x12k\n" +
+	"\x12ConfigureInnerLink\x12).pharos.buoy.v1.ConfigureInnerLinkRequest\x1a*.pharos.buoy.v1.ConfigureInnerLinkResponse\x12b\n" +
+	"\x0fRemoveInnerLink\x12&.pharos.buoy.v1.RemoveInnerLinkRequest\x1a'.pharos.buoy.v1.RemoveInnerLinkResponse\x12J\n" +
 	"\vWatchEvents\x12\".pharos.buoy.v1.WatchEventsRequest\x1a\x15.pharos.buoy.v1.Event0\x01B\xbe\x01\n" +
 	"\x12com.pharos.buoy.v1B\fControlProtoP\x01Z@github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1;buoyv1\xa2\x02\x03PBX\xaa\x02\x0ePharos.Buoy.V1\xca\x02\x0ePharos\\Buoy\\V1\xe2\x02\x1aPharos\\Buoy\\V1\\GPBMetadata\xea\x02\x10Pharos::Buoy::V1b\x06proto3"
 
@@ -1734,40 +2133,46 @@ func file_pharos_buoy_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_pharos_buoy_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_pharos_buoy_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_pharos_buoy_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_pharos_buoy_v1_control_proto_goTypes = []any{
-	(Protocol)(0),                    // 0: pharos.buoy.v1.Protocol
-	(EventType)(0),                   // 1: pharos.buoy.v1.EventType
-	(*Peer)(nil),                     // 2: pharos.buoy.v1.Peer
-	(*PeerState)(nil),                // 3: pharos.buoy.v1.PeerState
-	(*GetStatusRequest)(nil),         // 4: pharos.buoy.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),        // 5: pharos.buoy.v1.GetStatusResponse
-	(*ServiceStatus)(nil),            // 6: pharos.buoy.v1.ServiceStatus
-	(*AmneziaWGInfo)(nil),            // 7: pharos.buoy.v1.AmneziaWGInfo
-	(*AmneziaWGObfuscation)(nil),     // 8: pharos.buoy.v1.AmneziaWGObfuscation
-	(*GetMetricsRequest)(nil),        // 9: pharos.buoy.v1.GetMetricsRequest
-	(*GetMetricsResponse)(nil),       // 10: pharos.buoy.v1.GetMetricsResponse
-	(*PushConfigRequest)(nil),        // 11: pharos.buoy.v1.PushConfigRequest
-	(*PushConfigResponse)(nil),       // 12: pharos.buoy.v1.PushConfigResponse
-	(*AmneziaWGConfig)(nil),          // 13: pharos.buoy.v1.AmneziaWGConfig
-	(*NetworkConfig)(nil),            // 14: pharos.buoy.v1.NetworkConfig
-	(*SetNetworkConfigRequest)(nil),  // 15: pharos.buoy.v1.SetNetworkConfigRequest
-	(*SetNetworkConfigResponse)(nil), // 16: pharos.buoy.v1.SetNetworkConfigResponse
-	(*AddPeerRequest)(nil),           // 17: pharos.buoy.v1.AddPeerRequest
-	(*RemovePeerRequest)(nil),        // 18: pharos.buoy.v1.RemovePeerRequest
-	(*PeerResponse)(nil),             // 19: pharos.buoy.v1.PeerResponse
-	(*ListPeersRequest)(nil),         // 20: pharos.buoy.v1.ListPeersRequest
-	(*ListPeersResponse)(nil),        // 21: pharos.buoy.v1.ListPeersResponse
-	(*RestartServiceRequest)(nil),    // 22: pharos.buoy.v1.RestartServiceRequest
-	(*RestartServiceResponse)(nil),   // 23: pharos.buoy.v1.RestartServiceResponse
-	(*WatchEventsRequest)(nil),       // 24: pharos.buoy.v1.WatchEventsRequest
-	(*Event)(nil),                    // 25: pharos.buoy.v1.Event
-	(*timestamppb.Timestamp)(nil),    // 26: google.protobuf.Timestamp
+	(Protocol)(0),                      // 0: pharos.buoy.v1.Protocol
+	(EventType)(0),                     // 1: pharos.buoy.v1.EventType
+	(*Peer)(nil),                       // 2: pharos.buoy.v1.Peer
+	(*PeerState)(nil),                  // 3: pharos.buoy.v1.PeerState
+	(*GetStatusRequest)(nil),           // 4: pharos.buoy.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),          // 5: pharos.buoy.v1.GetStatusResponse
+	(*ServiceStatus)(nil),              // 6: pharos.buoy.v1.ServiceStatus
+	(*AmneziaWGInfo)(nil),              // 7: pharos.buoy.v1.AmneziaWGInfo
+	(*AmneziaWGObfuscation)(nil),       // 8: pharos.buoy.v1.AmneziaWGObfuscation
+	(*GetMetricsRequest)(nil),          // 9: pharos.buoy.v1.GetMetricsRequest
+	(*GetMetricsResponse)(nil),         // 10: pharos.buoy.v1.GetMetricsResponse
+	(*PushConfigRequest)(nil),          // 11: pharos.buoy.v1.PushConfigRequest
+	(*PushConfigResponse)(nil),         // 12: pharos.buoy.v1.PushConfigResponse
+	(*AmneziaWGConfig)(nil),            // 13: pharos.buoy.v1.AmneziaWGConfig
+	(*NetworkConfig)(nil),              // 14: pharos.buoy.v1.NetworkConfig
+	(*TransitRoute)(nil),               // 15: pharos.buoy.v1.TransitRoute
+	(*SetNetworkConfigRequest)(nil),    // 16: pharos.buoy.v1.SetNetworkConfigRequest
+	(*SetNetworkConfigResponse)(nil),   // 17: pharos.buoy.v1.SetNetworkConfigResponse
+	(*InnerLinkConfig)(nil),            // 18: pharos.buoy.v1.InnerLinkConfig
+	(*ConfigureInnerLinkRequest)(nil),  // 19: pharos.buoy.v1.ConfigureInnerLinkRequest
+	(*ConfigureInnerLinkResponse)(nil), // 20: pharos.buoy.v1.ConfigureInnerLinkResponse
+	(*RemoveInnerLinkRequest)(nil),     // 21: pharos.buoy.v1.RemoveInnerLinkRequest
+	(*RemoveInnerLinkResponse)(nil),    // 22: pharos.buoy.v1.RemoveInnerLinkResponse
+	(*AddPeerRequest)(nil),             // 23: pharos.buoy.v1.AddPeerRequest
+	(*RemovePeerRequest)(nil),          // 24: pharos.buoy.v1.RemovePeerRequest
+	(*PeerResponse)(nil),               // 25: pharos.buoy.v1.PeerResponse
+	(*ListPeersRequest)(nil),           // 26: pharos.buoy.v1.ListPeersRequest
+	(*ListPeersResponse)(nil),          // 27: pharos.buoy.v1.ListPeersResponse
+	(*RestartServiceRequest)(nil),      // 28: pharos.buoy.v1.RestartServiceRequest
+	(*RestartServiceResponse)(nil),     // 29: pharos.buoy.v1.RestartServiceResponse
+	(*WatchEventsRequest)(nil),         // 30: pharos.buoy.v1.WatchEventsRequest
+	(*Event)(nil),                      // 31: pharos.buoy.v1.Event
+	(*timestamppb.Timestamp)(nil),      // 32: google.protobuf.Timestamp
 }
 var file_pharos_buoy_v1_control_proto_depIdxs = []int32{
 	0,  // 0: pharos.buoy.v1.Peer.protocol:type_name -> pharos.buoy.v1.Protocol
 	2,  // 1: pharos.buoy.v1.PeerState.peer:type_name -> pharos.buoy.v1.Peer
-	26, // 2: pharos.buoy.v1.PeerState.last_handshake:type_name -> google.protobuf.Timestamp
+	32, // 2: pharos.buoy.v1.PeerState.last_handshake:type_name -> google.protobuf.Timestamp
 	6,  // 3: pharos.buoy.v1.GetStatusResponse.services:type_name -> pharos.buoy.v1.ServiceStatus
 	7,  // 4: pharos.buoy.v1.GetStatusResponse.amneziawg:type_name -> pharos.buoy.v1.AmneziaWGInfo
 	0,  // 5: pharos.buoy.v1.ServiceStatus.protocol:type_name -> pharos.buoy.v1.Protocol
@@ -1775,38 +2180,46 @@ var file_pharos_buoy_v1_control_proto_depIdxs = []int32{
 	3,  // 7: pharos.buoy.v1.GetMetricsResponse.peers:type_name -> pharos.buoy.v1.PeerState
 	0,  // 8: pharos.buoy.v1.PushConfigRequest.protocol:type_name -> pharos.buoy.v1.Protocol
 	2,  // 9: pharos.buoy.v1.AmneziaWGConfig.peers:type_name -> pharos.buoy.v1.Peer
-	14, // 10: pharos.buoy.v1.SetNetworkConfigRequest.config:type_name -> pharos.buoy.v1.NetworkConfig
-	2,  // 11: pharos.buoy.v1.AddPeerRequest.peer:type_name -> pharos.buoy.v1.Peer
-	0,  // 12: pharos.buoy.v1.RemovePeerRequest.protocol:type_name -> pharos.buoy.v1.Protocol
-	0,  // 13: pharos.buoy.v1.ListPeersRequest.protocol:type_name -> pharos.buoy.v1.Protocol
-	3,  // 14: pharos.buoy.v1.ListPeersResponse.peers:type_name -> pharos.buoy.v1.PeerState
-	0,  // 15: pharos.buoy.v1.RestartServiceRequest.protocol:type_name -> pharos.buoy.v1.Protocol
-	26, // 16: pharos.buoy.v1.Event.at:type_name -> google.protobuf.Timestamp
-	1,  // 17: pharos.buoy.v1.Event.type:type_name -> pharos.buoy.v1.EventType
-	0,  // 18: pharos.buoy.v1.Event.protocol:type_name -> pharos.buoy.v1.Protocol
-	4,  // 19: pharos.buoy.v1.NodeControl.GetStatus:input_type -> pharos.buoy.v1.GetStatusRequest
-	9,  // 20: pharos.buoy.v1.NodeControl.GetMetrics:input_type -> pharos.buoy.v1.GetMetricsRequest
-	11, // 21: pharos.buoy.v1.NodeControl.PushConfig:input_type -> pharos.buoy.v1.PushConfigRequest
-	17, // 22: pharos.buoy.v1.NodeControl.AddPeer:input_type -> pharos.buoy.v1.AddPeerRequest
-	18, // 23: pharos.buoy.v1.NodeControl.RemovePeer:input_type -> pharos.buoy.v1.RemovePeerRequest
-	20, // 24: pharos.buoy.v1.NodeControl.ListPeers:input_type -> pharos.buoy.v1.ListPeersRequest
-	22, // 25: pharos.buoy.v1.NodeControl.RestartService:input_type -> pharos.buoy.v1.RestartServiceRequest
-	15, // 26: pharos.buoy.v1.NodeControl.SetNetworkConfig:input_type -> pharos.buoy.v1.SetNetworkConfigRequest
-	24, // 27: pharos.buoy.v1.NodeControl.WatchEvents:input_type -> pharos.buoy.v1.WatchEventsRequest
-	5,  // 28: pharos.buoy.v1.NodeControl.GetStatus:output_type -> pharos.buoy.v1.GetStatusResponse
-	10, // 29: pharos.buoy.v1.NodeControl.GetMetrics:output_type -> pharos.buoy.v1.GetMetricsResponse
-	12, // 30: pharos.buoy.v1.NodeControl.PushConfig:output_type -> pharos.buoy.v1.PushConfigResponse
-	19, // 31: pharos.buoy.v1.NodeControl.AddPeer:output_type -> pharos.buoy.v1.PeerResponse
-	19, // 32: pharos.buoy.v1.NodeControl.RemovePeer:output_type -> pharos.buoy.v1.PeerResponse
-	21, // 33: pharos.buoy.v1.NodeControl.ListPeers:output_type -> pharos.buoy.v1.ListPeersResponse
-	23, // 34: pharos.buoy.v1.NodeControl.RestartService:output_type -> pharos.buoy.v1.RestartServiceResponse
-	16, // 35: pharos.buoy.v1.NodeControl.SetNetworkConfig:output_type -> pharos.buoy.v1.SetNetworkConfigResponse
-	25, // 36: pharos.buoy.v1.NodeControl.WatchEvents:output_type -> pharos.buoy.v1.Event
-	28, // [28:37] is the sub-list for method output_type
-	19, // [19:28] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	15, // 10: pharos.buoy.v1.NetworkConfig.transits:type_name -> pharos.buoy.v1.TransitRoute
+	14, // 11: pharos.buoy.v1.SetNetworkConfigRequest.config:type_name -> pharos.buoy.v1.NetworkConfig
+	8,  // 12: pharos.buoy.v1.InnerLinkConfig.peer_obfuscation:type_name -> pharos.buoy.v1.AmneziaWGObfuscation
+	2,  // 13: pharos.buoy.v1.InnerLinkConfig.exit:type_name -> pharos.buoy.v1.Peer
+	18, // 14: pharos.buoy.v1.ConfigureInnerLinkRequest.config:type_name -> pharos.buoy.v1.InnerLinkConfig
+	2,  // 15: pharos.buoy.v1.AddPeerRequest.peer:type_name -> pharos.buoy.v1.Peer
+	0,  // 16: pharos.buoy.v1.RemovePeerRequest.protocol:type_name -> pharos.buoy.v1.Protocol
+	0,  // 17: pharos.buoy.v1.ListPeersRequest.protocol:type_name -> pharos.buoy.v1.Protocol
+	3,  // 18: pharos.buoy.v1.ListPeersResponse.peers:type_name -> pharos.buoy.v1.PeerState
+	0,  // 19: pharos.buoy.v1.RestartServiceRequest.protocol:type_name -> pharos.buoy.v1.Protocol
+	32, // 20: pharos.buoy.v1.Event.at:type_name -> google.protobuf.Timestamp
+	1,  // 21: pharos.buoy.v1.Event.type:type_name -> pharos.buoy.v1.EventType
+	0,  // 22: pharos.buoy.v1.Event.protocol:type_name -> pharos.buoy.v1.Protocol
+	4,  // 23: pharos.buoy.v1.NodeControl.GetStatus:input_type -> pharos.buoy.v1.GetStatusRequest
+	9,  // 24: pharos.buoy.v1.NodeControl.GetMetrics:input_type -> pharos.buoy.v1.GetMetricsRequest
+	11, // 25: pharos.buoy.v1.NodeControl.PushConfig:input_type -> pharos.buoy.v1.PushConfigRequest
+	23, // 26: pharos.buoy.v1.NodeControl.AddPeer:input_type -> pharos.buoy.v1.AddPeerRequest
+	24, // 27: pharos.buoy.v1.NodeControl.RemovePeer:input_type -> pharos.buoy.v1.RemovePeerRequest
+	26, // 28: pharos.buoy.v1.NodeControl.ListPeers:input_type -> pharos.buoy.v1.ListPeersRequest
+	28, // 29: pharos.buoy.v1.NodeControl.RestartService:input_type -> pharos.buoy.v1.RestartServiceRequest
+	16, // 30: pharos.buoy.v1.NodeControl.SetNetworkConfig:input_type -> pharos.buoy.v1.SetNetworkConfigRequest
+	19, // 31: pharos.buoy.v1.NodeControl.ConfigureInnerLink:input_type -> pharos.buoy.v1.ConfigureInnerLinkRequest
+	21, // 32: pharos.buoy.v1.NodeControl.RemoveInnerLink:input_type -> pharos.buoy.v1.RemoveInnerLinkRequest
+	30, // 33: pharos.buoy.v1.NodeControl.WatchEvents:input_type -> pharos.buoy.v1.WatchEventsRequest
+	5,  // 34: pharos.buoy.v1.NodeControl.GetStatus:output_type -> pharos.buoy.v1.GetStatusResponse
+	10, // 35: pharos.buoy.v1.NodeControl.GetMetrics:output_type -> pharos.buoy.v1.GetMetricsResponse
+	12, // 36: pharos.buoy.v1.NodeControl.PushConfig:output_type -> pharos.buoy.v1.PushConfigResponse
+	25, // 37: pharos.buoy.v1.NodeControl.AddPeer:output_type -> pharos.buoy.v1.PeerResponse
+	25, // 38: pharos.buoy.v1.NodeControl.RemovePeer:output_type -> pharos.buoy.v1.PeerResponse
+	27, // 39: pharos.buoy.v1.NodeControl.ListPeers:output_type -> pharos.buoy.v1.ListPeersResponse
+	29, // 40: pharos.buoy.v1.NodeControl.RestartService:output_type -> pharos.buoy.v1.RestartServiceResponse
+	17, // 41: pharos.buoy.v1.NodeControl.SetNetworkConfig:output_type -> pharos.buoy.v1.SetNetworkConfigResponse
+	20, // 42: pharos.buoy.v1.NodeControl.ConfigureInnerLink:output_type -> pharos.buoy.v1.ConfigureInnerLinkResponse
+	22, // 43: pharos.buoy.v1.NodeControl.RemoveInnerLink:output_type -> pharos.buoy.v1.RemoveInnerLinkResponse
+	31, // 44: pharos.buoy.v1.NodeControl.WatchEvents:output_type -> pharos.buoy.v1.Event
+	34, // [34:45] is the sub-list for method output_type
+	23, // [23:34] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_pharos_buoy_v1_control_proto_init() }
@@ -1820,7 +2233,7 @@ func file_pharos_buoy_v1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pharos_buoy_v1_control_proto_rawDesc), len(file_pharos_buoy_v1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   24,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

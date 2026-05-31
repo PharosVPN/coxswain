@@ -40,8 +40,19 @@ service NodeControl {
   rpc RestartService(RestartServiceRequest) returns (RestartServiceResponse);
 
   // SetNetworkConfig applies the node's forwarding / masquerade / isolation
-  // policy (DESIGN §3, decision 16).
+  // policy (DESIGN §3, decision 16), including per-device transit routes for
+  // node cascade (decision 18).
   rpc SetNetworkConfig(SetNetworkConfigRequest) returns (SetNetworkConfigResponse);
+
+  // ConfigureInnerLink creates or updates a node→node inner AmneziaWG link on
+  // this (entry) node, toward an exit node (DESIGN §3, node cascade). The
+  // interface reuses this node's keypair but carries the exit's listen port and
+  // obfuscation so the handshake matches; the exit node needs no new RPC — it
+  // sees the entry as an ordinary forwarded peer on its client interface.
+  rpc ConfigureInnerLink(ConfigureInnerLinkRequest) returns (ConfigureInnerLinkResponse);
+
+  // RemoveInnerLink tears a previously configured inner link down.
+  rpc RemoveInnerLink(RemoveInnerLinkRequest) returns (RemoveInnerLinkResponse);
 
   // WatchEvents is a server-stream of live node events. coxswain holds it open;
   // this is what makes the admin UI live (DESIGN §7, coxswain milestone M4).
@@ -188,6 +199,26 @@ message NetworkConfig {
   bool masquerade = 2;
   // isolation drops client-to-client forwarded traffic.
   bool isolation = 3;
+  // transits route specific devices into an inner link instead of the public
+  // egress — the entry-node side of node cascade (DESIGN §3, decision 18). A
+  // device named here is policy-routed into its inner_interface and is NOT
+  // masqueraded to the internet; the exit node does that.
+  repeated TransitRoute transits = 4;
+}
+
+// TransitRoute policy-routes one cascaded device's tunnel traffic into an inner
+// AmneziaWG interface toward its chosen exit, instead of masquerading it
+// locally (DESIGN §3, the entry-node `transit` rule). coxswain computes the
+// mark and table; buoy installs the mangle MARK + ip rule + ip route.
+message TransitRoute {
+  // device_cidr is the client's tunnel address, e.g. "10.8.0.5/32".
+  string device_cidr = 1;
+  // inner_interface is the inner link this device egresses through, e.g. "awg1".
+  string inner_interface = 2;
+  // mark is the fwmark applied to this device's packets.
+  uint32 mark = 3;
+  // table is the policy routing table id the mark looks up.
+  uint32 table = 4;
 }
 
 message SetNetworkConfigRequest {
@@ -196,6 +227,49 @@ message SetNetworkConfigRequest {
 
 message SetNetworkConfigResponse {
   bool applied = 1;
+}
+
+// InnerLinkConfig describes one node→node inner AmneziaWG link on the entry
+// node (DESIGN §3, node cascade). buoy supplies this node's private key from
+// its own identity; coxswain supplies everything that must match the exit.
+message InnerLinkConfig {
+  // interface is the inner wg interface name, e.g. "awg1". It is distinct from
+  // the client interface (awg0) and from any other inner link.
+  string interface = 1;
+  // listen_port is the inner interface's local UDP port. It must not collide
+  // with the client interface (443) or another inner link.
+  uint32 listen_port = 2;
+  // mtu is the computed path MTU for the link; it must keep the nested tunnel
+  // at or above the IPv6 floor of 1280 (DESIGN §3 hop limit). 0 = node default.
+  uint32 mtu = 3;
+  // peer_obfuscation is the EXIT node's obfuscation set. The entry's inner
+  // interface adopts it so its handshake to the exit's interface matches.
+  AmneziaWGObfuscation peer_obfuscation = 4;
+  // exit is the exit node as a peer: its AmneziaWG public key, public endpoint
+  // (this node dials it), AllowedIPs (0.0.0.0/0 — all cascaded traffic), and an
+  // optional preshared key for the link.
+  Peer exit = 5;
+}
+
+message ConfigureInnerLinkRequest {
+  InnerLinkConfig config = 1;
+  // revision is coxswain's monotonically increasing revision for this inner
+  // link, with the same semantics as PushConfigRequest.revision.
+  int64 revision = 2;
+}
+
+message ConfigureInnerLinkResponse {
+  int64 applied_revision = 1;
+  bool reloaded = 2;
+}
+
+message RemoveInnerLinkRequest {
+  // interface is the inner link to tear down, e.g. "awg1".
+  string interface = 1;
+}
+
+message RemoveInnerLinkResponse {
+  bool removed = 1;
 }
 
 message AddPeerRequest {

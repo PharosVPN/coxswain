@@ -26,15 +26,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeControl_GetStatus_FullMethodName        = "/pharos.buoy.v1.NodeControl/GetStatus"
-	NodeControl_GetMetrics_FullMethodName       = "/pharos.buoy.v1.NodeControl/GetMetrics"
-	NodeControl_PushConfig_FullMethodName       = "/pharos.buoy.v1.NodeControl/PushConfig"
-	NodeControl_AddPeer_FullMethodName          = "/pharos.buoy.v1.NodeControl/AddPeer"
-	NodeControl_RemovePeer_FullMethodName       = "/pharos.buoy.v1.NodeControl/RemovePeer"
-	NodeControl_ListPeers_FullMethodName        = "/pharos.buoy.v1.NodeControl/ListPeers"
-	NodeControl_RestartService_FullMethodName   = "/pharos.buoy.v1.NodeControl/RestartService"
-	NodeControl_SetNetworkConfig_FullMethodName = "/pharos.buoy.v1.NodeControl/SetNetworkConfig"
-	NodeControl_WatchEvents_FullMethodName      = "/pharos.buoy.v1.NodeControl/WatchEvents"
+	NodeControl_GetStatus_FullMethodName          = "/pharos.buoy.v1.NodeControl/GetStatus"
+	NodeControl_GetMetrics_FullMethodName         = "/pharos.buoy.v1.NodeControl/GetMetrics"
+	NodeControl_PushConfig_FullMethodName         = "/pharos.buoy.v1.NodeControl/PushConfig"
+	NodeControl_AddPeer_FullMethodName            = "/pharos.buoy.v1.NodeControl/AddPeer"
+	NodeControl_RemovePeer_FullMethodName         = "/pharos.buoy.v1.NodeControl/RemovePeer"
+	NodeControl_ListPeers_FullMethodName          = "/pharos.buoy.v1.NodeControl/ListPeers"
+	NodeControl_RestartService_FullMethodName     = "/pharos.buoy.v1.NodeControl/RestartService"
+	NodeControl_SetNetworkConfig_FullMethodName   = "/pharos.buoy.v1.NodeControl/SetNetworkConfig"
+	NodeControl_ConfigureInnerLink_FullMethodName = "/pharos.buoy.v1.NodeControl/ConfigureInnerLink"
+	NodeControl_RemoveInnerLink_FullMethodName    = "/pharos.buoy.v1.NodeControl/RemoveInnerLink"
+	NodeControl_WatchEvents_FullMethodName        = "/pharos.buoy.v1.NodeControl/WatchEvents"
 )
 
 // NodeControlClient is the client API for NodeControl service.
@@ -64,8 +66,17 @@ type NodeControlClient interface {
 	// RestartService is a last-resort restart of one protocol's service.
 	RestartService(ctx context.Context, in *RestartServiceRequest, opts ...grpc.CallOption) (*RestartServiceResponse, error)
 	// SetNetworkConfig applies the node's forwarding / masquerade / isolation
-	// policy (DESIGN §3, decision 16).
+	// policy (DESIGN §3, decision 16), including per-device transit routes for
+	// node cascade (decision 18).
 	SetNetworkConfig(ctx context.Context, in *SetNetworkConfigRequest, opts ...grpc.CallOption) (*SetNetworkConfigResponse, error)
+	// ConfigureInnerLink creates or updates a node→node inner AmneziaWG link on
+	// this (entry) node, toward an exit node (DESIGN §3, node cascade). The
+	// interface reuses this node's keypair but carries the exit's listen port and
+	// obfuscation so the handshake matches; the exit node needs no new RPC — it
+	// sees the entry as an ordinary forwarded peer on its client interface.
+	ConfigureInnerLink(ctx context.Context, in *ConfigureInnerLinkRequest, opts ...grpc.CallOption) (*ConfigureInnerLinkResponse, error)
+	// RemoveInnerLink tears a previously configured inner link down.
+	RemoveInnerLink(ctx context.Context, in *RemoveInnerLinkRequest, opts ...grpc.CallOption) (*RemoveInnerLinkResponse, error)
 	// WatchEvents is a server-stream of live node events. coxswain holds it open;
 	// this is what makes the admin UI live (DESIGN §7, coxswain milestone M4).
 	WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
@@ -159,6 +170,26 @@ func (c *nodeControlClient) SetNetworkConfig(ctx context.Context, in *SetNetwork
 	return out, nil
 }
 
+func (c *nodeControlClient) ConfigureInnerLink(ctx context.Context, in *ConfigureInnerLinkRequest, opts ...grpc.CallOption) (*ConfigureInnerLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfigureInnerLinkResponse)
+	err := c.cc.Invoke(ctx, NodeControl_ConfigureInnerLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeControlClient) RemoveInnerLink(ctx context.Context, in *RemoveInnerLinkRequest, opts ...grpc.CallOption) (*RemoveInnerLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveInnerLinkResponse)
+	err := c.cc.Invoke(ctx, NodeControl_RemoveInnerLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *nodeControlClient) WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &NodeControl_ServiceDesc.Streams[0], NodeControl_WatchEvents_FullMethodName, cOpts...)
@@ -205,8 +236,17 @@ type NodeControlServer interface {
 	// RestartService is a last-resort restart of one protocol's service.
 	RestartService(context.Context, *RestartServiceRequest) (*RestartServiceResponse, error)
 	// SetNetworkConfig applies the node's forwarding / masquerade / isolation
-	// policy (DESIGN §3, decision 16).
+	// policy (DESIGN §3, decision 16), including per-device transit routes for
+	// node cascade (decision 18).
 	SetNetworkConfig(context.Context, *SetNetworkConfigRequest) (*SetNetworkConfigResponse, error)
+	// ConfigureInnerLink creates or updates a node→node inner AmneziaWG link on
+	// this (entry) node, toward an exit node (DESIGN §3, node cascade). The
+	// interface reuses this node's keypair but carries the exit's listen port and
+	// obfuscation so the handshake matches; the exit node needs no new RPC — it
+	// sees the entry as an ordinary forwarded peer on its client interface.
+	ConfigureInnerLink(context.Context, *ConfigureInnerLinkRequest) (*ConfigureInnerLinkResponse, error)
+	// RemoveInnerLink tears a previously configured inner link down.
+	RemoveInnerLink(context.Context, *RemoveInnerLinkRequest) (*RemoveInnerLinkResponse, error)
 	// WatchEvents is a server-stream of live node events. coxswain holds it open;
 	// this is what makes the admin UI live (DESIGN §7, coxswain milestone M4).
 	WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[Event]) error
@@ -243,6 +283,12 @@ func (UnimplementedNodeControlServer) RestartService(context.Context, *RestartSe
 }
 func (UnimplementedNodeControlServer) SetNetworkConfig(context.Context, *SetNetworkConfigRequest) (*SetNetworkConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkConfig not implemented")
+}
+func (UnimplementedNodeControlServer) ConfigureInnerLink(context.Context, *ConfigureInnerLinkRequest) (*ConfigureInnerLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfigureInnerLink not implemented")
+}
+func (UnimplementedNodeControlServer) RemoveInnerLink(context.Context, *RemoveInnerLinkRequest) (*RemoveInnerLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveInnerLink not implemented")
 }
 func (UnimplementedNodeControlServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method WatchEvents not implemented")
@@ -412,6 +458,42 @@ func _NodeControl_SetNetworkConfig_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeControl_ConfigureInnerLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigureInnerLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeControlServer).ConfigureInnerLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeControl_ConfigureInnerLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeControlServer).ConfigureInnerLink(ctx, req.(*ConfigureInnerLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeControl_RemoveInnerLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveInnerLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeControlServer).RemoveInnerLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeControl_RemoveInnerLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeControlServer).RemoveInnerLink(ctx, req.(*RemoveInnerLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NodeControl_WatchEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -461,6 +543,14 @@ var NodeControl_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetNetworkConfig",
 			Handler:    _NodeControl_SetNetworkConfig_Handler,
+		},
+		{
+			MethodName: "ConfigureInnerLink",
+			Handler:    _NodeControl_ConfigureInnerLink_Handler,
+		},
+		{
+			MethodName: "RemoveInnerLink",
+			Handler:    _NodeControl_RemoveInnerLink_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
