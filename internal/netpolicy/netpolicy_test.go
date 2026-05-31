@@ -22,6 +22,9 @@ func TestValidate(t *testing.T) {
 		{"all off", netpolicy.Policy{}, nil},
 		{"masquerade no forwarding", netpolicy.Policy{Masquerade: true}, netpolicy.ErrMasqueradeNeedsForwarding},
 		{"isolation no forwarding", netpolicy.Policy{Isolation: true}, netpolicy.ErrIsolationNeedsForwarding},
+		{"transit no forwarding", netpolicy.Policy{Transits: []netpolicy.TransitRoute{{DeviceCIDR: "10.8.0.5/32", InnerInterface: "awg1", Mark: 7100, Table: 7100}}}, netpolicy.ErrTransitNeedsForwarding},
+		{"transit incomplete", netpolicy.Policy{Forwarding: true, Transits: []netpolicy.TransitRoute{{DeviceCIDR: "10.8.0.5/32"}}}, netpolicy.ErrTransitIncomplete},
+		{"transit valid", netpolicy.Policy{Forwarding: true, Transits: []netpolicy.TransitRoute{{DeviceCIDR: "10.8.0.5/32", InnerInterface: "awg1", Mark: 7100, Table: 7100}}}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -29,6 +32,40 @@ func TestValidate(t *testing.T) {
 				t.Errorf("Validate: got %v want %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestRulesTransit pins the transit rule set. These strings are the cross-repo
+// contract with buoy/internal/netpolicy — they MUST match buoy's
+// TestTransitRulesCanonical exactly, or preview (here) and apply (buoy) diverge.
+func TestRulesTransit(t *testing.T) {
+	p := netpolicy.Policy{
+		Forwarding: true,
+		Masquerade: true,
+		Transits: []netpolicy.TransitRoute{
+			{DeviceCIDR: "10.8.0.5/32", InnerInterface: "awg1", Mark: 100, Table: 100},
+		},
+	}
+	r := p.Rules()
+	up := strings.Join(r.PostUp, "\n")
+	down := strings.Join(r.PostDown, "\n")
+	for _, want := range []string{
+		"iptables -t mangle -A PREROUTING -i %i -s 10.8.0.5/32 -j MARK --set-mark 100",
+		"ip rule add fwmark 100 lookup 100",
+		"ip route add default dev awg1 table 100",
+	} {
+		if !strings.Contains(up, want) {
+			t.Errorf("PostUp missing %q\n got:\n%s", want, up)
+		}
+	}
+	for _, want := range []string{
+		"ip route del default dev awg1 table 100",
+		"ip rule del fwmark 100 lookup 100",
+		"iptables -t mangle -D PREROUTING -i %i -s 10.8.0.5/32 -j MARK --set-mark 100",
+	} {
+		if !strings.Contains(down, want) {
+			t.Errorf("PostDown missing %q\n got:\n%s", want, down)
+		}
 	}
 }
 

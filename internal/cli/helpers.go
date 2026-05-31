@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/db"
@@ -61,6 +62,18 @@ func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, er
 		Signer:       id.Signer,
 		KnownHostKey: node.SSHHostKey,
 	})
+}
+
+// newCascadeCoordinator builds a cascade coordinator backed by the state DB and
+// the buoy control-plane dialer.
+func newCascadeCoordinator(ctx context.Context, conn *sql.DB) (*cascade.Coordinator, error) {
+	dialer, err := newControlDialer(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	return cascade.New(conn, func(addr string) (cascade.NodeClient, error) {
+		return dialer.Dial(addr)
+	}), nil
 }
 
 // newControlDialer builds the mTLS gRPC dialer for the buoy control plane,

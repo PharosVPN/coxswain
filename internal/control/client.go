@@ -55,6 +55,18 @@ func AmneziaWGFromStatus(s *buoyv1.GetStatusResponse) (publicKey string, obf wg.
 	}
 }
 
+// AmneziaWGToProto is the inverse of AmneziaWGFromStatus: it renders a node's
+// obfuscation set to its wire form. A cascade inner link carries the exit
+// node's set so the entry's handshake to the exit matches (DESIGN §3).
+func AmneziaWGToProto(o wg.Obfuscation) *buoyv1.AmneziaWGObfuscation {
+	return &buoyv1.AmneziaWGObfuscation{
+		Jc: o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
+		S1: o.S1, S2: o.S2, S3: o.S3, S4: o.S4,
+		H1: o.H1, H2: o.H2, H3: o.H3, H4: o.H4,
+		I1: o.I1, I2: o.I2, I3: o.I3, I4: o.I4, I5: o.I5,
+	}
+}
+
 // Metrics reports the node's counters for a metrics sample.
 func (c *Client) Metrics(ctx context.Context) (*buoyv1.GetMetricsResponse, error) {
 	return c.rpc.GetMetrics(ctx, &buoyv1.GetMetricsRequest{})
@@ -115,12 +127,13 @@ func (c *Client) WatchEvents(ctx context.Context) (grpc.ServerStreamingClient[bu
 
 // SetNetworkConfig applies the node's forwarding / masquerade / isolation
 // policy (DESIGN §3, decision 16).
-func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool) (*buoyv1.SetNetworkConfigResponse, error) {
+func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool, transits []*buoyv1.TransitRoute) (*buoyv1.SetNetworkConfigResponse, error) {
 	return c.rpc.SetNetworkConfig(ctx, &buoyv1.SetNetworkConfigRequest{
 		Config: &buoyv1.NetworkConfig{
 			Forwarding: forwarding,
 			Masquerade: masquerade,
 			Isolation:  isolation,
+			Transits:   transits,
 		},
 	})
 }

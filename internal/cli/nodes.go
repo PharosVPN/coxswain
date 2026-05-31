@@ -375,7 +375,7 @@ func newNodesPushPolicyCmd() *cobra.Command {
 
 			rpcCtx, cancel := context.WithTimeout(ctx, controlRPCTimeout)
 			defer cancel()
-			resp, err := client.SetNetworkConfig(rpcCtx, node.Forwarding, node.Masquerade, node.Isolation)
+			resp, err := client.SetNetworkConfig(rpcCtx, node.Forwarding, node.Masquerade, node.Isolation, nil)
 			if err != nil {
 				return fmt.Errorf("control %s: %w", node.ControlAddr, err)
 			}
