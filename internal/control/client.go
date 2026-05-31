@@ -124,3 +124,18 @@ func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, i
 		},
 	})
 }
+
+// ConfigureInnerLink creates or updates a node→node inner AmneziaWG link on an
+// entry node toward an exit (DESIGN §3, node cascade). revision is the link's
+// monotonic ConfigureInnerLink revision.
+func (c *Client) ConfigureInnerLink(ctx context.Context, cfg *buoyv1.InnerLinkConfig, revision int64) (*buoyv1.ConfigureInnerLinkResponse, error) {
+	return c.rpc.ConfigureInnerLink(ctx, &buoyv1.ConfigureInnerLinkRequest{
+		Config:   cfg,
+		Revision: revision,
+	})
+}
+
+// RemoveInnerLink tears down an inner link on an entry node.
+func (c *Client) RemoveInnerLink(ctx context.Context, iface string) (*buoyv1.RemoveInnerLinkResponse, error) {
+	return c.rpc.RemoveInnerLink(ctx, &buoyv1.RemoveInnerLinkRequest{Interface: iface})
+}
