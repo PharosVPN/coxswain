@@ -6,10 +6,12 @@
 package control
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 
 	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
 	"google.golang.org/grpc"
@@ -19,14 +21,26 @@ import (
 // Dialer opens mTLS gRPC connections to buoy nodes. It is built once from
 // coxswain's controller certificate and reused for every node.
 type Dialer struct {
-	creds credentials.TransportCredentials
+	creds         credentials.TransportCredentials
+	contextDialer func(ctx context.Context, addr string) (net.Conn, error)
+}
+
+// Option configures a Dialer.
+type Option func(*Dialer)
+
+// WithContextDialer routes the gRPC connection's underlying transport through
+// dial instead of a direct TCP connect — used to reach nodes through an egress
+// relay (decision 19) so a node never sees coxswain's IP. The mTLS handshake
+// still runs end-to-end over the relayed conn, so the relay stays protocol-blind.
+func WithContextDialer(dial func(ctx context.Context, addr string) (net.Conn, error)) Option {
+	return func(d *Dialer) { d.contextDialer = dial }
 }
 
 // NewDialer builds a Dialer. clientChainPEM is coxswain's controller certificate
 // followed by the Fleet intermediate (so nodes can verify the chain);
 // clientKeyPEM is its key; rootCAPEM is the root CA that node certificates
 // must chain to.
-func NewDialer(clientChainPEM, clientKeyPEM, rootCAPEM []byte) (*Dialer, error) {
+func NewDialer(clientChainPEM, clientKeyPEM, rootCAPEM []byte, opts ...Option) (*Dialer, error) {
 	cert, err := tls.X509KeyPair(clientChainPEM, clientKeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("control: load controller cert: %w", err)
@@ -35,17 +49,25 @@ func NewDialer(clientChainPEM, clientKeyPEM, rootCAPEM []byte) (*Dialer, error) 
 	if !roots.AppendCertsFromPEM(rootCAPEM) {
 		return nil, errors.New("control: no CA certificates in root PEM")
 	}
-	return &Dialer{creds: credentials.NewTLS(&tls.Config{
+	d := &Dialer{creds: credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      roots,
 		MinVersion:   tls.VersionTLS13,
-	})}, nil
+	})}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d, nil
 }
 
 // Dial returns a control Client for the node at addr (host:port). The
 // connection is lazy — it is established on the first RPC.
 func (d *Dialer) Dial(addr string) (*Client, error) {
-	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(d.creds))
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(d.creds)}
+	if d.contextDialer != nil {
+		dialOpts = append(dialOpts, grpc.WithContextDialer(d.contextDialer))
+	}
+	cc, err := grpc.NewClient(addr, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("control: dial %s: %w", addr, err)
 	}
