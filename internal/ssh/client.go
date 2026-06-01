@@ -31,6 +31,11 @@ type DialConfig struct {
 	// format; the connection fails on mismatch. Empty enables trust-on-first-
 	// use: any host key is accepted and recorded (see Conn.HostKey).
 	KnownHostKey string
+	// Dialer, when set, establishes the underlying TCP connection — used to
+	// route the SSH session through an egress relay (decision 19) so the node
+	// never sees coxswain's IP. SSH auth and host-key pinning remain end-to-end,
+	// so the relay is a transparent pipe. nil means a direct net.Dialer.
+	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Conn is an established SSH connection to a node.
@@ -59,7 +64,11 @@ func Dial(ctx context.Context, cfg DialConfig) (*Conn, error) {
 		return nil
 	}
 
-	tcp, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	dial := cfg.Dialer
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: dialTimeout}).DialContext
+	}
+	tcp, err := dial(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("ssh: dial %s: %w", addr, err)
 	}
