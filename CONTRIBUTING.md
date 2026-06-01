@@ -44,10 +44,10 @@ Never commit secrets — not even in test fixtures.
 
 ## Licence
 
-coxswain is licensed **AGPL-3.0-or-later**. Every source file carries the SPDX
+coxswain is licensed **Apache-2.0**. Every source file carries the SPDX
 header:
 
 ```
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 ```

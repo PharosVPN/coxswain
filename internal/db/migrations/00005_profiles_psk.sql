@@ -1,4 +1,4 @@
--- SPDX-License-Identifier: AGPL-3.0-or-later
+-- SPDX-License-Identifier: Apache-2.0
 -- Copyright (C) 2026 The PharosVPN Authors
 --
 -- M6: end-to-end profile encryption (DESIGN §8) and per-peer preshared keys
