@@ -67,6 +67,26 @@ func TestRulesTransit(t *testing.T) {
 			t.Errorf("PostDown missing %q\n got:\n%s", want, down)
 		}
 	}
+
+	// A transit node forwards returns asymmetrically (in on the inner interface,
+	// route-back via egress), which rp_filter drops — so the cascade entry must
+	// relax it while it carries transits, and restore it on teardown. Matches
+	// buoy's TestTransitRulesCanonical.
+	if !strings.Contains(strings.Join(r.PreUp, "\n"), "sysctl -w net.ipv4.conf.all.rp_filter=0") {
+		t.Errorf("PreUp missing the rp_filter relax\n got: %#v", r.PreUp)
+	}
+	if !strings.Contains(down, "sysctl -w net.ipv4.conf.all.rp_filter=2") {
+		t.Errorf("PostDown missing the rp_filter restore\n got: %#v", r.PostDown)
+	}
+}
+
+// TestRulesNoTransitKeepsRpFilter guards that a plain forwarding node keeps
+// reverse-path filtering — the relax is scoped to cascade transit nodes only.
+func TestRulesNoTransitKeepsRpFilter(t *testing.T) {
+	r := netpolicy.Policy{Forwarding: true, Masquerade: true}.Rules()
+	if strings.Contains(strings.Join(r.PreUp, "\n"), "rp_filter") {
+		t.Errorf("non-transit node must not touch rp_filter\n got: %#v", r.PreUp)
+	}
 }
 
 func TestRulesForwardingOff(t *testing.T) {
