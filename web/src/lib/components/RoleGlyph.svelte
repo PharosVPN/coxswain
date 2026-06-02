@@ -36,11 +36,17 @@
 		<circle cx="12" cy="12" r="8" />
 		<circle cx="12" cy="12" r="3.4" />
 		<path d="M12 4 V8.6 M12 15.4 V20 M4 12 H8.6 M15.4 12 H20" />
-	{:else}
+	{:else if role === 'relay'}
 		<!-- relay: emitter + radiating signal -->
 		<circle cx="12" cy="17" r="1.6" fill="currentColor" stroke="none" />
 		<path d="M12 17 V12.5" />
 		<path d="M8.8 13.2 A4.6 4.6 0 0 1 15.2 13.2" />
 		<path d="M6.6 11.2 A8 8 0 0 1 17.4 11.2" />
+	{:else}
+		<!-- server: a bare machine (stacked rack units), no role yet -->
+		<rect x="4.5" y="5" width="15" height="6" rx="1.5" />
+		<rect x="4.5" y="13" width="15" height="6" rx="1.5" />
+		<circle cx="7.6" cy="8" r="0.9" fill="currentColor" stroke="none" />
+		<circle cx="7.6" cy="16" r="0.9" fill="currentColor" stroke="none" />
 	{/if}
 </svg>

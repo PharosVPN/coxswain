@@ -11,15 +11,16 @@
 	import { geoNaturalEarth1, geoPath, geoGraticule10 } from 'd3-geo';
 	import { feature } from 'topojson-client';
 	import landTopo from 'world-atlas/land-110m.json';
-	import type { Node, Relay, NodeLink, Site } from '$lib/types';
+	import type { Node, Relay, NodeLink, Server, Site } from '$lib/types';
 	import { locate } from '$lib/geo';
 	import { ROLES, STATUSES, statusColor, dominantStatus, type Role } from '$lib/roles';
 	import RoleGlyph from './RoleGlyph.svelte';
 
-	let { nodes = [], relays = [], links = [], selectedKey = '', onselect }: {
+	let { nodes = [], relays = [], links = [], servers = [], selectedKey = '', onselect }: {
 		nodes?: Node[];
 		relays?: Relay[];
 		links?: NodeLink[];
+		servers?: Server[];
 		selectedKey?: string;
 		onselect?: (s: Site) => void;
 	} = $props();
@@ -44,7 +45,7 @@
 	const landPath = pathOf(land as any) ?? '';
 	const graticulePath = pathOf(geoGraticule10()) ?? '';
 
-	const ROLE_ORDER: Role[] = ['controller', 'node', 'relay'];
+	const ROLE_ORDER: Role[] = ['controller', 'node', 'relay', 'server'];
 
 	// Aggregate every entity into a per-host site, so a box that is a node AND a
 	// relay (AND, one day, the controller) becomes a single multi-badge pin.
@@ -53,7 +54,7 @@
 		const ensure = (key: string, region: string): Site => {
 			let s = byHost.get(key);
 			if (!s) {
-				s = { key, region, roles: [], status: '', node: undefined, relays: [], label: '' };
+				s = { key, region, roles: [], status: '', node: undefined, relays: [], server: undefined, label: '' };
 				byHost.set(key, s);
 			}
 			if (!s.region) s.region = region;
@@ -71,10 +72,19 @@
 			s.relays.push(r);
 			if (!s.label) s.label = r.name;
 		}
+		for (const sv of servers) {
+			const s = ensure(sv.ssh_host || sv.id, sv.region);
+			s.server = sv;
+			// A bare server (no role deployed yet) shows as a plain host pin; once a
+			// node/relay lands on it, those badges take over.
+			if (s.roles.length === 0) s.roles.push('server');
+			if (!s.label) s.label = sv.name;
+		}
 		return [...byHost.values()].map((s) => {
 			const statuses = [
 				...(s.node ? [s.node.status] : []),
-				...s.relays.map((r) => r.status)
+				...s.relays.map((r) => r.status),
+				...(s.server && s.roles.includes('server') ? [s.server.status] : [])
 			];
 			s.status = dominantStatus(statuses);
 			s.roles.sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
@@ -241,6 +251,9 @@
 				if (r?.egress) parts.push(`egress · hop ${r.egress_hop}`);
 				if (r?.onion) parts.push('onion');
 				return { role, label: 'Relay', detail: parts.join(' · ') || 'relay' };
+			}
+			if (role === 'server') {
+				return { role, label: 'Server', detail: site.server?.is_self ? 'controller host' : 'no role yet' };
 			}
 			return { role, label: 'Controller', detail: 'steers the fleet' };
 		});

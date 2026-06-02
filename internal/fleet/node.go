@@ -38,6 +38,9 @@ type Node struct {
 	EndpointIPs []string
 	ControlAddr string
 	CloudID     string
+	// ServerID links this node to the server (machine) it was deployed onto.
+	// Empty for legacy inline-SSH nodes onboarded before the server layer.
+	ServerID string
 	// SSHHost, SSHUser, SSHPort are how coxswain reaches the node to install and
 	// update the node agent (DESIGN §5). SSH is a deployment channel only.
 	SSHHost string
@@ -69,7 +72,7 @@ type Node struct {
 const nodeColumns = `id, name, region, public_ip, endpoint_ips, control_addr, cloud_id,
 	ssh_host, ssh_user, ssh_port, ssh_host_key, agent_version, wg_public_key,
 	wg_obfuscation, forwarding, masquerade, isolation, config_revision,
-	status, version, created_at, updated_at`
+	status, version, created_at, updated_at, server_id`
 
 // marshalObfuscation encodes an obfuscation set for the wg_obfuscation column.
 // A zero set stores as the empty string ("not reported yet").
@@ -135,11 +138,11 @@ func CreateNode(ctx context.Context, db *sql.DB, n Node) (Node, error) {
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO nodes (`+nodeColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, n.Name, n.Region, n.PublicIP, joinIPs(n.EndpointIPs), n.ControlAddr, n.CloudID,
 		n.SSHHost, n.SSHUser, n.SSHPort, n.SSHHostKey, n.AgentVersion, n.WGPublicKey,
 		marshalObfuscation(n.Obfuscation), n.Forwarding, n.Masquerade, n.Isolation,
-		n.ConfigRevision, n.Status, n.Version, n.CreatedAt, n.UpdatedAt)
+		n.ConfigRevision, n.Status, n.Version, n.CreatedAt, n.UpdatedAt, n.ServerID)
 	if err != nil {
 		return Node{}, fmt.Errorf("create node: %w", err)
 	}
@@ -186,12 +189,12 @@ func UpdateNode(ctx context.Context, db *sql.DB, n Node) (Node, error) {
 		        control_addr = ?, cloud_id = ?, ssh_host = ?, ssh_user = ?,
 		        ssh_port = ?, ssh_host_key = ?, agent_version = ?, wg_public_key = ?,
 		        wg_obfuscation = ?, forwarding = ?, masquerade = ?, isolation = ?,
-		        status = ?, version = version + 1, updated_at = ?
+		        status = ?, server_id = ?, version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
 		n.Name, n.Region, n.PublicIP, joinIPs(n.EndpointIPs), n.ControlAddr, n.CloudID,
 		n.SSHHost, n.SSHUser, n.SSHPort, n.SSHHostKey, n.AgentVersion, n.WGPublicKey,
 		marshalObfuscation(n.Obfuscation), n.Forwarding, n.Masquerade, n.Isolation,
-		n.Status, now, n.ID, n.Version)
+		n.Status, n.ServerID, now, n.ID, n.Version)
 	// NOTE: ConfigRevision is updated only via NextNodeConfigRevision; an
 	// UpdateNode caller is reconciling node metadata, not pushing config.
 	if err != nil {
@@ -286,7 +289,7 @@ func scanNode(s rowScanner) (Node, error) {
 	err := s.Scan(&n.ID, &n.Name, &n.Region, &n.PublicIP, &endpointIPs, &n.ControlAddr,
 		&n.CloudID, &n.SSHHost, &n.SSHUser, &n.SSHPort, &n.SSHHostKey,
 		&n.AgentVersion, &n.WGPublicKey, &obfuscation, &n.Forwarding, &n.Masquerade, &n.Isolation,
-		&n.ConfigRevision, &n.Status, &n.Version, &n.CreatedAt, &n.UpdatedAt)
+		&n.ConfigRevision, &n.Status, &n.Version, &n.CreatedAt, &n.UpdatedAt, &n.ServerID)
 	if err != nil {
 		return Node{}, err
 	}

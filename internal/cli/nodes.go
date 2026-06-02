@@ -18,6 +18,8 @@ import (
 	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/server"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 	"github.com/PharosVPN/coxswain/internal/wg"
 	"github.com/spf13/cobra"
 )
@@ -143,16 +145,16 @@ func installSpec(binaryPath, url, defaultURL, configHint string) (deploy.Install
 }
 
 func newNodesAddCmd() *cobra.Command {
-	var cfgPath, region, name, user, binaryPath, url string
+	var cfgPath, region, name, user, binaryPath, url, srvID string
 	var port int
 	cmd := &cobra.Command{
-		Use:   "add <ssh-host>",
-		Short: "Onboard a new node over SSH",
-		Long: "Onboard a node (DESIGN §5). coxswain connects to <ssh-host>\n" +
-			"over SSH, installs the node agent, signs the certificate request\n" +
-			"the agent generates on the node, and starts the service.\n\n" +
-			"Add coxswain's SSH key (see `cox ssh-key`) to the host first.",
-		Args: cobra.ExactArgs(1),
+		Use:   "add [ssh-host]",
+		Short: "Onboard a new node (onto a server, or directly over SSH)",
+		Long: "Deploy a node. With --server <id>, install onto an already-onboarded\n" +
+			"server (no SSH key setup needed — `cox servers add` did that). Without\n" +
+			"--server, connect directly to <ssh-host> over SSH (coxswain's key must\n" +
+			"already be on the host — see `cox ssh-key`).",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			cfg, conn, err := openState(cfgPath)
@@ -165,33 +167,57 @@ func newNodesAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if user == "" {
-				user = cfg.Node.SSHUser
-			}
-			if port == 0 {
-				port = cfg.Node.SSHPort
-			}
-
 			bundle, _, err := pki.EnsureCA(ctx, conn)
 			if err != nil {
 				return fmt.Errorf("load CA: %w", err)
 			}
 
-			host := args[0]
-			sshConn, err := dialNew(ctx, conn, host, user, port)
-			if err != nil {
-				return err
+			var res deploy.AddResult
+			if srvID != "" {
+				// Deploy onto an onboarded server (reuses its key access).
+				srv, gErr := fleet.GetServer(ctx, conn, srvID)
+				if gErr != nil {
+					return gErr
+				}
+				id, _, iErr := ssh.EnsureIdentity(ctx, conn)
+				if iErr != nil {
+					return iErr
+				}
+				dialer, dErr := newEgressDialer(ctx, conn)
+				if dErr != nil {
+					return dErr
+				}
+				res, err = server.DeployNode(ctx, conn, id, bundle, srv,
+					deploy.AddParams{Name: name, Region: region, Install: spec}, dialer)
+			} else {
+				// Direct SSH (coxswain's key must be pre-installed).
+				if len(args) == 0 {
+					return fmt.Errorf("provide an <ssh-host> or --server <id>")
+				}
+				if region == "" {
+					return fmt.Errorf("--region is required when onboarding by ssh-host")
+				}
+				if user == "" {
+					user = cfg.Node.SSHUser
+				}
+				if port == 0 {
+					port = cfg.Node.SSHPort
+				}
+				host := args[0]
+				sshConn, dErr := dialNew(ctx, conn, host, user, port)
+				if dErr != nil {
+					return dErr
+				}
+				defer sshConn.Close()
+				res, err = deploy.AddNode(ctx, conn, sshConn, bundle, deploy.AddParams{
+					Name:    name,
+					Region:  region,
+					SSHHost: host,
+					SSHUser: user,
+					SSHPort: port,
+					Install: spec,
+				})
 			}
-			defer sshConn.Close()
-
-			res, err := deploy.AddNode(ctx, conn, sshConn, bundle, deploy.AddParams{
-				Name:    name,
-				Region:  region,
-				SSHHost: host,
-				SSHUser: user,
-				SSHPort: port,
-				Install: spec,
-			})
 			if err != nil {
 				return err
 			}
@@ -208,13 +234,13 @@ func newNodesAddCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
-	cmd.Flags().StringVar(&region, "region", "", "region label for the node (required)")
+	cmd.Flags().StringVar(&srvID, "server", "", "deploy onto an onboarded server (see `cox servers list`); region defaults to the server's")
+	cmd.Flags().StringVar(&region, "region", "", "region label for the node (required without --server)")
 	cmd.Flags().StringVar(&name, "name", "", "node name (generated from the region if empty)")
-	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user)")
-	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
+	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user; ignored with --server)")
+	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port; ignored with --server)")
 	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local node binary to upload")
 	cmd.Flags().StringVar(&url, "url", "", "URL the node downloads node from (overrides config)")
-	_ = cmd.MarkFlagRequired("region")
 	return cmd
 }
 

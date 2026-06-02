@@ -28,13 +28,15 @@ type Server struct {
 	db       *sql.DB
 	hub      *live.Hub
 	provOpts provision.Options
+	deployer Deployer
 	http     *http.Server
 }
 
 // NewServer builds the admin server bound to addr (a localhost address).
-// provOpts carries the fleet settings device provisioning needs.
-func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options) *Server {
-	s := &Server{db: db, hub: hub, provOpts: provOpts}
+// provOpts carries the fleet settings device provisioning needs; deployer
+// performs server onboarding and component deploys (nil disables those routes).
+func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer) *Server {
+	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -57,6 +59,12 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("GET /api/relays", s.requireAuth(s.handleListRelays))
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
 	mux.HandleFunc("GET /api/node-links", s.requireAuth(s.handleListNodeLinks))
+
+	// Servers — machines cox owns; onboard by password, then deploy roles.
+	mux.HandleFunc("GET /api/servers", s.requireAuth(s.handleListServers))
+	mux.HandleFunc("POST /api/servers", s.requireAuth(s.handleCreateServer))
+	mux.HandleFunc("DELETE /api/servers/{id}", s.requireAuth(s.handleDeleteServer))
+	mux.HandleFunc("POST /api/servers/{id}/deploy", s.requireAuth(s.handleDeployServer))
 
 	// Admins.
 	mux.HandleFunc("GET /api/admins", s.requireAuth(s.handleListAdmins))

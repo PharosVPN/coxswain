@@ -23,9 +23,10 @@ type relayView struct {
 	// can merge a relay onto a node that shares the same box.
 	Host string `json:"host"`
 	// Egress / Onion report which control-plane roles this relay carries.
-	Egress   bool `json:"egress"`
-	EgressHop int `json:"egress_hop"`
-	Onion    bool `json:"onion"`
+	Egress    bool   `json:"egress"`
+	EgressHop int    `json:"egress_hop"`
+	Onion     bool   `json:"onion"`
+	ServerID  string `json:"server_id"`
 }
 
 func hostOf(endpoint string) string {
@@ -61,6 +62,7 @@ func toRelayView(r fleet.Relay) relayView {
 		Egress:    r.EgressEndpoint != "",
 		EgressHop: r.EgressHop,
 		Onion:     r.OnionEndpoint != "" && r.OnionPubKey != "",
+		ServerID:  r.ServerID,
 	}
 }
 

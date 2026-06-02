@@ -44,6 +44,12 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
+			// Represent the controller's own host as the is_self server, so it's
+			// visible and can host components. Best-effort — never block serving.
+			if _, err := ensureSelfServer(ctx, conn, cfg); err != nil {
+				fmt.Printf("  warning: could not register self server: %v\n", err)
+			}
+
 			// The relay tier fronts the account/sync gRPC service
 			// (DESIGN §2): an in-process relay and/or reverse tunnels out to
 			// remote relays. Relay failures are non-fatal — the admin plane
@@ -92,7 +98,7 @@ func newServeCmd() *cobra.Command {
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
 			}
-			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts)
+			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn})
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)

@@ -25,6 +25,7 @@ type nodeView struct {
 	Forwarding   bool      `json:"forwarding"`
 	Masquerade   bool      `json:"masquerade"`
 	Isolation    bool      `json:"isolation"`
+	ServerID     string    `json:"server_id"`
 	Version      int       `json:"version"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -43,6 +44,7 @@ func toNodeView(n fleet.Node) nodeView {
 		Forwarding:   n.Forwarding,
 		Masquerade:   n.Masquerade,
 		Isolation:    n.Isolation,
+		ServerID:     n.ServerID,
 		Version:      n.Version,
 		CreatedAt:    n.CreatedAt,
 		UpdatedAt:    n.UpdatedAt,
