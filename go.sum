@@ -1,5 +1,5 @@
-github.com/PharosVPN/beacon v0.0.0-20260601223402-a33768ada1a0 h1:Cej0FPQ1CwLBssraChfsIpzvvZUGr9husQ44yGY71OE=
-github.com/PharosVPN/beacon v0.0.0-20260601223402-a33768ada1a0/go.mod h1:fSTsMuWmVhbaZ6UlfhJZo6Bo7wvcHulvmAi2h/lpHKI=
+github.com/PharosVPN/beacon v0.0.0-20260602155539-1c0b2a9e573c h1:+r5nc7oVJATYODi9hwF/cuwayd4mSz4TEuvxhuxjV1A=
+github.com/PharosVPN/beacon v0.0.0-20260602155539-1c0b2a9e573c/go.mod h1:mMzk7z3/4CuJ/kDHhTtZ5JiPafSz8RJY+vvYrLIy/fs=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=

@@ -13,7 +13,9 @@ import (
 	"net"
 	"path/filepath"
 	"sort"
+	"time"
 
+	"github.com/PharosVPN/beacon/onion"
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/control"
@@ -106,13 +108,13 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 	chain = append(chain, bundle.Fleet.CertPEM...)
 
 	var opts []control.Option
-	tunnel, err := newEgressTunnel(ctx, conn)
+	dial, err := newEgressDialer(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	if tunnel != nil {
+	if dial != nil {
 		opts = append(opts, control.WithContextDialer(func(dctx context.Context, addr string) (net.Conn, error) {
-			return tunnel.DialContext(dctx, "tcp", addr)
+			return dial(dctx, "tcp", addr)
 		}))
 	}
 	return control.NewDialer(chain, cc.KeyPEM, bundle.Root.CertPEM, opts...)
@@ -138,14 +140,17 @@ func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
 	return chain, nil
 }
 
-// newEgressTunnel builds the egress tunnel through the enrolled egress relays,
-// or returns nil when none is configured (direct dial). With several relays it
-// is a chain — coxswain → relay0 → … → relayN → node — so no single relay sees
-// both coxswain's address and the node's (ladder step 2). coxswain presents its
-// controller cert (Fleet-CA leaf) to every hop and verifies each relay against
-// the root; a relay only needs a valid Fleet-CA client cert on this leg (it is
-// otherwise protocol-blind).
-func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) {
+// controlDial dials a node host:port for the control plane, routed through the
+// egress relays. Its signature matches net.Dialer.DialContext, so it drops into
+// both the gRPC and SSH dial chokepoints.
+type controlDial = func(ctx context.Context, network, addr string) (net.Conn, error)
+
+// newEgressDialer returns the dialer coxswain routes its control plane through,
+// or nil when no egress relay is enrolled (direct dial). When every relay in
+// the chain is onion-capable it builds an onion circuit (decision 20) — each
+// relay decrypts only its own layer, seeing neither coxswain's identity nor the
+// full path; otherwise it builds the nested-TLS egress chain (decision 19).
+func newEgressDialer(ctx context.Context, conn *sql.DB) (controlDial, error) {
 	chain, err := egressRelays(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("egress relay lookup: %w", err)
@@ -153,6 +158,50 @@ func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) 
 	if len(chain) == 0 {
 		return nil, nil
 	}
+	if onionCapable(chain) {
+		return onionDialer(chain)
+	}
+	tun, err := chainTunnel(ctx, conn, chain)
+	if err != nil {
+		return nil, err
+	}
+	return tun.DialContext, nil
+}
+
+// onionCapable reports whether every relay in the chain can serve as an onion
+// hop (has both an onion endpoint and an onion public key).
+func onionCapable(chain []fleet.Relay) bool {
+	for _, r := range chain {
+		if r.OnionEndpoint == "" || r.OnionPubKey == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// onionDialer builds the onion-circuit dialer over the chain (decision 20). Each
+// control dial opens a fresh circuit to the node target through every hop; the
+// hop links are plain TCP, as the onion supplies confidentiality.
+func onionDialer(chain []fleet.Relay) (controlDial, error) {
+	hops := make([]onion.Hop, len(chain))
+	for i, r := range chain {
+		pub, err := onion.ParsePublicKey(r.OnionPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("relay %s onion key: %w", r.ID, err)
+		}
+		hops[i] = onion.Hop{Addr: r.OnionEndpoint, OnionPub: pub}
+	}
+	firstHop := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+	}
+	return func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return onion.Open(ctx, hops, addr, firstHop)
+	}, nil
+}
+
+// chainTunnel builds the nested-TLS egress chain (decision 19): coxswain presents
+// its controller cert to every hop and verifies each against the root.
+func chainTunnel(ctx context.Context, conn *sql.DB, chain []fleet.Relay) (*egress.Tunnel, error) {
 	bundle, _, err := pki.EnsureCA(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("load CA: %w", err)
@@ -184,15 +233,15 @@ func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) 
 	return egress.NewChain(hops)
 }
 
-// routeSSHThroughEgress points cfg.Dialer at the enrolled egress relay, if one
-// exists; otherwise it leaves cfg untouched (direct dial).
+// routeSSHThroughEgress points cfg.Dialer at the egress relays, if any are
+// enrolled; otherwise it leaves cfg untouched (direct dial).
 func routeSSHThroughEgress(ctx context.Context, conn *sql.DB, cfg *ssh.DialConfig) error {
-	tunnel, err := newEgressTunnel(ctx, conn)
+	dial, err := newEgressDialer(ctx, conn)
 	if err != nil {
 		return err
 	}
-	if tunnel != nil {
-		cfg.Dialer = tunnel.DialContext
+	if dial != nil {
+		cfg.Dialer = dial
 	}
 	return nil
 }

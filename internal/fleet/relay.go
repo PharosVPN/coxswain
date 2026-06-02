@@ -37,13 +37,18 @@ type Relay struct {
 	// closest to coxswain, the last hop reaches the node). 0 when the relay is
 	// not an egress hop. Only meaningful with EgressEndpoint set.
 	EgressHop int
-	Status    string
-	Version   int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// OnionEndpoint is the relay's `beacon onion` listener address; OnionPubKey
+	// is its base64 X25519 onion public key (DESIGN §3, decision 20). Both set
+	// means the relay can serve as an onion hop, reusing EgressHop for ordering.
+	OnionEndpoint string
+	OnionPubKey   string
+	Status        string
+	Version       int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
-const relayColumns = `id, name, kind, endpoint, egress_endpoint, egress_hop, status, version, created_at, updated_at`
+const relayColumns = `id, name, kind, endpoint, egress_endpoint, egress_hop, onion_endpoint, onion_pubkey, status, version, created_at, updated_at`
 
 // CreateRelay inserts a new relay. ID and Status are filled in if empty,
 // Version is set to 1. The stored Relay is returned.
@@ -62,8 +67,9 @@ func CreateRelay(ctx context.Context, db *sql.DB, r Relay) (Relay, error) {
 	r.CreatedAt, r.UpdatedAt = now, now
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO relays (`+relayColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop, r.Status, r.Version, r.CreatedAt, r.UpdatedAt)
+		`INSERT INTO relays (`+relayColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop,
+		r.OnionEndpoint, r.OnionPubKey, r.Status, r.Version, r.CreatedAt, r.UpdatedAt)
 	if err != nil {
 		return Relay{}, fmt.Errorf("create relay: %w", err)
 	}
@@ -106,10 +112,12 @@ func ListRelays(ctx context.Context, db *sql.DB) ([]Relay, error) {
 func UpdateRelay(ctx context.Context, db *sql.DB, r Relay) (Relay, error) {
 	now := time.Now().UTC()
 	res, err := db.ExecContext(ctx,
-		`UPDATE relays SET name = ?, kind = ?, endpoint = ?, egress_endpoint = ?, egress_hop = ?, status = ?,
+		`UPDATE relays SET name = ?, kind = ?, endpoint = ?, egress_endpoint = ?, egress_hop = ?,
+		        onion_endpoint = ?, onion_pubkey = ?, status = ?,
 		        version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
-		r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop, r.Status, now, r.ID, r.Version)
+		r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop,
+		r.OnionEndpoint, r.OnionPubKey, r.Status, now, r.ID, r.Version)
 	if err != nil {
 		return Relay{}, fmt.Errorf("update relay: %w", err)
 	}
@@ -146,8 +154,8 @@ func DeleteRelay(ctx context.Context, db *sql.DB, id string) error {
 
 func scanRelay(s rowScanner) (Relay, error) {
 	var r Relay
-	err := s.Scan(&r.ID, &r.Name, &r.Kind, &r.Endpoint, &r.EgressEndpoint, &r.EgressHop, &r.Status,
-		&r.Version, &r.CreatedAt, &r.UpdatedAt)
+	err := s.Scan(&r.ID, &r.Name, &r.Kind, &r.Endpoint, &r.EgressEndpoint, &r.EgressHop,
+		&r.OnionEndpoint, &r.OnionPubKey, &r.Status, &r.Version, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return Relay{}, err
 	}

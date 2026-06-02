@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/idgen"
@@ -32,6 +33,12 @@ const (
 	cmdRelayGenCSR = beaconBinaryPath + " gen-csr"
 	// cmdRelayVersion prints the installed beacon version.
 	cmdRelayVersion = beaconBinaryPath + " version"
+	// cmdRelayOnionKey makes beacon mint/print its X25519 onion public key
+	// (decision 20); the private key stays on the host.
+	cmdRelayOnionKey = beaconBinaryPath + " onion-key"
+	// beaconOnionUnitPath is the onion relay's systemd unit, a third beacon
+	// process. Staged only when the relay is enrolled with an onion endpoint.
+	beaconOnionUnitPath = "/etc/systemd/system/beacon-onion.service"
 )
 
 const beaconUnit = `[Unit]
@@ -67,6 +74,24 @@ WantedBy=multi-user.target
 `
 }
 
+// beaconOnionUnit is the systemd unit for the control-plane onion relay
+// (decision 20): a beacon process peeling onion layers on listenAddr (":8457").
+func beaconOnionUnit(listenAddr string) string {
+	return `[Unit]
+Description=PharosVPN beacon control-plane onion relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=` + beaconBinaryPath + ` onion --listen ` + listenAddr + ` --config-dir /etc/beacon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`
+}
+
 // RelayParams are the inputs to AddRelay.
 type RelayParams struct {
 	Name string // generated if empty
@@ -83,7 +108,11 @@ type RelayParams struct {
 	// EgressHop is this relay's 1-based position in the egress chain (ignored
 	// when EgressEndpoint is empty).
 	EgressHop int
-	SSHHost   string // required
+	// OnionEndpoint, when set, also enrols this relay as an onion hop (decision
+	// 20): it stages `beacon onion` on this address and records the relay's onion
+	// public key. Reuses EgressHop for ordering; empty = no onion.
+	OnionEndpoint string
+	SSHHost       string // required
 	SSHUser        string
 	SSHPort        int
 	Install        InstallSpec
@@ -124,6 +153,7 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 		Endpoint:       p.Endpoint,
 		EgressEndpoint: p.EgressEndpoint,
 		EgressHop:      p.EgressHop,
+		OnionEndpoint:  p.OnionEndpoint,
 		Status:         fleet.StatusProvisioning,
 	})
 	if err != nil {
@@ -194,6 +224,27 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon-egress", nil); err != nil {
 			return RelayResult{}, fmt.Errorf("deploy: start beacon-egress service: %w", err)
 		}
+	}
+
+	// Onion hop (decision 20): mint the relay's onion key, record its public
+	// half, and run `beacon onion` alongside.
+	if p.OnionEndpoint != "" {
+		out, err := remote.Run(ctx, cmdRelayOnionKey, nil)
+		if err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: beacon onion-key: %w", err)
+		}
+		relay.OnionPubKey = strings.TrimSpace(string(out))
+		_, port, err := net.SplitHostPort(p.OnionEndpoint)
+		if err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: onion endpoint %q: %w", p.OnionEndpoint, err)
+		}
+		if err := remote.Upload(ctx, beaconOnionUnitPath, []byte(beaconOnionUnit(":"+port)), 0o644); err != nil {
+			return RelayResult{}, err
+		}
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon-onion", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start beacon-onion service: %w", err)
+		}
+		relay.OnionEndpoint = p.OnionEndpoint
 	}
 
 	agentVersion := readVersion(ctx, remote, cmdRelayVersion)

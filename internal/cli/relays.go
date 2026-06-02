@@ -42,8 +42,8 @@ func hostOnly(addr string) string {
 
 func newRelaysAddCmd() *cobra.Command {
 	var cfgPath, name, endpoint, hostname, user, binaryPath, url string
-	var port, egressPort, egressHop int
-	var egress bool
+	var port, egressPort, egressHop, onionPort int
+	var egress, onion bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
 		Short: "Enroll a new beacon relay over SSH",
@@ -93,6 +93,14 @@ func newRelaysAddCmd() *cobra.Command {
 				}
 			}
 
+			onionEndpoint := ""
+			if onion {
+				if !egress {
+					return fmt.Errorf("--onion requires --egress (the onion hop reuses the egress chain order)")
+				}
+				onionEndpoint = net.JoinHostPort(hostname, strconv.Itoa(onionPort))
+			}
+
 			spec, err := installSpec(binaryPath, url, cfg.Beacon.BinaryURL, "beacon.binary_url")
 			if err != nil {
 				return err
@@ -122,6 +130,7 @@ func newRelaysAddCmd() *cobra.Command {
 				Hostname:       hostname,
 				EgressEndpoint: egressEndpoint,
 				EgressHop:      egressHopN,
+				OnionEndpoint:  onionEndpoint,
 				SSHHost:        host,
 				SSHUser:        user,
 				SSHPort:        port,
@@ -136,6 +145,9 @@ func newRelaysAddCmd() *cobra.Command {
 			fmt.Printf("  tunnel endpoint %s\n", res.Relay.Endpoint)
 			if res.Relay.EgressEndpoint != "" {
 				fmt.Printf("  egress endpoint %s (chain hop %d)\n", res.Relay.EgressEndpoint, res.Relay.EgressHop)
+			}
+			if res.Relay.OnionEndpoint != "" {
+				fmt.Printf("  onion endpoint  %s (onion key recorded)\n", res.Relay.OnionEndpoint)
 			}
 			fmt.Printf("  cert hostname  %s\n", hostname)
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
@@ -156,6 +168,8 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&egress, "egress", false, "also run a control-plane egress relay here, so coxswain reaches nodes through it (decision 19)")
 	cmd.Flags().IntVar(&egressPort, "egress-port", 8456, "port the egress relay listens on (coxswain dials hostname:port)")
 	cmd.Flags().IntVar(&egressHop, "egress-hop", 0, "explicit chain position (1=closest to coxswain); 0 auto-assigns the next hop")
+	cmd.Flags().BoolVar(&onion, "onion", false, "also run an onion hop here (decision 20); requires --egress. coxswain uses onion when every chain relay is onion-capable")
+	cmd.Flags().IntVar(&onionPort, "onion-port", 8457, "port the onion relay listens on")
 	return cmd
 }
 
@@ -182,14 +196,18 @@ func newRelaysListCmd() *cobra.Command {
 			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT\tEGRESS")
+			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT\tEGRESS\tONION")
 			for _, r := range relays {
 				egress := "-"
 				if r.EgressEndpoint != "" {
 					egress = fmt.Sprintf("%s (hop %d)", r.EgressEndpoint, r.EgressHop)
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint), egress)
+				onion := "-"
+				if r.OnionEndpoint != "" && r.OnionPubKey != "" {
+					onion = r.OnionEndpoint
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint), egress, onion)
 			}
 			return tw.Flush()
 		},
