@@ -41,9 +41,9 @@ func hostOnly(addr string) string {
 }
 
 func newRelaysAddCmd() *cobra.Command {
-	var cfgPath, name, endpoint, hostname, user, binaryPath, url string
+	var cfgPath, name, endpoint, hostname, user, binaryPath, url, region string
 	var port, egressPort, egressHop, onionPort int
-	var egress, onion bool
+	var egress, onion, noIngress bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
 		Short: "Enroll a new beacon relay over SSH",
@@ -63,8 +63,8 @@ func newRelaysAddCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			if endpoint == "" {
-				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address coxswain dials)")
+			if endpoint == "" && !noIngress {
+				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address coxswain dials), or pass --no-ingress")
 			}
 			if hostname == "" {
 				hostname = hostOnly(cfg.Beacon.PublicEndpoint)
@@ -126,11 +126,13 @@ func newRelaysAddCmd() *cobra.Command {
 
 			res, err := deploy.AddRelay(ctx, conn, sshConn, bundle, deploy.RelayParams{
 				Name:           name,
+				Region:         region,
 				Endpoint:       endpoint,
 				Hostname:       hostname,
 				EgressEndpoint: egressEndpoint,
 				EgressHop:      egressHopN,
 				OnionEndpoint:  onionEndpoint,
+				NoIngress:      noIngress,
 				SSHHost:        host,
 				SSHUser:        user,
 				SSHPort:        port,
@@ -159,6 +161,7 @@ func newRelaysAddCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "relay name (generated if empty)")
+	cmd.Flags().StringVar(&region, "region", "", "region code for the map (e.g. nyc1)")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address coxswain dials (required)")
 	cmd.Flags().StringVar(&hostname, "hostname", "", "relay cert hostname (defaults to beacon.public_endpoint)")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user)")
@@ -170,6 +173,7 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().IntVar(&egressHop, "egress-hop", 0, "explicit chain position (1=closest to coxswain); 0 auto-assigns the next hop")
 	cmd.Flags().BoolVar(&onion, "onion", false, "also run an onion hop here (decision 20); requires --egress. coxswain uses onion when every chain relay is onion-capable")
 	cmd.Flags().IntVar(&onionPort, "onion-port", 8457, "port the onion relay listens on")
+	cmd.Flags().BoolVar(&noIngress, "no-ingress", false, "skip the client-facing ingress beacon (egress/onion only) — lets a relay share a host with a buoy node")
 	return cmd
 }
 

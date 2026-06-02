@@ -26,6 +26,29 @@ export interface Node {
 	updated_at: string;
 }
 
+export interface Relay {
+	id: string;
+	name: string;
+	kind: string;
+	region: string;
+	status: string;
+	host: string;
+	egress: boolean;
+	egress_hop: number;
+	onion: boolean;
+}
+
+// Site is one host on the fleet map — the aggregate of every role at an IP.
+export interface Site {
+	key: string;
+	region: string;
+	roles: import('./roles').Role[];
+	status: string;
+	node?: Node;
+	relays: Relay[];
+	label: string;
+}
+
 export interface LiveEvent {
 	node_id: string;
 	at: string;

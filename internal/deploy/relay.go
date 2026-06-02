@@ -95,6 +95,9 @@ WantedBy=multi-user.target
 // RelayParams are the inputs to AddRelay.
 type RelayParams struct {
 	Name string // generated if empty
+	// Region locates the relay on the admin map (a DigitalOcean/cloud region
+	// code). Optional.
+	Region string
 	// Endpoint is the reverse-tunnel address coxswain will dial — stored on the
 	// relay record and used by `cox serve`. Required.
 	Endpoint string
@@ -112,7 +115,12 @@ type RelayParams struct {
 	// 20): it stages `beacon onion` on this address and records the relay's onion
 	// public key. Reuses EgressHop for ordering; empty = no onion.
 	OnionEndpoint string
-	SSHHost       string // required
+	// NoIngress skips the client-facing ingress beacon (`beacon run`), staging
+	// only the egress/onion roles. This lets a relay share a host with a buoy
+	// node without both fighting for the same port — the individual's "one box,
+	// many roles". Requires an egress or onion endpoint.
+	NoIngress bool
+	SSHHost   string // required
 	SSHUser        string
 	SSHPort        int
 	Install        InstallSpec
@@ -131,8 +139,10 @@ type RelayResult struct {
 // record is left with status "error".
 func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, p RelayParams) (RelayResult, error) {
 	switch {
-	case p.Endpoint == "":
+	case p.Endpoint == "" && !p.NoIngress:
 		return RelayResult{}, fmt.Errorf("deploy: relay tunnel endpoint is required")
+	case p.NoIngress && p.EgressEndpoint == "" && p.OnionEndpoint == "":
+		return RelayResult{}, fmt.Errorf("deploy: a no-ingress relay needs --egress or --onion")
 	case p.Hostname == "":
 		return RelayResult{}, fmt.Errorf("deploy: relay hostname is required")
 	case p.SSHHost == "":
@@ -150,6 +160,7 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 	relay, err := fleet.CreateRelay(ctx, db, fleet.Relay{
 		Name:           name,
 		Kind:           fleet.RelayKindRemote,
+		Region:         p.Region,
 		Endpoint:       p.Endpoint,
 		EgressEndpoint: p.EgressEndpoint,
 		EgressHop:      p.EgressHop,
@@ -204,11 +215,15 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 		}
 	}
 
-	if err := remote.Upload(ctx, beaconUnitPath, []byte(beaconUnit), 0o644); err != nil {
-		return RelayResult{}, err
-	}
-	if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon", nil); err != nil {
-		return RelayResult{}, fmt.Errorf("deploy: start beacon service: %w", err)
+	// The client-facing ingress beacon — skipped on a co-located relay so it does
+	// not contend for the buoy's port (the "one box, many roles" case).
+	if !p.NoIngress {
+		if err := remote.Upload(ctx, beaconUnitPath, []byte(beaconUnit), 0o644); err != nil {
+			return RelayResult{}, err
+		}
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start beacon service: %w", err)
+		}
 	}
 
 	// Control-plane egress relay (decision 19): a second beacon process. The

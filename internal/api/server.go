@@ -53,6 +53,9 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("DELETE /api/nodes/{id}", s.requireAuth(s.handleDeleteNode))
 	mux.HandleFunc("POST /api/network-policy/preview", s.requireAuth(s.handleNetworkPolicyPreview))
 
+	// Relays — beacons in the egress / onion chain (for the fleet map's roles).
+	mux.HandleFunc("GET /api/relays", s.requireAuth(s.handleListRelays))
+
 	// Admins.
 	mux.HandleFunc("GET /api/admins", s.requireAuth(s.handleListAdmins))
 	mux.HandleFunc("POST /api/admins", s.requireAuth(s.handleCreateAdmin))

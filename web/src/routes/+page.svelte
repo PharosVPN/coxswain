@@ -5,7 +5,8 @@
 	import { api, errorMessage, isApiError } from '$lib/api';
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
-	import type { Node, LiveEvent } from '$lib/types';
+	import FleetMap from '$lib/components/FleetMap.svelte';
+	import type { Node, Relay, Site, LiveEvent } from '$lib/types';
 
 	interface Rules {
 		pre_up: string[];
@@ -14,6 +15,7 @@
 	}
 
 	let nodes = $state<Node[]>([]);
+	let relays = $state<Relay[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
 
@@ -67,10 +69,20 @@
 		loadError = '';
 		try {
 			nodes = await api.get<Node[]>('/api/nodes');
+			// Relays enrich the map with beacon roles; tolerate their absence.
+			try {
+				relays = await api.get<Relay[]>('/api/relays');
+			} catch {
+				relays = [];
+			}
 		} catch (e) {
 			loadError = errorMessage(e);
 		}
 		loading = false;
+	}
+
+	function selectSite(s: Site) {
+		if (s.node) openEdit(s.node);
 	}
 
 	// ───────── Live events WebSocket ─────────
@@ -176,7 +188,13 @@
 <svelte:head><title>Fleet — coxswain</title></svelte:head>
 
 <h1 class="section-title">Fleet</h1>
-<p class="section-subtitle">buoy nodes under this controller.</p>
+<p class="section-subtitle">Where your fleet lives. Click a city to open its node.</p>
+
+{#if !loading && !loadError}
+	<div class="mt-6">
+		<FleetMap {nodes} {relays} selectedKey={editing?.public_ip ?? ''} onselect={selectSite} />
+	</div>
+{/if}
 
 <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
 	{#each [{ label: 'Total nodes', value: total }, { label: 'Active', value: activeCount }, { label: 'Needs attention', value: attentionCount }] as stat (stat.label)}

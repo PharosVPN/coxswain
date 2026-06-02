@@ -26,6 +26,9 @@ type Relay struct {
 	ID   string
 	Name string
 	Kind string
+	// Region locates the relay on the admin map (mirrors Node.Region). Empty for
+	// the embedded relay and until set at enrollment.
+	Region string
 	// Endpoint is the reverse-tunnel address coxswain dials for a remote relay.
 	// Empty for the embedded relay.
 	Endpoint string
@@ -48,7 +51,7 @@ type Relay struct {
 	UpdatedAt     time.Time
 }
 
-const relayColumns = `id, name, kind, endpoint, egress_endpoint, egress_hop, onion_endpoint, onion_pubkey, status, version, created_at, updated_at`
+const relayColumns = `id, name, kind, region, endpoint, egress_endpoint, egress_hop, onion_endpoint, onion_pubkey, status, version, created_at, updated_at`
 
 // CreateRelay inserts a new relay. ID and Status are filled in if empty,
 // Version is set to 1. The stored Relay is returned.
@@ -67,8 +70,8 @@ func CreateRelay(ctx context.Context, db *sql.DB, r Relay) (Relay, error) {
 	r.CreatedAt, r.UpdatedAt = now, now
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO relays (`+relayColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop,
+		`INSERT INTO relays (`+relayColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.Kind, r.Region, r.Endpoint, r.EgressEndpoint, r.EgressHop,
 		r.OnionEndpoint, r.OnionPubKey, r.Status, r.Version, r.CreatedAt, r.UpdatedAt)
 	if err != nil {
 		return Relay{}, fmt.Errorf("create relay: %w", err)
@@ -112,11 +115,11 @@ func ListRelays(ctx context.Context, db *sql.DB) ([]Relay, error) {
 func UpdateRelay(ctx context.Context, db *sql.DB, r Relay) (Relay, error) {
 	now := time.Now().UTC()
 	res, err := db.ExecContext(ctx,
-		`UPDATE relays SET name = ?, kind = ?, endpoint = ?, egress_endpoint = ?, egress_hop = ?,
+		`UPDATE relays SET name = ?, kind = ?, region = ?, endpoint = ?, egress_endpoint = ?, egress_hop = ?,
 		        onion_endpoint = ?, onion_pubkey = ?, status = ?,
 		        version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
-		r.Name, r.Kind, r.Endpoint, r.EgressEndpoint, r.EgressHop,
+		r.Name, r.Kind, r.Region, r.Endpoint, r.EgressEndpoint, r.EgressHop,
 		r.OnionEndpoint, r.OnionPubKey, r.Status, now, r.ID, r.Version)
 	if err != nil {
 		return Relay{}, fmt.Errorf("update relay: %w", err)
@@ -154,7 +157,7 @@ func DeleteRelay(ctx context.Context, db *sql.DB, id string) error {
 
 func scanRelay(s rowScanner) (Relay, error) {
 	var r Relay
-	err := s.Scan(&r.ID, &r.Name, &r.Kind, &r.Endpoint, &r.EgressEndpoint, &r.EgressHop,
+	err := s.Scan(&r.ID, &r.Name, &r.Kind, &r.Region, &r.Endpoint, &r.EgressEndpoint, &r.EgressHop,
 		&r.OnionEndpoint, &r.OnionPubKey, &r.Status, &r.Version, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return Relay{}, err
