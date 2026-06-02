@@ -82,12 +82,13 @@ func (s InstallSpec) validate() error {
 
 // AddParams are the inputs to AddNode.
 type AddParams struct {
-	Name    string // generated from Region if empty
-	Region  string // required
-	SSHHost string // required — used both to dial and as a cert SAN
-	SSHUser string
-	SSHPort int
-	Install InstallSpec
+	Name     string // generated from Region if empty
+	Region   string // required
+	SSHHost  string // required — used both to dial and as a cert SAN
+	SSHUser  string
+	SSHPort  int
+	ServerID string // optional — the server this node is deployed onto
+	Install  InstallSpec
 }
 
 // AddResult reports what onboarding produced.
@@ -124,6 +125,7 @@ func AddNode(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 		SSHUser:    p.SSHUser,
 		SSHPort:    p.SSHPort,
 		SSHHostKey: remote.HostKey(),
+		ServerID:   p.ServerID,
 		Status:     fleet.StatusProvisioning,
 	})
 	if err != nil {

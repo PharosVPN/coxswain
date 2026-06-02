@@ -27,6 +27,11 @@ type DialConfig struct {
 	User string
 	// Signer authenticates coxswain to the node — coxswain's SSH identity.
 	Signer cryptossh.Signer
+	// Password, when set, authenticates with a one-time password instead of the
+	// signer — used once to bootstrap a raw server (cox then installs its key and
+	// switches to key auth). The password is never persisted. When Password is
+	// set, Signer is ignored.
+	Password string
 	// KnownHostKey, if set, is the node's pinned host key in authorized_keys
 	// format; the connection fails on mismatch. Empty enables trust-on-first-
 	// use: any host key is accepted and recorded (see Conn.HostKey).
@@ -46,8 +51,8 @@ type Conn struct {
 
 // Dial opens an SSH connection to a node.
 func Dial(ctx context.Context, cfg DialConfig) (*Conn, error) {
-	if cfg.Signer == nil {
-		return nil, fmt.Errorf("ssh: dial requires a signer")
+	if cfg.Signer == nil && cfg.Password == "" {
+		return nil, fmt.Errorf("ssh: dial requires a signer or a password")
 	}
 	port := cfg.Port
 	if port == 0 {
@@ -72,9 +77,24 @@ func Dial(ctx context.Context, cfg DialConfig) (*Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh: dial %s: %w", addr, err)
 	}
+	var auth []cryptossh.AuthMethod
+	if cfg.Password != "" {
+		// Many fresh hosts negotiate keyboard-interactive rather than the bare
+		// "password" method, so offer both with the same secret.
+		ki := cryptossh.KeyboardInteractive(func(_, _ string, questions []string, _ []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range answers {
+				answers[i] = cfg.Password
+			}
+			return answers, nil
+		})
+		auth = []cryptossh.AuthMethod{cryptossh.Password(cfg.Password), ki}
+	} else {
+		auth = []cryptossh.AuthMethod{cryptossh.PublicKeys(cfg.Signer)}
+	}
 	clientCfg := &cryptossh.ClientConfig{
 		User:            cfg.User,
-		Auth:            []cryptossh.AuthMethod{cryptossh.PublicKeys(cfg.Signer)},
+		Auth:            auth,
 		HostKeyCallback: hostKeyCB,
 		Timeout:         dialTimeout,
 	}
@@ -143,3 +163,7 @@ func (c *Conn) Upload(ctx context.Context, remotePath string, data []byte, mode 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// ShellQuote wraps s in single quotes, safe to embed in a POSIX shell command
+// run via Conn.Run.
+func ShellQuote(s string) string { return shellQuote(s) }

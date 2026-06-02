@@ -5,7 +5,7 @@
 // composable roles); color = how it's DOING (one status glow). A single cheap
 // box can be all three at once — the individual's whole private internet.
 
-export type Role = 'controller' | 'node' | 'relay';
+export type Role = 'controller' | 'node' | 'relay' | 'server';
 
 export interface RoleMeta {
 	id: Role;
@@ -18,7 +18,8 @@ export interface RoleMeta {
 export const ROLES: RoleMeta[] = [
 	{ id: 'controller', label: 'Controller', sub: 'steers the fleet' },
 	{ id: 'node', label: 'Node', sub: 'where you surface on the internet' },
-	{ id: 'relay', label: 'Relay', sub: 'a hop that hides the controller' }
+	{ id: 'relay', label: 'Relay', sub: 'a hop that hides the controller' },
+	{ id: 'server', label: 'Server', sub: 'a machine, no role deployed yet' }
 ];
 
 export interface StatusMeta {

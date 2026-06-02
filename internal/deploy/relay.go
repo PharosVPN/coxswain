@@ -123,6 +123,7 @@ type RelayParams struct {
 	SSHHost   string // required
 	SSHUser   string
 	SSHPort   int
+	ServerID  string // optional — the server this relay is deployed onto
 	Install   InstallSpec
 }
 
@@ -165,6 +166,7 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 		EgressEndpoint: p.EgressEndpoint,
 		EgressHop:      p.EgressHop,
 		OnionEndpoint:  p.OnionEndpoint,
+		ServerID:       p.ServerID,
 		Status:         fleet.StatusProvisioning,
 	})
 	if err != nil {

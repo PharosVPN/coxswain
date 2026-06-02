@@ -14,6 +14,8 @@ import (
 	"github.com/PharosVPN/coxswain/internal/deploy"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/coxswain/internal/server"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 	"github.com/spf13/cobra"
 )
 
@@ -41,20 +43,19 @@ func hostOnly(addr string) string {
 }
 
 func newRelaysAddCmd() *cobra.Command {
-	var cfgPath, name, endpoint, hostname, user, binaryPath, url, region string
+	var cfgPath, name, endpoint, hostname, user, binaryPath, url, region, srvID string
 	var port, egressPort, egressHop, onionPort int
 	var egress, onion, noIngress bool
 	cmd := &cobra.Command{
-		Use:   "add <ssh-host>",
-		Short: "Enroll a new relay over SSH",
-		Long: "Enroll a remote relay (BUILD.md \"Relay enrollment\n" +
-			"contract\"). coxswain connects to <ssh-host> over SSH, installs the\n" +
-			"relay binary, signs the relay certificate request the binary\n" +
-			"generates on the host, pushes the trust material, and starts the\n" +
-			"service. coxswain then reaches the relay by dialling out to its\n" +
-			"reverse tunnel — no inbound port.\n\n" +
-			"Add coxswain's SSH key (see `cox ssh-key`) to the host first.",
-		Args: cobra.ExactArgs(1),
+		Use:   "add [ssh-host]",
+		Short: "Enroll a new relay (onto a server, or directly over SSH)",
+		Long: "Deploy a relay. With --server <id>, install onto an already-onboarded\n" +
+			"server (the cert hostname defaults to the server's host). Without\n" +
+			"--server, connect directly to <ssh-host> over SSH (coxswain's key must\n" +
+			"already be on the host). coxswain reaches the relay by dialling out to\n" +
+			"its reverse tunnel — no inbound port. A relay on the controller host\n" +
+			"(self) is egress/onion only (no client-facing ingress).",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			cfg, conn, err := openState(cfgPath)
@@ -62,6 +63,22 @@ func newRelaysAddCmd() *cobra.Command {
 				return err
 			}
 			defer conn.Close()
+
+			var srv fleet.Server
+			if srvID != "" {
+				if srv, err = fleet.GetServer(ctx, conn, srvID); err != nil {
+					return err
+				}
+				if hostname == "" {
+					hostname = srv.SSHHost
+				}
+				if region == "" {
+					region = srv.Region
+				}
+				if srv.IsSelf {
+					noIngress = true // a relay on the controller host is egress/onion only
+				}
+			}
 
 			if endpoint == "" && !noIngress {
 				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address coxswain dials), or pass --no-ingress")
@@ -105,26 +122,12 @@ func newRelaysAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if user == "" {
-				user = cfg.Node.SSHUser
-			}
-			if port == 0 {
-				port = cfg.Node.SSHPort
-			}
-
 			bundle, _, err := pki.EnsureCA(ctx, conn)
 			if err != nil {
 				return fmt.Errorf("load CA: %w", err)
 			}
 
-			host := args[0]
-			sshConn, err := dialNew(ctx, conn, host, user, port)
-			if err != nil {
-				return err
-			}
-			defer sshConn.Close()
-
-			res, err := deploy.AddRelay(ctx, conn, sshConn, bundle, deploy.RelayParams{
+			params := deploy.RelayParams{
 				Name:           name,
 				Region:         region,
 				Endpoint:       endpoint,
@@ -133,11 +136,39 @@ func newRelaysAddCmd() *cobra.Command {
 				EgressHop:      egressHopN,
 				OnionEndpoint:  onionEndpoint,
 				NoIngress:      noIngress,
-				SSHHost:        host,
-				SSHUser:        user,
-				SSHPort:        port,
 				Install:        spec,
-			})
+			}
+
+			var res deploy.RelayResult
+			if srvID != "" {
+				id, _, iErr := ssh.EnsureIdentity(ctx, conn)
+				if iErr != nil {
+					return iErr
+				}
+				dialer, dErr := newEgressDialer(ctx, conn)
+				if dErr != nil {
+					return dErr
+				}
+				res, err = server.DeployRelay(ctx, conn, id, bundle, srv, params, dialer)
+			} else {
+				if len(args) == 0 {
+					return fmt.Errorf("provide an <ssh-host> or --server <id>")
+				}
+				if user == "" {
+					user = cfg.Node.SSHUser
+				}
+				if port == 0 {
+					port = cfg.Node.SSHPort
+				}
+				host := args[0]
+				sshConn, dErr := dialNew(ctx, conn, host, user, port)
+				if dErr != nil {
+					return dErr
+				}
+				defer sshConn.Close()
+				params.SSHHost, params.SSHUser, params.SSHPort = host, user, port
+				res, err = deploy.AddRelay(ctx, conn, sshConn, bundle, params)
+			}
 			if err != nil {
 				return err
 			}
@@ -160,6 +191,7 @@ func newRelaysAddCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&srvID, "server", "", "deploy onto an onboarded server (see `cox servers list`); hostname/region default to the server's")
 	cmd.Flags().StringVar(&name, "name", "", "relay name (generated if empty)")
 	cmd.Flags().StringVar(&region, "region", "", "region code for the map (e.g. nyc1)")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address coxswain dials (required)")

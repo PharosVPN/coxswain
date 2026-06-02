@@ -24,6 +24,7 @@ export interface Node {
 	version: number;
 	created_at: string;
 	updated_at: string;
+	server_id?: string;
 }
 
 export interface Relay {
@@ -36,6 +37,19 @@ export interface Relay {
 	egress: boolean;
 	egress_hop: number;
 	onion: boolean;
+	server_id?: string;
+}
+
+// Server is a machine cox owns — onboarded by password, then keyed. Roles
+// (node/relay) deploy onto it; the controller's own host is is_self.
+export interface Server {
+	id: string;
+	name: string;
+	region: string;
+	ssh_host: string;
+	is_self: boolean;
+	status: string;
+	version: number;
 }
 
 // NodeLink is one cascade edge — an inner AmneziaWG link from an entry node to
@@ -56,6 +70,7 @@ export interface Site {
 	status: string;
 	node?: Node;
 	relays: Relay[];
+	server?: Server;
 	label: string;
 }
 
