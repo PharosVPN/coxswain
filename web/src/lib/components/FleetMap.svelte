@@ -452,7 +452,9 @@
 		border-top-color: var(--c-route-control);
 	}
 	.legend-ends {
-		flex: none;
+		flex: 0 0 38px;
+		width: 38px;
+		height: 12px;
 	}
 	.legend-ends circle {
 		fill: var(--c-gray-950);
