@@ -5,14 +5,22 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
+	"sort"
+	"time"
 
+	"github.com/PharosVPN/beacon/onion"
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/db"
+	"github.com/PharosVPN/coxswain/internal/egress"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/ssh"
@@ -37,31 +45,39 @@ func openState(cfgPath string) (config.Config, *sql.DB, error) {
 }
 
 // dialNew opens an SSH connection to a not-yet-enrolled node. The host key is
-// trusted on first use and captured for later pinning.
+// trusted on first use and captured for later pinning. If an egress relay is
+// enrolled, the SSH session is routed through it (decision 19).
 func dialNew(ctx context.Context, conn *sql.DB, host, user string, port int) (*ssh.Conn, error) {
 	id, _, err := ssh.EnsureIdentity(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	return ssh.Dial(ctx, ssh.DialConfig{
-		Host: host, Port: port, User: user, Signer: id.Signer,
-	})
+	cfg := ssh.DialConfig{Host: host, Port: port, User: user, Signer: id.Signer}
+	if err := routeSSHThroughEgress(ctx, conn, &cfg); err != nil {
+		return nil, err
+	}
+	return ssh.Dial(ctx, cfg)
 }
 
 // dialNode opens an SSH connection to an enrolled node, verifying its pinned
-// host key.
+// host key. If an egress relay is enrolled, the SSH session is routed through
+// it (decision 19) — host-key pinning stays end-to-end.
 func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, error) {
 	id, _, err := ssh.EnsureIdentity(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	return ssh.Dial(ctx, ssh.DialConfig{
+	cfg := ssh.DialConfig{
 		Host:         node.SSHHost,
 		Port:         node.SSHPort,
 		User:         node.SSHUser,
 		Signer:       id.Signer,
 		KnownHostKey: node.SSHHostKey,
-	})
+	}
+	if err := routeSSHThroughEgress(ctx, conn, &cfg); err != nil {
+		return nil, err
+	}
+	return ssh.Dial(ctx, cfg)
 }
 
 // newCascadeCoordinator builds a cascade coordinator backed by the state DB and
@@ -90,5 +106,142 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 	chain := make([]byte, 0, len(cc.CertPEM)+len(bundle.Fleet.CertPEM))
 	chain = append(chain, cc.CertPEM...)
 	chain = append(chain, bundle.Fleet.CertPEM...)
-	return control.NewDialer(chain, cc.KeyPEM, bundle.Root.CertPEM)
+
+	var opts []control.Option
+	dial, err := newEgressDialer(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	if dial != nil {
+		opts = append(opts, control.WithContextDialer(func(dctx context.Context, addr string) (net.Conn, error) {
+			return dial(dctx, "tcp", addr)
+		}))
+	}
+	return control.NewDialer(chain, cc.KeyPEM, bundle.Root.CertPEM, opts...)
+}
+
+// egressRelays returns the relays coxswain should route its control plane
+// through (DESIGN §3, decision 19), in chain order — every active remote relay
+// carrying an egress endpoint, sorted by EgressHop ascending (hop 1 closest to
+// coxswain, the last hop reaches the node), ties broken by creation order for
+// determinism. Empty means direct dial.
+func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
+	relays, err := fleet.ListRelays(ctx, conn) // already ordered by created_at
+	if err != nil {
+		return nil, err
+	}
+	var chain []fleet.Relay
+	for _, r := range relays {
+		if r.Kind == fleet.RelayKindRemote && r.Status == fleet.StatusActive && r.EgressEndpoint != "" {
+			chain = append(chain, r)
+		}
+	}
+	sort.SliceStable(chain, func(i, j int) bool { return chain[i].EgressHop < chain[j].EgressHop })
+	return chain, nil
+}
+
+// controlDial dials a node host:port for the control plane, routed through the
+// egress relays. Its signature matches net.Dialer.DialContext, so it drops into
+// both the gRPC and SSH dial chokepoints.
+type controlDial = func(ctx context.Context, network, addr string) (net.Conn, error)
+
+// newEgressDialer returns the dialer coxswain routes its control plane through,
+// or nil when no egress relay is enrolled (direct dial). When every relay in
+// the chain is onion-capable it builds an onion circuit (decision 20) — each
+// relay decrypts only its own layer, seeing neither coxswain's identity nor the
+// full path; otherwise it builds the nested-TLS egress chain (decision 19).
+func newEgressDialer(ctx context.Context, conn *sql.DB) (controlDial, error) {
+	chain, err := egressRelays(ctx, conn)
+	if err != nil {
+		return nil, fmt.Errorf("egress relay lookup: %w", err)
+	}
+	if len(chain) == 0 {
+		return nil, nil
+	}
+	if onionCapable(chain) {
+		return onionDialer(chain)
+	}
+	tun, err := chainTunnel(ctx, conn, chain)
+	if err != nil {
+		return nil, err
+	}
+	return tun.DialContext, nil
+}
+
+// onionCapable reports whether every relay in the chain can serve as an onion
+// hop (has both an onion endpoint and an onion public key).
+func onionCapable(chain []fleet.Relay) bool {
+	for _, r := range chain {
+		if r.OnionEndpoint == "" || r.OnionPubKey == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// onionDialer builds the onion-circuit dialer over the chain (decision 20). Each
+// control dial opens a fresh circuit to the node target through every hop; the
+// hop links are plain TCP, as the onion supplies confidentiality.
+func onionDialer(chain []fleet.Relay) (controlDial, error) {
+	hops := make([]onion.Hop, len(chain))
+	for i, r := range chain {
+		pub, err := onion.ParsePublicKey(r.OnionPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("relay %s onion key: %w", r.ID, err)
+		}
+		hops[i] = onion.Hop{Addr: r.OnionEndpoint, OnionPub: pub}
+	}
+	firstHop := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+	}
+	return func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return onion.Open(ctx, hops, addr, firstHop)
+	}, nil
+}
+
+// chainTunnel builds the nested-TLS egress chain (decision 19): coxswain presents
+// its controller cert to every hop and verifies each against the root.
+func chainTunnel(ctx context.Context, conn *sql.DB, chain []fleet.Relay) (*egress.Tunnel, error) {
+	bundle, _, err := pki.EnsureCA(ctx, conn)
+	if err != nil {
+		return nil, fmt.Errorf("load CA: %w", err)
+	}
+	cc, _, err := pki.EnsureControllerCert(ctx, conn, bundle.Fleet)
+	if err != nil {
+		return nil, fmt.Errorf("controller cert: %w", err)
+	}
+	certChain := make([]byte, 0, len(cc.CertPEM)+len(bundle.Fleet.CertPEM))
+	certChain = append(certChain, cc.CertPEM...)
+	certChain = append(certChain, bundle.Fleet.CertPEM...)
+	cert, err := tls.X509KeyPair(certChain, cc.KeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("egress client cert: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(bundle.Root.CertPEM) {
+		return nil, errors.New("egress: no root CA in bundle")
+	}
+	base := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      roots,
+		MinVersion:   tls.VersionTLS13,
+	}
+	hops := make([]egress.Hop, len(chain))
+	for i, r := range chain {
+		hops[i] = egress.Hop{Endpoint: r.EgressEndpoint, TLS: base}
+	}
+	return egress.NewChain(hops)
+}
+
+// routeSSHThroughEgress points cfg.Dialer at the egress relays, if any are
+// enrolled; otherwise it leaves cfg untouched (direct dial).
+func routeSSHThroughEgress(ctx context.Context, conn *sql.DB, cfg *ssh.DialConfig) error {
+	dial, err := newEgressDialer(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if dial != nil {
+		cfg.Dialer = dial
+	}
+	return nil
 }

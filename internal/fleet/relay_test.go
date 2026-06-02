@@ -68,6 +68,43 @@ func TestRelayCRUD(t *testing.T) {
 	}
 }
 
+// TestRelayEgressFields round-trips the control-plane egress fields (decision
+// 19): a relay's egress endpoint and chain hop survive create, get and update.
+func TestRelayEgressFields(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+
+	created, err := fleet.CreateRelay(ctx, conn, fleet.Relay{
+		Name: "egress-2", Kind: fleet.RelayKindRemote, Endpoint: "r2.example:8444",
+		EgressEndpoint: "r2.example:8456", EgressHop: 2,
+	})
+	if err != nil {
+		t.Fatalf("CreateRelay: %v", err)
+	}
+
+	got, err := fleet.GetRelay(ctx, conn, created.ID)
+	if err != nil {
+		t.Fatalf("GetRelay: %v", err)
+	}
+	if got.EgressEndpoint != "r2.example:8456" || got.EgressHop != 2 {
+		t.Errorf("egress fields not persisted: endpoint=%q hop=%d", got.EgressEndpoint, got.EgressHop)
+	}
+
+	// Re-order the hop under optimistic concurrency.
+	got.EgressHop = 5
+	updated, err := fleet.UpdateRelay(ctx, conn, got)
+	if err != nil {
+		t.Fatalf("UpdateRelay: %v", err)
+	}
+	if updated.EgressHop != 5 {
+		t.Errorf("EgressHop after update: got %d want 5", updated.EgressHop)
+	}
+	reread, _ := fleet.GetRelay(ctx, conn, created.ID)
+	if reread.EgressHop != 5 || reread.EgressEndpoint != "r2.example:8456" {
+		t.Errorf("re-read egress fields: endpoint=%q hop=%d", reread.EgressEndpoint, reread.EgressHop)
+	}
+}
+
 func TestCreateRelayRejectsBadKind(t *testing.T) {
 	conn := newDB(t)
 	if _, err := fleet.CreateRelay(context.Background(), conn, fleet.Relay{

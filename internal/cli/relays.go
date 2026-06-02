@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"text/tabwriter"
 
 	"github.com/PharosVPN/coxswain/internal/config"
@@ -24,6 +25,7 @@ func newRelaysCmd() *cobra.Command {
 	cmd.AddCommand(
 		newRelaysAddCmd(),
 		newRelaysListCmd(),
+		newRelaysSetEgressCmd(),
 		newRelaysRemoveCmd(),
 	)
 	return cmd
@@ -40,7 +42,8 @@ func hostOnly(addr string) string {
 
 func newRelaysAddCmd() *cobra.Command {
 	var cfgPath, name, endpoint, hostname, user, binaryPath, url string
-	var port int
+	var port, egressPort, egressHop, onionPort int
+	var egress, onion bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
 		Short: "Enroll a new beacon relay over SSH",
@@ -70,6 +73,34 @@ func newRelaysAddCmd() *cobra.Command {
 				return fmt.Errorf("no relay hostname — set beacon.public_endpoint or pass --hostname")
 			}
 
+			egressEndpoint := ""
+			egressHopN := 0
+			if egress {
+				egressEndpoint = net.JoinHostPort(hostname, strconv.Itoa(egressPort))
+				egressHopN = egressHop
+				if egressHopN == 0 {
+					// Auto-assign the next position after the current last hop.
+					relays, lerr := fleet.ListRelays(ctx, conn)
+					if lerr != nil {
+						return lerr
+					}
+					for _, r := range relays {
+						if r.EgressEndpoint != "" && r.EgressHop > egressHopN {
+							egressHopN = r.EgressHop
+						}
+					}
+					egressHopN++
+				}
+			}
+
+			onionEndpoint := ""
+			if onion {
+				if !egress {
+					return fmt.Errorf("--onion requires --egress (the onion hop reuses the egress chain order)")
+				}
+				onionEndpoint = net.JoinHostPort(hostname, strconv.Itoa(onionPort))
+			}
+
 			spec, err := installSpec(binaryPath, url, cfg.Beacon.BinaryURL, "beacon.binary_url")
 			if err != nil {
 				return err
@@ -94,13 +125,16 @@ func newRelaysAddCmd() *cobra.Command {
 			defer sshConn.Close()
 
 			res, err := deploy.AddRelay(ctx, conn, sshConn, bundle, deploy.RelayParams{
-				Name:     name,
-				Endpoint: endpoint,
-				Hostname: hostname,
-				SSHHost:  host,
-				SSHUser:  user,
-				SSHPort:  port,
-				Install:  spec,
+				Name:           name,
+				Endpoint:       endpoint,
+				Hostname:       hostname,
+				EgressEndpoint: egressEndpoint,
+				EgressHop:      egressHopN,
+				OnionEndpoint:  onionEndpoint,
+				SSHHost:        host,
+				SSHUser:        user,
+				SSHPort:        port,
+				Install:        spec,
 			})
 			if err != nil {
 				return err
@@ -109,6 +143,12 @@ func newRelaysAddCmd() *cobra.Command {
 			fmt.Printf("relay enrolled — %s\n", res.Relay.Name)
 			fmt.Printf("  relay id       %s\n", res.Relay.ID)
 			fmt.Printf("  tunnel endpoint %s\n", res.Relay.Endpoint)
+			if res.Relay.EgressEndpoint != "" {
+				fmt.Printf("  egress endpoint %s (chain hop %d)\n", res.Relay.EgressEndpoint, res.Relay.EgressHop)
+			}
+			if res.Relay.OnionEndpoint != "" {
+				fmt.Printf("  onion endpoint  %s (onion key recorded)\n", res.Relay.OnionEndpoint)
+			}
 			fmt.Printf("  cert hostname  %s\n", hostname)
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
 			fmt.Printf("  beacon version %s\n", dash(res.AgentVersion))
@@ -125,6 +165,11 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
 	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local beacon binary to upload")
 	cmd.Flags().StringVar(&url, "url", "", "URL the host downloads beacon from (overrides config)")
+	cmd.Flags().BoolVar(&egress, "egress", false, "also run a control-plane egress relay here, so coxswain reaches nodes through it (decision 19)")
+	cmd.Flags().IntVar(&egressPort, "egress-port", 8456, "port the egress relay listens on (coxswain dials hostname:port)")
+	cmd.Flags().IntVar(&egressHop, "egress-hop", 0, "explicit chain position (1=closest to coxswain); 0 auto-assigns the next hop")
+	cmd.Flags().BoolVar(&onion, "onion", false, "also run an onion hop here (decision 20); requires --egress. coxswain uses onion when every chain relay is onion-capable")
+	cmd.Flags().IntVar(&onionPort, "onion-port", 8457, "port the onion relay listens on")
 	return cmd
 }
 
@@ -151,15 +196,80 @@ func newRelaysListCmd() *cobra.Command {
 			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT")
+			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT\tEGRESS\tONION")
 			for _, r := range relays {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint))
+				egress := "-"
+				if r.EgressEndpoint != "" {
+					egress = fmt.Sprintf("%s (hop %d)", r.EgressEndpoint, r.EgressHop)
+				}
+				onion := "-"
+				if r.OnionEndpoint != "" && r.OnionPubKey != "" {
+					onion = r.OnionEndpoint
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint), egress, onion)
 			}
 			return tw.Flush()
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	return cmd
+}
+
+func newRelaysSetEgressCmd() *cobra.Command {
+	var cfgPath string
+	var hop int
+	var disable bool
+	cmd := &cobra.Command{
+		Use:   "set-egress <relay-id>",
+		Short: "Reorder a relay in the egress chain, or drop it from the chain",
+		Long: "Change an enrolled egress relay's position in the control-plane\n" +
+			"chain (decision 19), or remove it from the chain. --hop sets the\n" +
+			"1-based position (hop 1 is closest to coxswain); --disable drops the\n" +
+			"relay from the chain — coxswain stops routing through it on the next\n" +
+			"command, though the beacon-egress service keeps running on the host\n" +
+			"until the operator stops it. Takes effect on coxswain's next dial.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			_, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			relay, err := fleet.GetRelay(ctx, conn, args[0])
+			if err != nil {
+				return err
+			}
+			switch {
+			case disable:
+				relay.EgressEndpoint = ""
+				relay.EgressHop = 0
+			case hop > 0:
+				if relay.EgressEndpoint == "" {
+					return fmt.Errorf("relay %s is not an egress relay — re-enrol with --egress", relay.ID)
+				}
+				relay.EgressHop = hop
+			default:
+				return fmt.Errorf("nothing to do: pass --hop N or --disable")
+			}
+
+			updated, err := fleet.UpdateRelay(ctx, conn, relay)
+			if err != nil {
+				return err
+			}
+			if updated.EgressEndpoint == "" {
+				fmt.Printf("relay %s removed from the egress chain\n", updated.Name)
+			} else {
+				fmt.Printf("relay %s → egress chain hop %d (%s)\n", updated.Name, updated.EgressHop, updated.EgressEndpoint)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().IntVar(&hop, "hop", 0, "1-based chain position (hop 1 closest to coxswain)")
+	cmd.Flags().BoolVar(&disable, "disable", false, "remove this relay from the egress chain")
 	return cmd
 }
 
