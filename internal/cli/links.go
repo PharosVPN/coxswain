@@ -19,12 +19,12 @@ func newLinksCmd() *cobra.Command {
 		Use:   "links",
 		Short: "Manage node-cascade inner links (entry → exit)",
 	}
-	cmd.AddCommand(newLinksAddCmd(), newLinksListCmd(), newLinksRemoveCmd())
+	cmd.AddCommand(newLinksAddCmd(), newLinksListCmd(), newLinksColorCmd(), newLinksRemoveCmd())
 	return cmd
 }
 
 func newLinksAddCmd() *cobra.Command {
-	var cfgPath string
+	var cfgPath, color string
 	cmd := &cobra.Command{
 		Use:   "add <entry-node-id> <exit-node-id>",
 		Short: "Create an inner link from an entry node to an exit node",
@@ -44,10 +44,39 @@ func newLinksAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if color != "" {
+				if err := fleet.SetNodeLinkColor(ctx, conn, link.ID, color); err != nil {
+					return err
+				}
+			}
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"link %s created: %s → %s over %s (udp %d), status %s\n",
 				link.ID, link.EntryNodeID, link.ExitNodeID, link.InnerInterface,
 				link.ListenPort, link.Status)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to cox.yaml")
+	cmd.Flags().StringVar(&color, "color", "", "map colour for this path, e.g. #4fd1c4 (optional; auto-assigned if empty)")
+	return cmd
+}
+
+func newLinksColorCmd() *cobra.Command {
+	var cfgPath string
+	cmd := &cobra.Command{
+		Use:   "color <link-id> <hex>",
+		Short: "Set a cascade path's colour on the map",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			if err := fleet.SetNodeLinkColor(cmd.Context(), conn, args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "link %s colour set to %s\n", args[0], args[1])
 			return nil
 		},
 	}

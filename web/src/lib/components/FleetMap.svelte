@@ -11,17 +11,23 @@
 	import { geoNaturalEarth1, geoPath, geoGraticule10 } from 'd3-geo';
 	import { feature } from 'topojson-client';
 	import landTopo from 'world-atlas/land-110m.json';
-	import type { Node, Relay, Site } from '$lib/types';
+	import type { Node, Relay, NodeLink, Site } from '$lib/types';
 	import { locate } from '$lib/geo';
 	import { ROLES, STATUSES, statusColor, dominantStatus, type Role } from '$lib/roles';
 	import RoleGlyph from './RoleGlyph.svelte';
 
-	let { nodes = [], relays = [], selectedKey = '', onselect }: {
+	let { nodes = [], relays = [], links = [], selectedKey = '', onselect }: {
 		nodes?: Node[];
 		relays?: Relay[];
+		links?: NodeLink[];
 		selectedKey?: string;
 		onselect?: (s: Site) => void;
 	} = $props();
+
+	// Honour reduced-motion for the flowing traffic (the pulses are CSS-gated).
+	const motionOK =
+		typeof window === 'undefined' ||
+		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 	const W = 960;
 	const H = 500;
@@ -103,6 +109,92 @@
 			});
 	});
 
+	// Pin positions keyed by host + by node id, so arcs can connect real pins.
+	const hostPos = $derived(new Map(pins.map((p) => [p.site.key, { x: p.x, y: p.y }])));
+	const nodePos = $derived(
+		new Map(pins.filter((p) => p.site.node).map((p) => [p.site.node!.id, { x: p.x, y: p.y }]))
+	);
+
+	type Pt = { x: number; y: number };
+
+	// Bézier control point: midpoint bowed upward off the chord (flight-map arc).
+	function ctrlOf(a: Pt, b: Pt): Pt {
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const dist = Math.hypot(dx, dy) || 1;
+		const lift = Math.min(dist * 0.24, 130);
+		let nx = -dy / dist;
+		let ny = dx / dist;
+		if (ny > 0) {
+			nx = -nx;
+			ny = -ny;
+		}
+		return { x: (a.x + b.x) / 2 + nx * lift, y: (a.y + b.y) / 2 + ny * lift };
+	}
+	const arcD = (a: Pt, c: Pt, b: Pt) =>
+		`M${a.x},${a.y} Q${c.x.toFixed(1)},${c.y.toFixed(1)} ${b.x},${b.y}`;
+
+	// An arrowhead near the exit end, pointing along the arc — so direction (and
+	// which end is the exit) is unmistakable even on a crowded map.
+	function arrowD(a: Pt, c: Pt, b: Pt): string {
+		const t = 0.82;
+		const u = 1 - t;
+		const px = u * u * a.x + 2 * u * t * c.x + t * t * b.x;
+		const py = u * u * a.y + 2 * u * t * c.y + t * t * b.y;
+		let tx = 2 * u * (c.x - a.x) + 2 * t * (b.x - c.x);
+		let ty = 2 * u * (c.y - a.y) + 2 * t * (b.y - c.y);
+		const m = Math.hypot(tx, ty) || 1;
+		tx /= m;
+		ty /= m;
+		const s = 8;
+		const bx = px - tx * s;
+		const by = py - ty * s;
+		const nx = -ty;
+		const ny = tx;
+		return `M${px.toFixed(1)},${py.toFixed(1)} L${(bx + nx * s * 0.6).toFixed(1)},${(by + ny * s * 0.6).toFixed(1)} L${(bx - nx * s * 0.6).toFixed(1)},${(by - ny * s * 0.6).toFixed(1)} Z`;
+	}
+
+	// Auto palette for data paths an admin hasn't coloured (kept clear of the
+	// status hues and the violet control colour).
+	const PATH_PALETTE = ['#4fd1c4', '#f6c177', '#f08fb0', '#7cc7ff', '#b7e07a', '#ffa07a'];
+
+	// Cascade routes: entry → exit inner links, each in its own colour.
+	const cascadeArcs = $derived(
+		links
+			.map((l, i) => {
+				const a = nodePos.get(l.entry_node_id);
+				const b = nodePos.get(l.exit_node_id);
+				if (!a || !b) return null;
+				const c = ctrlOf(a, b);
+				return {
+					id: `casc-${l.id}`,
+					d: arcD(a, c, b),
+					arrow: arrowD(a, c, b),
+					entry: a,
+					color: l.color || PATH_PALETTE[i % PATH_PALETTE.length]
+				};
+			})
+			.filter((x) => x !== null)
+	);
+
+	// Control path: the egress/onion chain, drawn hop by hop (the control plane).
+	const chainArcs = $derived.by(() => {
+		const chain = relays
+			.filter((r) => r.egress)
+			.slice()
+			.sort((x, y) => x.egress_hop - y.egress_hop);
+		const out: { id: string; d: string; arrow: string }[] = [];
+		for (let i = 0; i < chain.length - 1; i++) {
+			const a = hostPos.get(chain[i].host);
+			const b = hostPos.get(chain[i + 1].host);
+			if (a && b) {
+				const c = ctrlOf(a, b);
+				out.push({ id: `chain-${i}`, d: arcD(a, c, b), arrow: arrowD(a, c, b) });
+			}
+		}
+		return out;
+	});
+
 	const CHIP = 11; // chip radius
 	const GAP = 3;
 	function chipX(count: number, i: number): number {
@@ -171,6 +263,37 @@
 		<rect x="0" y="0" width={W} height={H} fill="url(#map-vignette)" />
 		<path d={graticulePath} class="graticule" />
 		<path d={landPath} class="land" />
+
+		<!-- routes under the pins: control path (chain) first, cascade on top -->
+		<g class="routes">
+			{#each chainArcs as arc (arc.id)}
+				<path id={arc.id} class="arc" style="stroke: var(--c-route-control)" d={arc.d} />
+				<path class="arrow" style="fill: var(--c-route-control)" d={arc.arrow} />
+				{#if motionOK}
+					{#each [0, 1] as k (k)}
+						<circle class="flow" r="2" style="fill: var(--c-route-control)">
+							<animateMotion dur="4.2s" begin="{k * 2.1}s" repeatCount="indefinite">
+								<mpath href="#{arc.id}" />
+							</animateMotion>
+						</circle>
+					{/each}
+				{/if}
+			{/each}
+			{#each cascadeArcs as arc (arc.id)}
+				<path id={arc.id} class="arc" style="stroke: {arc.color}" d={arc.d} />
+				<path class="arrow" style="fill: {arc.color}" d={arc.arrow} />
+				<circle class="entry-ring" cx={arc.entry.x} cy={arc.entry.y} r="5" style="stroke: {arc.color}" />
+				{#if motionOK}
+					{#each [0, 1, 2] as k (k)}
+						<circle class="flow" r="2.6" style="fill: {arc.color}">
+							<animateMotion dur="3.2s" begin="{k * 1.06}s" repeatCount="indefinite">
+								<mpath href="#{arc.id}" />
+							</animateMotion>
+						</circle>
+					{/each}
+				{/if}
+			{/each}
+		</g>
 
 		{#each pins as p (p.site.key)}
 			{@const lines = roleLines(p.site)}
@@ -248,6 +371,25 @@
 				</div>
 			{/each}
 		</div>
+		<div class="legend-col">
+			<div class="legend-head">Routes</div>
+			<div class="legend-row">
+				<span class="legend-line cascade"></span>
+				<span class="legend-text"><b>Data path</b><span class="legend-sub">each its own colour</span></span>
+			</div>
+			<div class="legend-row">
+				<span class="legend-line control"></span>
+				<span class="legend-text"><b>Control path</b><span class="legend-sub">controller → relays, hidden</span></span>
+			</div>
+			<div class="legend-row">
+				<svg class="legend-ends" width="38" height="12" viewBox="0 0 38 12" aria-hidden="true">
+					<circle cx="5" cy="6" r="4" />
+					<line x1="11" y1="6" x2="27" y2="6" stroke-dasharray="3 2.5" />
+					<path d="M38,6 L29,1.5 L31,6 L29,10.5 Z" />
+				</svg>
+				<span class="legend-text"><b>Entry → exit</b><span class="legend-sub">ring starts, arrow lands</span></span>
+			</div>
+		</div>
 	</div>
 
 	{#if pins.length === 0}
@@ -282,6 +424,47 @@
 		stroke: var(--c-gray-800);
 		stroke-width: 0.3;
 		opacity: 0.55;
+	}
+	.arc {
+		fill: none;
+		stroke-width: 1.8;
+		stroke-dasharray: 6 5;
+		opacity: 0.65;
+	}
+	.arrow {
+		opacity: 0.95;
+	}
+	.entry-ring {
+		fill: var(--c-gray-950);
+		stroke-width: 2;
+		opacity: 0.95;
+	}
+	.flow {
+		stroke: none;
+	}
+	.legend-line {
+		display: inline-block;
+		width: 18px;
+		height: 0;
+		border-top: 2px dashed var(--c-route-cascade);
+	}
+	.legend-line.control {
+		border-top-color: var(--c-route-control);
+	}
+	.legend-ends {
+		flex: none;
+	}
+	.legend-ends circle {
+		fill: var(--c-gray-950);
+		stroke: var(--c-route-cascade);
+		stroke-width: 2;
+	}
+	.legend-ends line {
+		stroke: var(--c-route-cascade);
+		stroke-width: 1.6;
+	}
+	.legend-ends path {
+		fill: var(--c-route-cascade);
 	}
 	.pin {
 		cursor: pointer;

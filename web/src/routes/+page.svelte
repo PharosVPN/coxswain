@@ -6,7 +6,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import FleetMap from '$lib/components/FleetMap.svelte';
-	import type { Node, Relay, Site, LiveEvent } from '$lib/types';
+	import type { Node, Relay, Site, NodeLink, LiveEvent } from '$lib/types';
 
 	interface Rules {
 		pre_up: string[];
@@ -16,6 +16,7 @@
 
 	let nodes = $state<Node[]>([]);
 	let relays = $state<Relay[]>([]);
+	let links = $state<NodeLink[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
 
@@ -69,11 +70,16 @@
 		loadError = '';
 		try {
 			nodes = await api.get<Node[]>('/api/nodes');
-			// Relays enrich the map with beacon roles; tolerate their absence.
+			// Relays + links enrich the map with beacon roles and route arcs;
+			// tolerate their absence on older controllers.
 			try {
-				relays = await api.get<Relay[]>('/api/relays');
+				[relays, links] = await Promise.all([
+					api.get<Relay[]>('/api/relays'),
+					api.get<NodeLink[]>('/api/node-links')
+				]);
 			} catch {
 				relays = [];
+				links = [];
 			}
 		} catch (e) {
 			loadError = errorMessage(e);
@@ -192,7 +198,7 @@
 
 {#if !loading && !loadError}
 	<div class="mt-6">
-		<FleetMap {nodes} {relays} selectedKey={editing?.public_ip ?? ''} onselect={selectSite} />
+		<FleetMap {nodes} {relays} {links} selectedKey={editing?.public_ip ?? ''} onselect={selectSite} />
 	</div>
 {/if}
 

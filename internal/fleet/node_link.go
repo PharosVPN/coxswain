@@ -46,14 +46,17 @@ type NodeLink struct {
 	PresharedKey   string
 	ConfigRevision int64
 	Status         string
-	Version        int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Color is an optional admin-chosen hex colour for this path on the map;
+	// empty lets the UI auto-assign one.
+	Color     string
+	Version   int
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 const nodeLinkColumns = `id, entry_node_id, exit_node_id, inner_interface,
 	listen_port, fwmark, table_id, preshared_key, config_revision, status,
-	version, created_at, updated_at`
+	color, version, created_at, updated_at`
 
 // CreateNodeLink allocates the entry-side resources for a new entry→exit edge
 // and inserts it. The inner interface name, listen port, fwmark and table id
@@ -96,10 +99,10 @@ func CreateNodeLink(ctx context.Context, db *sql.DB, entryNodeID, exitNodeID, pr
 		UpdatedAt:      now,
 	}
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO node_links (`+nodeLinkColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO node_links (`+nodeLinkColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nl.ID, nl.EntryNodeID, nl.ExitNodeID, nl.InnerInterface, nl.ListenPort,
 		nl.Fwmark, nl.TableID, nl.PresharedKey, nl.ConfigRevision, nl.Status,
-		nl.Version, nl.CreatedAt, nl.UpdatedAt)
+		nl.Color, nl.Version, nl.CreatedAt, nl.UpdatedAt)
 	if err != nil {
 		return NodeLink{}, fmt.Errorf("create node link: %w", err)
 	}
@@ -172,6 +175,21 @@ func SetNodeLinkStatus(ctx context.Context, db *sql.DB, id, status string, versi
 	return nil
 }
 
+// SetNodeLinkColor sets a cascade path's map colour (a hex string, or empty to
+// fall back to the auto palette). Cosmetic — no concurrency guard.
+func SetNodeLinkColor(ctx context.Context, db *sql.DB, id, color string) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE node_links SET color = ?, updated_at = ? WHERE id = ?`,
+		color, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("set node link color: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // NextNodeLinkConfigRevision atomically increments and returns a link's
 // ConfigureInnerLink revision — the same monotonic-counter idiom as
 // NextNodeConfigRevision.
@@ -202,7 +220,7 @@ func queryNodeLinks(ctx context.Context, db *sql.DB, where string, args ...any) 
 		var l NodeLink
 		if err := rows.Scan(&l.ID, &l.EntryNodeID, &l.ExitNodeID, &l.InnerInterface,
 			&l.ListenPort, &l.Fwmark, &l.TableID, &l.PresharedKey, &l.ConfigRevision,
-			&l.Status, &l.Version, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			&l.Status, &l.Color, &l.Version, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, l)

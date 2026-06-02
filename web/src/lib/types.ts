@@ -38,6 +38,16 @@ export interface Relay {
 	onion: boolean;
 }
 
+// NodeLink is one cascade edge — an inner AmneziaWG link from an entry node to
+// an exit node (drawn as a route arc on the map).
+export interface NodeLink {
+	id: string;
+	entry_node_id: string;
+	exit_node_id: string;
+	status: string;
+	color: string;
+}
+
 // Site is one host on the fleet map — the aggregate of every role at an IP.
 export interface Site {
 	key: string;

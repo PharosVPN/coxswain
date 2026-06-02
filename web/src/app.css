@@ -67,6 +67,12 @@
 	--c-info: #5bb1c2;
 	--c-info-surface: #15252a;
 
+	/* Fleet-map route hues, one per path type (kept clear of the status colors):
+	   cascade = teal (the client's own data path), control = violet (the
+	   controller's hidden onion/egress path). */
+	--c-route-cascade: #4fd1c4;
+	--c-route-control: #b39cff;
+
 	--hover-overlay: rgba(58, 154, 174, 0.12);
 	--shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
@@ -109,6 +115,9 @@
 	--c-warning-surface: #f8f0da;
 	--c-info: #0f4c5c;
 	--c-info-surface: #e5f0f2;
+
+	--c-route-cascade: #0e8a86;
+	--c-route-control: #6b4fd0;
 
 	--hover-overlay: rgba(15, 76, 92, 0.08);
 	--shadow-modal: 0 8px 24px rgba(15, 76, 92, 0.15);
