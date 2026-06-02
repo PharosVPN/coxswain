@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"sort"
 
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
@@ -119,10 +120,11 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 
 // egressRelays returns the relays coxswain should route its control plane
 // through (DESIGN §3, decision 19), in chain order — every active remote relay
-// carrying an egress endpoint, oldest first (enrollment order: hop 0 is closest
-// to coxswain, the last hop reaches the node). Empty means direct dial.
+// carrying an egress endpoint, sorted by EgressHop ascending (hop 1 closest to
+// coxswain, the last hop reaches the node), ties broken by creation order for
+// determinism. Empty means direct dial.
 func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
-	relays, err := fleet.ListRelays(ctx, conn)
+	relays, err := fleet.ListRelays(ctx, conn) // already ordered by created_at
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +134,7 @@ func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
 			chain = append(chain, r)
 		}
 	}
+	sort.SliceStable(chain, func(i, j int) bool { return chain[i].EgressHop < chain[j].EgressHop })
 	return chain, nil
 }
 

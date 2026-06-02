@@ -41,7 +41,7 @@ func hostOnly(addr string) string {
 
 func newRelaysAddCmd() *cobra.Command {
 	var cfgPath, name, endpoint, hostname, user, binaryPath, url string
-	var port, egressPort int
+	var port, egressPort, egressHop int
 	var egress bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
@@ -73,8 +73,23 @@ func newRelaysAddCmd() *cobra.Command {
 			}
 
 			egressEndpoint := ""
+			egressHopN := 0
 			if egress {
 				egressEndpoint = net.JoinHostPort(hostname, strconv.Itoa(egressPort))
+				egressHopN = egressHop
+				if egressHopN == 0 {
+					// Auto-assign the next position after the current last hop.
+					relays, lerr := fleet.ListRelays(ctx, conn)
+					if lerr != nil {
+						return lerr
+					}
+					for _, r := range relays {
+						if r.EgressEndpoint != "" && r.EgressHop > egressHopN {
+							egressHopN = r.EgressHop
+						}
+					}
+					egressHopN++
+				}
 			}
 
 			spec, err := installSpec(binaryPath, url, cfg.Beacon.BinaryURL, "beacon.binary_url")
@@ -105,6 +120,7 @@ func newRelaysAddCmd() *cobra.Command {
 				Endpoint:       endpoint,
 				Hostname:       hostname,
 				EgressEndpoint: egressEndpoint,
+				EgressHop:      egressHopN,
 				SSHHost:        host,
 				SSHUser:        user,
 				SSHPort:        port,
@@ -118,7 +134,7 @@ func newRelaysAddCmd() *cobra.Command {
 			fmt.Printf("  relay id       %s\n", res.Relay.ID)
 			fmt.Printf("  tunnel endpoint %s\n", res.Relay.Endpoint)
 			if res.Relay.EgressEndpoint != "" {
-				fmt.Printf("  egress endpoint %s (control-plane egress relay)\n", res.Relay.EgressEndpoint)
+				fmt.Printf("  egress endpoint %s (chain hop %d)\n", res.Relay.EgressEndpoint, res.Relay.EgressHop)
 			}
 			fmt.Printf("  cert hostname  %s\n", hostname)
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
@@ -138,6 +154,7 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&url, "url", "", "URL the host downloads beacon from (overrides config)")
 	cmd.Flags().BoolVar(&egress, "egress", false, "also run a control-plane egress relay here, so coxswain reaches nodes through it (decision 19)")
 	cmd.Flags().IntVar(&egressPort, "egress-port", 8456, "port the egress relay listens on (coxswain dials hostname:port)")
+	cmd.Flags().IntVar(&egressHop, "egress-hop", 0, "explicit chain position (1=closest to coxswain); 0 auto-assigns the next hop")
 	return cmd
 }
 
@@ -164,10 +181,14 @@ func newRelaysListCmd() *cobra.Command {
 			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT")
+			fmt.Fprintln(tw, "ID\tNAME\tKIND\tSTATUS\tENDPOINT\tEGRESS")
 			for _, r := range relays {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint))
+				egress := "-"
+				if r.EgressEndpoint != "" {
+					egress = fmt.Sprintf("%s (hop %d)", r.EgressEndpoint, r.EgressHop)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					r.ID, r.Name, r.Kind, r.Status, dash(r.Endpoint), egress)
 			}
 			return tw.Flush()
 		},

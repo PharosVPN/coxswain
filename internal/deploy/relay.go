@@ -80,7 +80,10 @@ type RelayParams struct {
 	// egress hop (decision 19): coxswain dials it to reach nodes. It must use the
 	// relay's signed hostname so the tunnel TLS verifies. Empty = no egress.
 	EgressEndpoint string
-	SSHHost        string // required
+	// EgressHop is this relay's 1-based position in the egress chain (ignored
+	// when EgressEndpoint is empty).
+	EgressHop int
+	SSHHost   string // required
 	SSHUser        string
 	SSHPort        int
 	Install        InstallSpec
@@ -120,6 +123,7 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 		Kind:           fleet.RelayKindRemote,
 		Endpoint:       p.Endpoint,
 		EgressEndpoint: p.EgressEndpoint,
+		EgressHop:      p.EgressHop,
 		Status:         fleet.StatusProvisioning,
 	})
 	if err != nil {
