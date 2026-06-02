@@ -3,7 +3,7 @@ module github.com/PharosVPN/coxswain
 go 1.25.7
 
 require (
-	github.com/PharosVPN/beacon v0.0.0-20260602155539-1c0b2a9e573c
+	github.com/PharosVPN/beacon v0.0.0-20260602161639-2b403df53907
 	github.com/coder/websocket v1.8.14
 	github.com/knadh/koanf/parsers/yaml v1.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
