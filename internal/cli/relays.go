@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"text/tabwriter"
 
 	"github.com/PharosVPN/coxswain/internal/config"
@@ -40,7 +41,8 @@ func hostOnly(addr string) string {
 
 func newRelaysAddCmd() *cobra.Command {
 	var cfgPath, name, endpoint, hostname, user, binaryPath, url string
-	var port int
+	var port, egressPort int
+	var egress bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
 		Short: "Enroll a new beacon relay over SSH",
@@ -70,6 +72,11 @@ func newRelaysAddCmd() *cobra.Command {
 				return fmt.Errorf("no relay hostname — set beacon.public_endpoint or pass --hostname")
 			}
 
+			egressEndpoint := ""
+			if egress {
+				egressEndpoint = net.JoinHostPort(hostname, strconv.Itoa(egressPort))
+			}
+
 			spec, err := installSpec(binaryPath, url, cfg.Beacon.BinaryURL, "beacon.binary_url")
 			if err != nil {
 				return err
@@ -94,13 +101,14 @@ func newRelaysAddCmd() *cobra.Command {
 			defer sshConn.Close()
 
 			res, err := deploy.AddRelay(ctx, conn, sshConn, bundle, deploy.RelayParams{
-				Name:     name,
-				Endpoint: endpoint,
-				Hostname: hostname,
-				SSHHost:  host,
-				SSHUser:  user,
-				SSHPort:  port,
-				Install:  spec,
+				Name:           name,
+				Endpoint:       endpoint,
+				Hostname:       hostname,
+				EgressEndpoint: egressEndpoint,
+				SSHHost:        host,
+				SSHUser:        user,
+				SSHPort:        port,
+				Install:        spec,
 			})
 			if err != nil {
 				return err
@@ -109,6 +117,9 @@ func newRelaysAddCmd() *cobra.Command {
 			fmt.Printf("relay enrolled — %s\n", res.Relay.Name)
 			fmt.Printf("  relay id       %s\n", res.Relay.ID)
 			fmt.Printf("  tunnel endpoint %s\n", res.Relay.Endpoint)
+			if res.Relay.EgressEndpoint != "" {
+				fmt.Printf("  egress endpoint %s (control-plane egress relay)\n", res.Relay.EgressEndpoint)
+			}
 			fmt.Printf("  cert hostname  %s\n", hostname)
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
 			fmt.Printf("  beacon version %s\n", dash(res.AgentVersion))
@@ -125,6 +136,8 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
 	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local beacon binary to upload")
 	cmd.Flags().StringVar(&url, "url", "", "URL the host downloads beacon from (overrides config)")
+	cmd.Flags().BoolVar(&egress, "egress", false, "also run a control-plane egress relay here, so coxswain reaches nodes through it (decision 19)")
+	cmd.Flags().IntVar(&egressPort, "egress-port", 8456, "port the egress relay listens on (coxswain dials hostname:port)")
 	return cmd
 }
 

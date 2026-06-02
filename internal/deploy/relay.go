@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/idgen"
@@ -21,6 +22,10 @@ const (
 	fleetCAPath      = "/etc/beacon/fleet-ca.crt"
 	deviceCAPath     = "/etc/beacon/device-ca.crt"
 	beaconUnitPath   = "/etc/systemd/system/beacon.service"
+	// beaconEgressUnitPath is the control-plane egress relay's unit (decision 19),
+	// a second beacon process alongside the ingress one. Staged only when the
+	// relay is enrolled with an egress endpoint.
+	beaconEgressUnitPath = "/etc/systemd/system/beacon-egress.service"
 
 	// cmdRelayGenCSR makes beacon generate its keypair on the host and print
 	// a plain CSR; coxswain overrides the identity when it signs (SignRelayCSR).
@@ -43,6 +48,25 @@ RestartSec=5
 WantedBy=multi-user.target
 `
 
+// beaconEgressUnit is the systemd unit for the control-plane egress relay
+// (decision 19): a second beacon process listening for coxswain's egress tunnel
+// on tunnelAddr (e.g. ":8456"). It reuses the same /etc/beacon material.
+func beaconEgressUnit(tunnelAddr string) string {
+	return `[Unit]
+Description=PharosVPN beacon control-plane egress relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=` + beaconBinaryPath + ` egress --tunnel-addr ` + tunnelAddr + ` --config-dir /etc/beacon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`
+}
+
 // RelayParams are the inputs to AddRelay.
 type RelayParams struct {
 	Name string // generated if empty
@@ -52,10 +76,14 @@ type RelayParams struct {
 	// Hostname is the relay's public client endpoint; coxswain signs it into the
 	// relay cert as a SAN so caravel can verify the relay. Required.
 	Hostname string
-	SSHHost  string // required
-	SSHUser  string
-	SSHPort  int
-	Install  InstallSpec
+	// EgressEndpoint, when set, also enrols this relay as coxswain's control-plane
+	// egress hop (decision 19): coxswain dials it to reach nodes. It must use the
+	// relay's signed hostname so the tunnel TLS verifies. Empty = no egress.
+	EgressEndpoint string
+	SSHHost        string // required
+	SSHUser        string
+	SSHPort        int
+	Install        InstallSpec
 }
 
 // RelayResult reports what relay enrollment produced.
@@ -88,10 +116,11 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 	}
 
 	relay, err := fleet.CreateRelay(ctx, db, fleet.Relay{
-		Name:     name,
-		Kind:     fleet.RelayKindRemote,
-		Endpoint: p.Endpoint,
-		Status:   fleet.StatusProvisioning,
+		Name:           name,
+		Kind:           fleet.RelayKindRemote,
+		Endpoint:       p.Endpoint,
+		EgressEndpoint: p.EgressEndpoint,
+		Status:         fleet.StatusProvisioning,
 	})
 	if err != nil {
 		return RelayResult{}, err
@@ -146,6 +175,21 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 	}
 	if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon", nil); err != nil {
 		return RelayResult{}, fmt.Errorf("deploy: start beacon service: %w", err)
+	}
+
+	// Control-plane egress relay (decision 19): a second beacon process. The
+	// relay listens on the egress endpoint's port; coxswain dials the hostname.
+	if p.EgressEndpoint != "" {
+		_, port, err := net.SplitHostPort(p.EgressEndpoint)
+		if err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: egress endpoint %q: %w", p.EgressEndpoint, err)
+		}
+		if err := remote.Upload(ctx, beaconEgressUnitPath, []byte(beaconEgressUnit(":"+port)), 0o644); err != nil {
+			return RelayResult{}, err
+		}
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon-egress", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start beacon-egress service: %w", err)
+		}
 	}
 
 	agentVersion := readVersion(ctx, remote, cmdRelayVersion)
