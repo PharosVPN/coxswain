@@ -25,6 +25,7 @@ func newRelaysCmd() *cobra.Command {
 	cmd.AddCommand(
 		newRelaysAddCmd(),
 		newRelaysListCmd(),
+		newRelaysSetEgressCmd(),
 		newRelaysRemoveCmd(),
 	)
 	return cmd
@@ -194,6 +195,63 @@ func newRelaysListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	return cmd
+}
+
+func newRelaysSetEgressCmd() *cobra.Command {
+	var cfgPath string
+	var hop int
+	var disable bool
+	cmd := &cobra.Command{
+		Use:   "set-egress <relay-id>",
+		Short: "Reorder a relay in the egress chain, or drop it from the chain",
+		Long: "Change an enrolled egress relay's position in the control-plane\n" +
+			"chain (decision 19), or remove it from the chain. --hop sets the\n" +
+			"1-based position (hop 1 is closest to coxswain); --disable drops the\n" +
+			"relay from the chain — coxswain stops routing through it on the next\n" +
+			"command, though the beacon-egress service keeps running on the host\n" +
+			"until the operator stops it. Takes effect on coxswain's next dial.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			_, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			relay, err := fleet.GetRelay(ctx, conn, args[0])
+			if err != nil {
+				return err
+			}
+			switch {
+			case disable:
+				relay.EgressEndpoint = ""
+				relay.EgressHop = 0
+			case hop > 0:
+				if relay.EgressEndpoint == "" {
+					return fmt.Errorf("relay %s is not an egress relay — re-enrol with --egress", relay.ID)
+				}
+				relay.EgressHop = hop
+			default:
+				return fmt.Errorf("nothing to do: pass --hop N or --disable")
+			}
+
+			updated, err := fleet.UpdateRelay(ctx, conn, relay)
+			if err != nil {
+				return err
+			}
+			if updated.EgressEndpoint == "" {
+				fmt.Printf("relay %s removed from the egress chain\n", updated.Name)
+			} else {
+				fmt.Printf("relay %s → egress chain hop %d (%s)\n", updated.Name, updated.EgressHop, updated.EgressEndpoint)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().IntVar(&hop, "hop", 0, "1-based chain position (hop 1 closest to coxswain)")
+	cmd.Flags().BoolVar(&disable, "disable", false, "remove this relay from the egress chain")
 	return cmd
 }
 
