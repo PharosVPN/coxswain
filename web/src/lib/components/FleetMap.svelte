@@ -267,7 +267,7 @@
 		<!-- routes under the pins: control path (chain) first, cascade on top -->
 		<g class="routes">
 			{#each chainArcs as arc (arc.id)}
-				<path id={arc.id} class="arc" style="stroke: var(--c-route-control)" d={arc.d} />
+				<path id={arc.id} class="arc control" style="stroke: var(--c-route-control)" d={arc.d} />
 				<path class="arrow" style="fill: var(--c-route-control)" d={arc.arrow} />
 				{#if motionOK}
 					{#each [0, 1] as k (k)}
@@ -431,6 +431,10 @@
 		stroke-dasharray: 6 5;
 		opacity: 0.65;
 	}
+	/* control plane reads as one continuous line; data planes stay dashed */
+	.arc.control {
+		stroke-dasharray: none;
+	}
 	.arrow {
 		opacity: 0.95;
 	}
@@ -450,6 +454,7 @@
 	}
 	.legend-line.control {
 		border-top-color: var(--c-route-control);
+		border-top-style: solid;
 	}
 	.legend-ends {
 		flex: 0 0 38px;
