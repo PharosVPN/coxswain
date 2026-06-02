@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package deploy onboards buoy nodes and beacon relays over SSH (DESIGN §5):
+// Package deploy onboards nodes and relays over SSH (DESIGN §5):
 // it installs the agent, signs its certificate request, and starts it. SSH is
 // used only to install and update the agent — all node control is gRPC, and a
 // relay is reached by dialling out to its reverse tunnel.
@@ -21,30 +21,30 @@ import (
 	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
-// ControlPort is the port a buoy listens on for coxswain's gRPC control plane.
+// ControlPort is the port a node listens on for coxswain's gRPC control plane.
 const ControlPort = 8444
 
-// On-node layout and the coxswain↔buoy CLI contract. These are confirmed against
-// buoy/BUILD.md when that repo lands.
+// On-node layout and the coxswain↔node CLI contract. These are confirmed against
+// node/BUILD.md when that repo lands.
 const (
-	buoyBinaryPath = "/usr/local/bin/buoy"
-	caCertPath     = "/etc/buoy/ca.crt"
-	nodeCertPath   = "/etc/buoy/node.crt"
-	unitPath       = "/etc/systemd/system/buoy.service"
+	nodeBinaryPath = "/usr/local/bin/node"
+	caCertPath     = "/etc/node/ca.crt"
+	nodeCertPath   = "/etc/node/node.crt"
+	unitPath       = "/etc/systemd/system/node.service"
 
-	// cmdGenCSR makes buoy generate its keypair on the node and print a CSR.
-	cmdGenCSR = buoyBinaryPath + " gen-csr"
+	// cmdGenCSR makes node generate its keypair on the node and print a CSR.
+	cmdGenCSR = nodeBinaryPath + " gen-csr"
 	// cmdVersion prints the installed agent version.
-	cmdVersion = buoyBinaryPath + " version"
+	cmdVersion = nodeBinaryPath + " version"
 )
 
 const systemdUnit = `[Unit]
-Description=PharosVPN buoy node agent
+Description=PharosVPN node agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=` + buoyBinaryPath + ` run --config-dir /etc/buoy
+ExecStart=` + nodeBinaryPath + ` run --config-dir /etc/node
 Restart=on-failure
 RestartSec=5
 
@@ -60,7 +60,7 @@ type Remote interface {
 	Close() error
 }
 
-// InstallSpec says how to place the buoy binary on a node. Exactly one of
+// InstallSpec says how to place the node binary on a node. Exactly one of
 // Binary or URL must be set.
 type InstallSpec struct {
 	// Binary is uploaded directly over the SSH channel.
@@ -97,7 +97,7 @@ type AddResult struct {
 	AgentVersion string
 }
 
-// AddNode installs the buoy agent on an already-connected node, signs its
+// AddNode installs the node agent on an already-connected node, signs its
 // certificate, and starts the service. On failure the node record is left
 // with status "error".
 func AddNode(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, p AddParams) (AddResult, error) {
@@ -140,15 +140,15 @@ func AddNode(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 
 // onboard runs the install/sign/start sequence against an existing node record.
 func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, node *fleet.Node, p AddParams) (AddResult, error) {
-	if err := installBinary(ctx, remote, p.Install, buoyBinaryPath); err != nil {
+	if err := installBinary(ctx, remote, p.Install, nodeBinaryPath); err != nil {
 		return AddResult{}, err
 	}
 
-	// buoy generates its keypair on the node and returns a CSR; the node's
+	// node generates its keypair on the node and returns a CSR; the node's
 	// private key never crosses to coxswain.
 	csrPEM, err := remote.Run(ctx, cmdGenCSR, nil)
 	if err != nil {
-		return AddResult{}, fmt.Errorf("deploy: buoy gen-csr: %w", err)
+		return AddResult{}, fmt.Errorf("deploy: node gen-csr: %w", err)
 	}
 
 	var extraIPs []net.IP
@@ -167,7 +167,7 @@ func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 		return AddResult{}, err
 	}
 
-	// node.crt carries the leaf plus the Fleet intermediate so buoy can
+	// node.crt carries the leaf plus the Fleet intermediate so node can
 	// present a full chain; ca.crt is the root trust anchor.
 	nodeChain := append(append([]byte{}, signed.CertPEM...), bundle.Fleet.CertPEM...)
 	if err := remote.Upload(ctx, nodeCertPath, nodeChain, 0o644); err != nil {
@@ -180,8 +180,8 @@ func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 	if err := remote.Upload(ctx, unitPath, []byte(systemdUnit), 0o644); err != nil {
 		return AddResult{}, err
 	}
-	if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now buoy", nil); err != nil {
-		return AddResult{}, fmt.Errorf("deploy: start buoy service: %w", err)
+	if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now node", nil); err != nil {
+		return AddResult{}, fmt.Errorf("deploy: start node service: %w", err)
 	}
 
 	agentVersion := readVersion(ctx, remote, cmdVersion)
@@ -197,22 +197,22 @@ func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 	return AddResult{Node: updated, NodeCertID: certID, AgentVersion: agentVersion}, nil
 }
 
-// UpdateAgent re-installs the buoy binary on a node and restarts the service.
+// UpdateAgent re-installs the node binary on a node and restarts the service.
 func UpdateAgent(ctx context.Context, db *sql.DB, remote Remote, node fleet.Node, spec InstallSpec) (fleet.Node, error) {
 	if err := spec.validate(); err != nil {
 		return fleet.Node{}, err
 	}
-	if err := installBinary(ctx, remote, spec, buoyBinaryPath); err != nil {
+	if err := installBinary(ctx, remote, spec, nodeBinaryPath); err != nil {
 		return fleet.Node{}, err
 	}
-	if _, err := remote.Run(ctx, "systemctl restart buoy", nil); err != nil {
-		return fleet.Node{}, fmt.Errorf("deploy: restart buoy: %w", err)
+	if _, err := remote.Run(ctx, "systemctl restart node", nil); err != nil {
+		return fleet.Node{}, fmt.Errorf("deploy: restart node: %w", err)
 	}
 	node.AgentVersion = readVersion(ctx, remote, cmdVersion)
 	return fleet.UpdateNode(ctx, db, node)
 }
 
-// Service starts or stops the buoy service on a node. action is "start" or
+// Service starts or stops the node service on a node. action is "start" or
 // "stop".
 func Service(ctx context.Context, remote Remote, action string) error {
 	switch action {
@@ -220,8 +220,8 @@ func Service(ctx context.Context, remote Remote, action string) error {
 	default:
 		return fmt.Errorf("deploy: unknown service action %q", action)
 	}
-	if _, err := remote.Run(ctx, "systemctl "+action+" buoy", nil); err != nil {
-		return fmt.Errorf("deploy: %s buoy: %w", action, err)
+	if _, err := remote.Run(ctx, "systemctl "+action+" node", nil); err != nil {
+		return fmt.Errorf("deploy: %s node: %w", action, err)
 	}
 	return nil
 }
@@ -254,7 +254,7 @@ func markFailed(ctx context.Context, db *sql.DB, node fleet.Node) {
 
 func generateName(region string) string {
 	suffix := strings.TrimPrefix(idgen.New("n"), "n_")
-	return fmt.Sprintf("buoy-%s-%s", region, suffix[:6])
+	return fmt.Sprintf("node-%s-%s", region, suffix[:6])
 }
 
 func shellQuote(s string) string {

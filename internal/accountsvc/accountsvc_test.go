@@ -29,7 +29,7 @@ import (
 const passphrase = "the-account-passphrase"
 
 // newService brings up the AccountSync service over an in-memory connection
-// (the same in-process model the embedded beacon will use) and seeds a user.
+// (the same in-process model the embedded relay will use) and seeds a user.
 func newService(t *testing.T) (accountv1.AccountSyncClient, *sql.DB, string) {
 	t.Helper()
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))

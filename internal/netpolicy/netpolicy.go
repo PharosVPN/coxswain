@@ -4,7 +4,7 @@
 // Package netpolicy turns a node's network policy — forwarding, masquerade,
 // client isolation — into the canonical PreUp/PostUp/PostDown rule set
 // (DESIGN §3, decision 16). It is the single source of truth coxswain shows in
-// the admin UI; buoy applies the same set.
+// the admin UI; node applies the same set.
 package netpolicy
 
 import (
@@ -12,7 +12,7 @@ import (
 	"strconv"
 )
 
-// Rule-template tokens. buoy substitutes the wg interface for ifaceToken and
+// Rule-template tokens. node substitutes the wg interface for ifaceToken and
 // the autodetected egress interface for egressToken.
 const (
 	ifaceToken  = "%i"
@@ -30,9 +30,9 @@ var (
 
 // TransitRoute policy-routes one cascaded device into an inner link toward its
 // exit instead of the public egress — the entry-node side of node cascade
-// (DESIGN §3, decision 18). It mirrors buoy's netpolicy.TransitRoute and the
-// pharos.buoy.v1.TransitRoute wire message; the rendered rule must stay
-// byte-identical to buoy's (both pinned by tests).
+// (DESIGN §3, decision 18). It mirrors node's netpolicy.TransitRoute and the
+// pharos.node.v1.TransitRoute wire message; the rendered rule must stay
+// byte-identical to node's (both pinned by tests).
 type TransitRoute struct {
 	DeviceCIDR     string
 	InnerInterface string
@@ -76,7 +76,7 @@ type Rules struct {
 }
 
 // Rules renders the canonical rule set for the policy. The result is what the
-// admin UI shows and what buoy applies.
+// admin UI shows and what node applies.
 func (p Policy) Rules() Rules {
 	var r Rules
 	if !p.Forwarding {
@@ -113,7 +113,7 @@ func (p Policy) Rules() Rules {
 	// Transit (node cascade): mark each cascaded device, policy-route the mark
 	// into the device's inner interface, and add a default route in that table.
 	// Transited packets egress the inner interface, never matching the egress
-	// masquerade above — the exit node NATs them. Mirrors buoy exactly.
+	// masquerade above — the exit node NATs them. Mirrors node exactly.
 	//
 	// A return from the exit arrives on the inner interface, but the route back
 	// to its source (the public destination) is the egress interface — an

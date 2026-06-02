@@ -17,7 +17,7 @@ const (
 	watchBackoffMax = 60 * time.Second
 )
 
-// WatchNode holds a buoy node's WatchEvents stream open, publishing every
+// WatchNode holds a node's WatchEvents stream open, publishing every
 // event to the hub. It reconnects with capped exponential backoff and returns
 // only when ctx is cancelled — a controller staying connected through node
 // restarts is the point of the live plane.

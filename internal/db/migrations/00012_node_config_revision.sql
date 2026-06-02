@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 The PharosVPN Authors
 --
 -- Per-node PushConfig revision counter. coxswain assigns a monotonically
--- increasing revision on every PushConfig to a buoy node; buoy rejects a
+-- increasing revision on every PushConfig to a node node; node rejects a
 -- stale revision with FailedPrecondition (B2). 0 means "nothing pushed yet".
 
 -- +goose Up

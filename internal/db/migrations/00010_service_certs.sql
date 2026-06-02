@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- Copyright (C) 2026 The PharosVPN Authors
 --
--- coxswain's service certificates for the beacon relay tier (M6b-2): the gRPC-leg
+-- coxswain's service certificates for the relay relay tier (M6b-2): the gRPC-leg
 -- server cert (CN "coxswain-grpc") and the relay cert (one dual-EKU Fleet-CA leaf,
 -- O="PharosVPN Relay"). Both are issued off the Fleet CA; coxswain holds the keys.
 

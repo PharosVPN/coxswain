@@ -25,10 +25,10 @@ func common() Config {
 		StateDir: "./state",
 		Log:      LogConfig{Level: "info"},
 		UI:       UIConfig{Listen: "127.0.0.1:8443"},
-		Beacon:   BeaconConfig{Embedded: true, ClientListen: ":443", RemoteEndpoints: []string{}},
+		Relay:    RelayConfig{Embedded: true, ClientListen: ":443", RemoteEndpoints: []string{}},
 		Accounts: AccountsConfig{Sync: true},
 		Reality:  RealityConfig{DecoySite: "www.microsoft.com"},
-		// BuoyBinaryURL is left for the operator to point at a buoy release.
+		// NodeBinaryURL is left for the operator to point at a node release.
 		Node: NodeConfig{SSHUser: "root", SSHPort: 22},
 	}
 }
@@ -37,7 +37,7 @@ func personalPreset() Config {
 	c := common()
 	c.Posture = PosturePersonal
 	c.Protocols = ProtocolsConfig{AmneziaWG: true, XRay: false}
-	c.Beacon.Remote = false
+	c.Relay.Remote = false
 	c.Retention = RetentionConfig{AuditDays: 30, MetricsDays: 7}
 	c.Fleet = FleetConfig{
 		Regions: []string{}, IdleNodes: false, VPNSubnet: "10.86.0.0/16",
@@ -51,7 +51,7 @@ func enterprisePreset() Config {
 	c := common()
 	c.Posture = PostureEnterprise
 	c.Protocols = ProtocolsConfig{AmneziaWG: true, XRay: true}
-	c.Beacon.Remote = true
+	c.Relay.Remote = true
 	c.Retention = RetentionConfig{AuditDays: 365, MetricsDays: 90}
 	c.Fleet = FleetConfig{
 		Regions: []string{}, IdleNodes: true, VPNSubnet: "10.86.0.0/16",

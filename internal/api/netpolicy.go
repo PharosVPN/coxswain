@@ -11,7 +11,7 @@ import (
 
 // handleNetworkPolicyPreview returns the canonical PreUp/PostUp/PostDown rule
 // set for a candidate policy, so the admin UI's advanced panel can show what
-// buoy will apply as the operator toggles — before saving.
+// node will apply as the operator toggles — before saving.
 func (s *Server) handleNetworkPolicyPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Forwarding bool `json:"forwarding"`

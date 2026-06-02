@@ -7,17 +7,17 @@ import (
 	"context"
 	"fmt"
 
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/wg"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
-// Client is coxswain's control connection to one buoy node. It is safe for
+// Client is coxswain's control connection to one node. It is safe for
 // concurrent use; close it when done.
 type Client struct {
 	cc  *grpc.ClientConn
-	rpc buoyv1.NodeControlClient
+	rpc nodev1.NodeControlClient
 }
 
 // Close releases the connection.
@@ -27,18 +27,18 @@ func (c *Client) Close() error { return c.cc.Close() }
 // Dialer.Dial is the production path; this exists for tests that need to drive
 // the Client over an in-memory transport.
 func NewClientFromConn(cc *grpc.ClientConn) *Client {
-	return &Client{cc: cc, rpc: buoyv1.NewNodeControlClient(cc)}
+	return &Client{cc: cc, rpc: nodev1.NewNodeControlClient(cc)}
 }
 
 // Status reports node and per-protocol service health.
-func (c *Client) Status(ctx context.Context) (*buoyv1.GetStatusResponse, error) {
-	return c.rpc.GetStatus(ctx, &buoyv1.GetStatusRequest{})
+func (c *Client) Status(ctx context.Context) (*nodev1.GetStatusResponse, error) {
+	return c.rpc.GetStatus(ctx, &nodev1.GetStatusRequest{})
 }
 
 // AmneziaWGFromStatus extracts the AmneziaWG server identity a node reported
 // in a GetStatus response — its public key and obfuscation parameter set. It
 // returns zero values when the node has not yet configured its data plane.
-func AmneziaWGFromStatus(s *buoyv1.GetStatusResponse) (publicKey string, obf wg.Obfuscation) {
+func AmneziaWGFromStatus(s *nodev1.GetStatusResponse) (publicKey string, obf wg.Obfuscation) {
 	info := s.GetAmneziawg()
 	if info == nil {
 		return "", wg.Obfuscation{}
@@ -58,8 +58,8 @@ func AmneziaWGFromStatus(s *buoyv1.GetStatusResponse) (publicKey string, obf wg.
 // AmneziaWGToProto is the inverse of AmneziaWGFromStatus: it renders a node's
 // obfuscation set to its wire form. A cascade inner link carries the exit
 // node's set so the entry's handshake to the exit matches (DESIGN §3).
-func AmneziaWGToProto(o wg.Obfuscation) *buoyv1.AmneziaWGObfuscation {
-	return &buoyv1.AmneziaWGObfuscation{
+func AmneziaWGToProto(o wg.Obfuscation) *nodev1.AmneziaWGObfuscation {
+	return &nodev1.AmneziaWGObfuscation{
 		Jc: o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
 		S1: o.S1, S2: o.S2, S3: o.S3, S4: o.S4,
 		H1: o.H1, H2: o.H2, H3: o.H3, H4: o.H4,
@@ -68,27 +68,27 @@ func AmneziaWGToProto(o wg.Obfuscation) *buoyv1.AmneziaWGObfuscation {
 }
 
 // Metrics reports the node's counters for a metrics sample.
-func (c *Client) Metrics(ctx context.Context) (*buoyv1.GetMetricsResponse, error) {
-	return c.rpc.GetMetrics(ctx, &buoyv1.GetMetricsRequest{})
+func (c *Client) Metrics(ctx context.Context) (*nodev1.GetMetricsResponse, error) {
+	return c.rpc.GetMetrics(ctx, &nodev1.GetMetricsRequest{})
 }
 
 // PushAmneziaWGConfig encodes a full AmneziaWG peer set and replaces the
 // node's data-plane config in one call. coxswain sends peers only — node-level
-// obfuscation is buoy's domain (decision-14 follow-up) and stays out of the
+// obfuscation is node's domain (decision-14 follow-up) and stays out of the
 // payload.
-func (c *Client) PushAmneziaWGConfig(ctx context.Context, revision int64, peers []*buoyv1.Peer) (*buoyv1.PushConfigResponse, error) {
-	cfg, err := proto.Marshal(&buoyv1.AmneziaWGConfig{Peers: peers})
+func (c *Client) PushAmneziaWGConfig(ctx context.Context, revision int64, peers []*nodev1.Peer) (*nodev1.PushConfigResponse, error) {
+	cfg, err := proto.Marshal(&nodev1.AmneziaWGConfig{Peers: peers})
 	if err != nil {
 		return nil, fmt.Errorf("control: marshal amneziawg config: %w", err)
 	}
-	return c.PushConfig(ctx, buoyv1.Protocol_PROTOCOL_AMNEZIAWG, revision, cfg)
+	return c.PushConfig(ctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, revision, cfg)
 }
 
 // PushConfig replaces the data-plane config for one protocol. Callers usually
 // want PushAmneziaWGConfig (or the future XRay equivalent), which handles the
 // encoding — this is the raw path for forwarders and tests.
-func (c *Client) PushConfig(ctx context.Context, protocol buoyv1.Protocol, revision int64, config []byte) (*buoyv1.PushConfigResponse, error) {
-	return c.rpc.PushConfig(ctx, &buoyv1.PushConfigRequest{
+func (c *Client) PushConfig(ctx context.Context, protocol nodev1.Protocol, revision int64, config []byte) (*nodev1.PushConfigResponse, error) {
+	return c.rpc.PushConfig(ctx, &nodev1.PushConfigRequest{
 		Protocol: protocol,
 		Revision: revision,
 		Config:   config,
@@ -96,13 +96,13 @@ func (c *Client) PushConfig(ctx context.Context, protocol buoyv1.Protocol, revis
 }
 
 // AddPeer adds a single peer live.
-func (c *Client) AddPeer(ctx context.Context, peer *buoyv1.Peer) (*buoyv1.PeerResponse, error) {
-	return c.rpc.AddPeer(ctx, &buoyv1.AddPeerRequest{Peer: peer})
+func (c *Client) AddPeer(ctx context.Context, peer *nodev1.Peer) (*nodev1.PeerResponse, error) {
+	return c.rpc.AddPeer(ctx, &nodev1.AddPeerRequest{Peer: peer})
 }
 
 // RemovePeer revokes a single peer live.
-func (c *Client) RemovePeer(ctx context.Context, protocol buoyv1.Protocol, publicKey string) (*buoyv1.PeerResponse, error) {
-	return c.rpc.RemovePeer(ctx, &buoyv1.RemovePeerRequest{
+func (c *Client) RemovePeer(ctx context.Context, protocol nodev1.Protocol, publicKey string) (*nodev1.PeerResponse, error) {
+	return c.rpc.RemovePeer(ctx, &nodev1.RemovePeerRequest{
 		Protocol:  protocol,
 		PublicKey: publicKey,
 	})
@@ -110,26 +110,26 @@ func (c *Client) RemovePeer(ctx context.Context, protocol buoyv1.Protocol, publi
 
 // ListPeers returns configured peers and their runtime state. A protocol of
 // PROTOCOL_UNSPECIFIED returns every peer.
-func (c *Client) ListPeers(ctx context.Context, protocol buoyv1.Protocol) (*buoyv1.ListPeersResponse, error) {
-	return c.rpc.ListPeers(ctx, &buoyv1.ListPeersRequest{Protocol: protocol})
+func (c *Client) ListPeers(ctx context.Context, protocol nodev1.Protocol) (*nodev1.ListPeersResponse, error) {
+	return c.rpc.ListPeers(ctx, &nodev1.ListPeersRequest{Protocol: protocol})
 }
 
 // RestartService restarts one protocol's data-plane service on the node.
-func (c *Client) RestartService(ctx context.Context, protocol buoyv1.Protocol) (*buoyv1.RestartServiceResponse, error) {
-	return c.rpc.RestartService(ctx, &buoyv1.RestartServiceRequest{Protocol: protocol})
+func (c *Client) RestartService(ctx context.Context, protocol nodev1.Protocol) (*nodev1.RestartServiceResponse, error) {
+	return c.rpc.RestartService(ctx, &nodev1.RestartServiceRequest{Protocol: protocol})
 }
 
 // WatchEvents opens the node's live event server-stream. The caller reads
 // events with Recv until ctx is cancelled or the stream ends.
-func (c *Client) WatchEvents(ctx context.Context) (grpc.ServerStreamingClient[buoyv1.Event], error) {
-	return c.rpc.WatchEvents(ctx, &buoyv1.WatchEventsRequest{})
+func (c *Client) WatchEvents(ctx context.Context) (grpc.ServerStreamingClient[nodev1.Event], error) {
+	return c.rpc.WatchEvents(ctx, &nodev1.WatchEventsRequest{})
 }
 
 // SetNetworkConfig applies the node's forwarding / masquerade / isolation
 // policy (DESIGN §3, decision 16).
-func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool, transits []*buoyv1.TransitRoute) (*buoyv1.SetNetworkConfigResponse, error) {
-	return c.rpc.SetNetworkConfig(ctx, &buoyv1.SetNetworkConfigRequest{
-		Config: &buoyv1.NetworkConfig{
+func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool, transits []*nodev1.TransitRoute) (*nodev1.SetNetworkConfigResponse, error) {
+	return c.rpc.SetNetworkConfig(ctx, &nodev1.SetNetworkConfigRequest{
+		Config: &nodev1.NetworkConfig{
 			Forwarding: forwarding,
 			Masquerade: masquerade,
 			Isolation:  isolation,
@@ -141,14 +141,14 @@ func (c *Client) SetNetworkConfig(ctx context.Context, forwarding, masquerade, i
 // ConfigureInnerLink creates or updates a node→node inner AmneziaWG link on an
 // entry node toward an exit (DESIGN §3, node cascade). revision is the link's
 // monotonic ConfigureInnerLink revision.
-func (c *Client) ConfigureInnerLink(ctx context.Context, cfg *buoyv1.InnerLinkConfig, revision int64) (*buoyv1.ConfigureInnerLinkResponse, error) {
-	return c.rpc.ConfigureInnerLink(ctx, &buoyv1.ConfigureInnerLinkRequest{
+func (c *Client) ConfigureInnerLink(ctx context.Context, cfg *nodev1.InnerLinkConfig, revision int64) (*nodev1.ConfigureInnerLinkResponse, error) {
+	return c.rpc.ConfigureInnerLink(ctx, &nodev1.ConfigureInnerLinkRequest{
 		Config:   cfg,
 		Revision: revision,
 	})
 }
 
 // RemoveInnerLink tears down an inner link on an entry node.
-func (c *Client) RemoveInnerLink(ctx context.Context, iface string) (*buoyv1.RemoveInnerLinkResponse, error) {
-	return c.rpc.RemoveInnerLink(ctx, &buoyv1.RemoveInnerLinkRequest{Interface: iface})
+func (c *Client) RemoveInnerLink(ctx context.Context, iface string) (*nodev1.RemoveInnerLinkResponse, error) {
+	return c.rpc.RemoveInnerLink(ctx, &nodev1.RemoveInnerLinkRequest{Interface: iface})
 }

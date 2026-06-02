@@ -3,7 +3,7 @@ module github.com/PharosVPN/coxswain
 go 1.25.7
 
 require (
-	github.com/PharosVPN/beacon v0.0.0-20260602161639-2b403df53907
+	github.com/PharosVPN/relay v0.0.0-20260602161639-2b403df53907
 	github.com/coder/websocket v1.8.14
 	github.com/knadh/koanf/parsers/yaml v1.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
@@ -48,3 +48,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/PharosVPN/relay => ../relay

@@ -20,7 +20,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/db"
 	"github.com/PharosVPN/coxswain/internal/fleet"
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -28,13 +28,13 @@ import (
 
 // fakeNode streams a fixed burst of events, then holds the stream open.
 type fakeNode struct {
-	buoyv1.UnimplementedNodeControlServer
+	nodev1.UnimplementedNodeControlServer
 }
 
-func (fakeNode) WatchEvents(_ *buoyv1.WatchEventsRequest, stream grpc.ServerStreamingServer[buoyv1.Event]) error {
+func (fakeNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStreamingServer[nodev1.Event]) error {
 	for i := 0; i < 3; i++ {
-		if err := stream.Send(&buoyv1.Event{
-			Type:    buoyv1.EventType_EVENT_TYPE_HANDSHAKE_UP,
+		if err := stream.Send(&nodev1.Event{
+			Type:    nodev1.EventType_EVENT_TYPE_HANDSHAKE_UP,
 			Message: "event",
 		}); err != nil {
 			return err
@@ -73,7 +73,7 @@ func startFakeNode(t *testing.T) (addr string, dialer *control.Dialer) {
 		t.Fatalf("node key: %v", err)
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader,
-		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "buoy-test"}}, nodeKey)
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "node-test"}}, nodeKey)
 	if err != nil {
 		t.Fatalf("node CSR: %v", err)
 	}
@@ -101,7 +101,7 @@ func startFakeNode(t *testing.T) (addr string, dialer *control.Dialer) {
 		ClientCAs:    roots,
 		MinVersion:   tls.VersionTLS13,
 	})))
-	buoyv1.RegisterNodeControlServer(srv, fakeNode{})
+	nodev1.RegisterNodeControlServer(srv, fakeNode{})
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

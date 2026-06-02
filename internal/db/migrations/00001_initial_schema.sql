@@ -18,7 +18,7 @@ CREATE TABLE ca (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- nodes is the buoy fleet inventory.
+-- nodes is the node fleet inventory.
 CREATE TABLE nodes (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE nodes (
     updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- relays is the beacon inventory (embedded + remote).
+-- relays is the relay inventory (embedded + remote).
 CREATE TABLE relays (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -105,7 +105,7 @@ CREATE TABLE peers (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- node_certs tracks Fleet-CA leaf certs issued to buoy nodes.
+-- node_certs tracks Fleet-CA leaf certs issued to node nodes.
 CREATE TABLE node_certs (
     id         TEXT PRIMARY KEY,
     node_id    TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
@@ -135,7 +135,7 @@ CREATE TABLE device_certs (
 CREATE TABLE bootstrap_tokens (
     id         TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,
-    kind       TEXT NOT NULL CHECK (kind IN ('buoy', 'beacon')),
+    kind       TEXT NOT NULL CHECK (kind IN ('node', 'relay')),
     node_id    TEXT REFERENCES nodes(id) ON DELETE SET NULL,
     expires_at TIMESTAMP NOT NULL,
     used_at    TIMESTAMP,

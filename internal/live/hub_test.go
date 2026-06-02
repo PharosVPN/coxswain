@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -62,10 +62,10 @@ func TestHubDropsSlowSubscriber(t *testing.T) {
 
 func TestEventFrom(t *testing.T) {
 	at := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
-	got := eventFrom("nod_x", &buoyv1.Event{
+	got := eventFrom("nod_x", &nodev1.Event{
 		At:       timestamppb.New(at),
-		Type:     buoyv1.EventType_EVENT_TYPE_HANDSHAKE_UP,
-		Protocol: buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+		Type:     nodev1.EventType_EVENT_TYPE_HANDSHAKE_UP,
+		Protocol: nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 		PeerId:   "peer-1",
 		Message:  "handshake",
 	})
@@ -83,7 +83,7 @@ func TestEventFrom(t *testing.T) {
 	}
 
 	// An unspecified protocol is dropped rather than rendered as a string.
-	bare := eventFrom("nod_x", &buoyv1.Event{Type: buoyv1.EventType_EVENT_TYPE_ERROR})
+	bare := eventFrom("nod_x", &nodev1.Event{Type: nodev1.EventType_EVENT_TYPE_ERROR})
 	if bare.Protocol != "" {
 		t.Errorf("unspecified protocol: got %q want empty", bare.Protocol)
 	}

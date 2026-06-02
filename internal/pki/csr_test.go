@@ -19,7 +19,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
-// makeCSR generates a node keypair and a PEM-encoded CSR, as buoy would on the
+// makeCSR generates a node keypair and a PEM-encoded CSR, as node would on the
 // node. The private key never leaves; only csrPEM is returned.
 func makeCSR(t *testing.T, cn string) []byte {
 	t.Helper()
@@ -43,7 +43,7 @@ func TestSignNodeCSRChains(t *testing.T) {
 		t.Fatalf("GenerateBundle: %v", err)
 	}
 
-	signed, err := pki.SignNodeCSR(b.Fleet, makeCSR(t, "buoy-ams-1"),
+	signed, err := pki.SignNodeCSR(b.Fleet, makeCSR(t, "node-ams-1"),
 		[]net.IP{net.ParseIP("203.0.113.7")}, nil)
 	if err != nil {
 		t.Fatalf("SignNodeCSR: %v", err)
@@ -75,7 +75,7 @@ func TestSignRelayCSR(t *testing.T) {
 		t.Fatalf("GenerateBundle: %v", err)
 	}
 
-	signed, err := pki.SignRelayCSR(b.Fleet, makeCSR(t, "ignored-subject"), "beacon.example.net")
+	signed, err := pki.SignRelayCSR(b.Fleet, makeCSR(t, "ignored-subject"), "relay.example.net")
 	if err != nil {
 		t.Fatalf("SignRelayCSR: %v", err)
 	}
@@ -102,8 +102,8 @@ func TestSignRelayCSR(t *testing.T) {
 		t.Errorf("EKU: server=%t client=%t, want both", hasServer, hasClient)
 	}
 	// The hostname coxswain passed — not the CSR's — is the SAN.
-	if len(signed.Cert.DNSNames) != 1 || signed.Cert.DNSNames[0] != "beacon.example.net" {
-		t.Errorf("DNS SAN: got %v want [beacon.example.net]", signed.Cert.DNSNames)
+	if len(signed.Cert.DNSNames) != 1 || signed.Cert.DNSNames[0] != "relay.example.net" {
+		t.Errorf("DNS SAN: got %v want [relay.example.net]", signed.Cert.DNSNames)
 	}
 
 	roots := x509.NewCertPool()
@@ -188,7 +188,7 @@ func TestRecordNodeCert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateBundle: %v", err)
 	}
-	signed, err := pki.SignNodeCSR(b.Fleet, makeCSR(t, "buoy-ams-1"), nil, nil)
+	signed, err := pki.SignNodeCSR(b.Fleet, makeCSR(t, "node-ams-1"), nil, nil)
 	if err != nil {
 		t.Fatalf("SignNodeCSR: %v", err)
 	}

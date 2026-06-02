@@ -10,7 +10,7 @@ sees a relay's IP, never coxswain's.
 
 ## How it works
 
-- A relay enrolled with `--egress` runs a second `beacon egress` process. It is
+- A relay enrolled with `--egress` runs a second `relay egress` process. It is
   **protocol-blind**: coxswain opens a substream and writes a one-line
   `CONNECT host:port`, the relay dials it over raw TCP and pumps bytes. The
   gRPC-mTLS / SSH payload is end-to-end between coxswain and the node, so the
@@ -58,7 +58,7 @@ tcpdump -nni any "tcp port 8444 and host <relay-ip>"
 journalctl _COMM=sshd | grep "Accepted publickey"
 ```
 
-On each relay, `journalctl -u beacon-egress | grep "coxswain connected"` shows
+On each relay, `journalctl -u relay-egress | grep "coxswain connected"` shows
 its *inbound* peer: the first hop sees coxswain's IP; every later hop sees the
 *previous* relay's IP, not coxswain's. Reordering hops (`set-egress --hop`)
 reverses these sources — confirmed live across a NYC → Frankfurt → SFO chain.

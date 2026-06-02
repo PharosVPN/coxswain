@@ -37,10 +37,10 @@ func newEnrollCmd() *cobra.Command {
 				return err
 			}
 			if relay == "" {
-				relay = cfg.Beacon.PublicEndpoint
+				relay = cfg.Relay.PublicEndpoint
 			}
 			if relay == "" {
-				return fmt.Errorf("no relay endpoint — set beacon.public_endpoint or pass --relay")
+				return fmt.Errorf("no relay endpoint — set relay.public_endpoint or pass --relay")
 			}
 
 			bundle, _, err := pki.EnsureCA(ctx, conn)
@@ -75,7 +75,7 @@ func newEnrollCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
-	cmd.Flags().StringVar(&relay, "relay", "", "relay endpoint (defaults to beacon.public_endpoint)")
+	cmd.Flags().StringVar(&relay, "relay", "", "relay endpoint (defaults to relay.public_endpoint)")
 	cmd.Flags().StringVar(&out, "out", "", "QR output path (default <user-id>-enroll.png)")
 	return cmd
 }

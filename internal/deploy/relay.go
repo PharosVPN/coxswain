@@ -15,39 +15,39 @@ import (
 	"github.com/PharosVPN/coxswain/internal/pki"
 )
 
-// On-host layout and the coxswain↔beacon CLI contract for relay enrollment
-// (BUILD.md "Relay enrollment contract"). It mirrors the buoy contract above.
+// On-host layout and the coxswain↔relay CLI contract for relay enrollment
+// (BUILD.md "Relay enrollment contract"). It mirrors the node contract above.
 const (
-	beaconBinaryPath = "/usr/local/bin/beacon"
-	relayCertPath    = "/etc/beacon/relay.crt"
-	fleetCAPath      = "/etc/beacon/fleet-ca.crt"
-	deviceCAPath     = "/etc/beacon/device-ca.crt"
-	beaconUnitPath   = "/etc/systemd/system/beacon.service"
-	// beaconEgressUnitPath is the control-plane egress relay's unit (decision 19),
-	// a second beacon process alongside the ingress one. Staged only when the
+	relayBinaryPath = "/usr/local/bin/relay"
+	relayCertPath   = "/etc/relay/relay.crt"
+	fleetCAPath     = "/etc/relay/fleet-ca.crt"
+	deviceCAPath    = "/etc/relay/device-ca.crt"
+	relayUnitPath   = "/etc/systemd/system/relay.service"
+	// relayEgressUnitPath is the control-plane egress relay's unit (decision 19),
+	// a second relay process alongside the ingress one. Staged only when the
 	// relay is enrolled with an egress endpoint.
-	beaconEgressUnitPath = "/etc/systemd/system/beacon-egress.service"
+	relayEgressUnitPath = "/etc/systemd/system/relay-egress.service"
 
-	// cmdRelayGenCSR makes beacon generate its keypair on the host and print
+	// cmdRelayGenCSR makes relay generate its keypair on the host and print
 	// a plain CSR; coxswain overrides the identity when it signs (SignRelayCSR).
-	cmdRelayGenCSR = beaconBinaryPath + " gen-csr"
-	// cmdRelayVersion prints the installed beacon version.
-	cmdRelayVersion = beaconBinaryPath + " version"
-	// cmdRelayOnionKey makes beacon mint/print its X25519 onion public key
+	cmdRelayGenCSR = relayBinaryPath + " gen-csr"
+	// cmdRelayVersion prints the installed relay version.
+	cmdRelayVersion = relayBinaryPath + " version"
+	// cmdRelayOnionKey makes relay mint/print its X25519 onion public key
 	// (decision 20); the private key stays on the host.
-	cmdRelayOnionKey = beaconBinaryPath + " onion-key"
-	// beaconOnionUnitPath is the onion relay's systemd unit, a third beacon
+	cmdRelayOnionKey = relayBinaryPath + " onion-key"
+	// relayOnionUnitPath is the onion relay's systemd unit, a third relay
 	// process. Staged only when the relay is enrolled with an onion endpoint.
-	beaconOnionUnitPath = "/etc/systemd/system/beacon-onion.service"
+	relayOnionUnitPath = "/etc/systemd/system/relay-onion.service"
 )
 
-const beaconUnit = `[Unit]
-Description=PharosVPN beacon relay
+const relayUnit = `[Unit]
+Description=PharosVPN relay
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=` + beaconBinaryPath + ` run --config-dir /etc/beacon
+ExecStart=` + relayBinaryPath + ` run --config-dir /etc/relay
 Restart=on-failure
 RestartSec=5
 
@@ -55,17 +55,17 @@ RestartSec=5
 WantedBy=multi-user.target
 `
 
-// beaconEgressUnit is the systemd unit for the control-plane egress relay
-// (decision 19): a second beacon process listening for coxswain's egress tunnel
-// on tunnelAddr (e.g. ":8456"). It reuses the same /etc/beacon material.
-func beaconEgressUnit(tunnelAddr string) string {
+// relayEgressUnit is the systemd unit for the control-plane egress relay
+// (decision 19): a second relay process listening for coxswain's egress tunnel
+// on tunnelAddr (e.g. ":8456"). It reuses the same /etc/relay material.
+func relayEgressUnit(tunnelAddr string) string {
 	return `[Unit]
-Description=PharosVPN beacon control-plane egress relay
+Description=PharosVPN control-plane egress relay
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=` + beaconBinaryPath + ` egress --tunnel-addr ` + tunnelAddr + ` --config-dir /etc/beacon
+ExecStart=` + relayBinaryPath + ` egress --tunnel-addr ` + tunnelAddr + ` --config-dir /etc/relay
 Restart=on-failure
 RestartSec=5
 
@@ -74,16 +74,16 @@ WantedBy=multi-user.target
 `
 }
 
-// beaconOnionUnit is the systemd unit for the control-plane onion relay
-// (decision 20): a beacon process peeling onion layers on listenAddr (":8457").
-func beaconOnionUnit(listenAddr string) string {
+// relayOnionUnit is the systemd unit for the control-plane onion relay
+// (decision 20): a relay process peeling onion layers on listenAddr (":8457").
+func relayOnionUnit(listenAddr string) string {
 	return `[Unit]
-Description=PharosVPN beacon control-plane onion relay
+Description=PharosVPN control-plane onion relay
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=` + beaconBinaryPath + ` onion --listen ` + listenAddr + ` --config-dir /etc/beacon
+ExecStart=` + relayBinaryPath + ` onion --listen ` + listenAddr + ` --config-dir /etc/relay
 Restart=on-failure
 RestartSec=5
 
@@ -112,18 +112,18 @@ type RelayParams struct {
 	// when EgressEndpoint is empty).
 	EgressHop int
 	// OnionEndpoint, when set, also enrols this relay as an onion hop (decision
-	// 20): it stages `beacon onion` on this address and records the relay's onion
+	// 20): it stages `relay onion` on this address and records the relay's onion
 	// public key. Reuses EgressHop for ordering; empty = no onion.
 	OnionEndpoint string
-	// NoIngress skips the client-facing ingress beacon (`beacon run`), staging
-	// only the egress/onion roles. This lets a relay share a host with a buoy
+	// NoIngress skips the client-facing ingress relay (`relay run`), staging
+	// only the egress/onion roles. This lets a relay share a host with a node
 	// node without both fighting for the same port — the individual's "one box,
 	// many roles". Requires an egress or onion endpoint.
 	NoIngress bool
 	SSHHost   string // required
-	SSHUser        string
-	SSHPort        int
-	Install        InstallSpec
+	SSHUser   string
+	SSHPort   int
+	Install   InstallSpec
 }
 
 // RelayResult reports what relay enrollment produced.
@@ -133,7 +133,7 @@ type RelayResult struct {
 	AgentVersion string
 }
 
-// AddRelay installs the beacon binary on an already-connected host, signs its
+// AddRelay installs the relay binary on an already-connected host, signs its
 // relay certificate off the Fleet CA, pushes the trust material, and starts
 // the service (BUILD.md "Relay enrollment contract"). On failure the relay
 // record is left with status "error".
@@ -183,22 +183,22 @@ func AddRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle,
 // enrolRelay runs the install/sign/start sequence against an existing relay
 // record.
 func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, relay *fleet.Relay, p RelayParams) (RelayResult, error) {
-	if err := installBinary(ctx, remote, p.Install, beaconBinaryPath); err != nil {
+	if err := installBinary(ctx, remote, p.Install, relayBinaryPath); err != nil {
 		return RelayResult{}, err
 	}
 
-	// beacon generates its keypair on the host and returns a plain CSR; the
+	// relay generates its keypair on the host and returns a plain CSR; the
 	// relay private key never crosses to coxswain.
 	csrPEM, err := remote.Run(ctx, cmdRelayGenCSR, nil)
 	if err != nil {
-		return RelayResult{}, fmt.Errorf("deploy: beacon gen-csr: %w", err)
+		return RelayResult{}, fmt.Errorf("deploy: relay gen-csr: %w", err)
 	}
 	signed, err := pki.SignRelayCSR(bundle.Fleet, csrPEM, p.Hostname)
 	if err != nil {
 		return RelayResult{}, err
 	}
 
-	// relay.crt carries the leaf plus the Fleet intermediate so beacon can
+	// relay.crt carries the leaf plus the Fleet intermediate so relay can
 	// present a full chain to caravel; the two CA files are the trust roots
 	// for the client and backend legs.
 	relayChain := append(append([]byte{}, signed.CertPEM...), bundle.Fleet.CertPEM...)
@@ -215,49 +215,49 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 		}
 	}
 
-	// The client-facing ingress beacon — skipped on a co-located relay so it does
-	// not contend for the buoy's port (the "one box, many roles" case).
+	// The client-facing ingress relay — skipped on a co-located relay so it does
+	// not contend for the node's port (the "one box, many roles" case).
 	if !p.NoIngress {
-		if err := remote.Upload(ctx, beaconUnitPath, []byte(beaconUnit), 0o644); err != nil {
+		if err := remote.Upload(ctx, relayUnitPath, []byte(relayUnit), 0o644); err != nil {
 			return RelayResult{}, err
 		}
-		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon", nil); err != nil {
-			return RelayResult{}, fmt.Errorf("deploy: start beacon service: %w", err)
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now relay", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start relay service: %w", err)
 		}
 	}
 
-	// Control-plane egress relay (decision 19): a second beacon process. The
+	// Control-plane egress relay (decision 19): a second relay process. The
 	// relay listens on the egress endpoint's port; coxswain dials the hostname.
 	if p.EgressEndpoint != "" {
 		_, port, err := net.SplitHostPort(p.EgressEndpoint)
 		if err != nil {
 			return RelayResult{}, fmt.Errorf("deploy: egress endpoint %q: %w", p.EgressEndpoint, err)
 		}
-		if err := remote.Upload(ctx, beaconEgressUnitPath, []byte(beaconEgressUnit(":"+port)), 0o644); err != nil {
+		if err := remote.Upload(ctx, relayEgressUnitPath, []byte(relayEgressUnit(":"+port)), 0o644); err != nil {
 			return RelayResult{}, err
 		}
-		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon-egress", nil); err != nil {
-			return RelayResult{}, fmt.Errorf("deploy: start beacon-egress service: %w", err)
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now relay-egress", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start relay-egress service: %w", err)
 		}
 	}
 
 	// Onion hop (decision 20): mint the relay's onion key, record its public
-	// half, and run `beacon onion` alongside.
+	// half, and run `relay onion` alongside.
 	if p.OnionEndpoint != "" {
 		out, err := remote.Run(ctx, cmdRelayOnionKey, nil)
 		if err != nil {
-			return RelayResult{}, fmt.Errorf("deploy: beacon onion-key: %w", err)
+			return RelayResult{}, fmt.Errorf("deploy: relay onion-key: %w", err)
 		}
 		relay.OnionPubKey = strings.TrimSpace(string(out))
 		_, port, err := net.SplitHostPort(p.OnionEndpoint)
 		if err != nil {
 			return RelayResult{}, fmt.Errorf("deploy: onion endpoint %q: %w", p.OnionEndpoint, err)
 		}
-		if err := remote.Upload(ctx, beaconOnionUnitPath, []byte(beaconOnionUnit(":"+port)), 0o644); err != nil {
+		if err := remote.Upload(ctx, relayOnionUnitPath, []byte(relayOnionUnit(":"+port)), 0o644); err != nil {
 			return RelayResult{}, err
 		}
-		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now beacon-onion", nil); err != nil {
-			return RelayResult{}, fmt.Errorf("deploy: start beacon-onion service: %w", err)
+		if _, err := remote.Run(ctx, "systemctl daemon-reload && systemctl enable --now relay-onion", nil); err != nil {
+			return RelayResult{}, fmt.Errorf("deploy: start relay-onion service: %w", err)
 		}
 		relay.OnionEndpoint = p.OnionEndpoint
 	}

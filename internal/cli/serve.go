@@ -44,16 +44,16 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
-			// The beacon relay tier fronts the account/sync gRPC service
+			// The relay tier fronts the account/sync gRPC service
 			// (DESIGN §2): an in-process relay and/or reverse tunnels out to
-			// remote beacons. Relay failures are non-fatal — the admin plane
+			// remote relays. Relay failures are non-fatal — the admin plane
 			// still serves; only client sync is unavailable.
 			remotes, err := remoteRelayEndpoints(ctx, cfg, conn)
 			if err != nil {
 				return err
 			}
-			if cfg.Accounts.Sync && (cfg.Beacon.Embedded || len(remotes) > 0) {
-				if stop := startBeaconRelay(ctx, cfg, conn, remotes); stop != nil {
+			if cfg.Accounts.Sync && (cfg.Relay.Embedded || len(remotes) > 0) {
+				if stop := startRelayRelay(ctx, cfg, conn, remotes); stop != nil {
 					defer stop()
 				}
 			}
@@ -106,10 +106,10 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
-// remoteRelayEndpoints is the set of remote beacon tunnel addresses coxswain dials:
+// remoteRelayEndpoints is the set of remote relay tunnel addresses coxswain dials:
 // the relays enrolled with `cox relays add` (active, kind "remote") unioned
-// with any beacon.remote_endpoints in the config. Enrolled relays are dialed
-// whenever they are active; config endpoints honour the beacon.remote toggle.
+// with any relay.remote_endpoints in the config. Enrolled relays are dialed
+// whenever they are active; config endpoints honour the relay.remote toggle.
 func remoteRelayEndpoints(ctx context.Context, cfg config.Config, conn *sql.DB) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -129,47 +129,47 @@ func remoteRelayEndpoints(ctx context.Context, cfg config.Config, conn *sql.DB) 
 			add(r.Endpoint)
 		}
 	}
-	if cfg.Beacon.Remote {
-		for _, ep := range cfg.Beacon.RemoteEndpoints {
+	if cfg.Relay.Remote {
+		for _, ep := range cfg.Relay.RemoteEndpoints {
 			add(ep)
 		}
 	}
 	return out, nil
 }
 
-// startBeaconRelay issues coxswain's beacon-tier service certs and brings up the
+// startRelayRelay issues coxswain's relay-tier service certs and brings up the
 // relay tier behind the account/sync gRPC service: the in-process relay (when
-// beacon.embedded) and a reverse tunnel to each remote beacon. It returns a
+// relay.embedded) and a reverse tunnel to each remote relay. It returns a
 // stop func, or nil if nothing started. Any failure prints a warning and is
 // non-fatal, so a missing data-plane port never blocks the admin server.
-func startBeaconRelay(ctx context.Context, cfg config.Config, conn *sql.DB, remotes []string) (stop func()) {
+func startRelayRelay(ctx context.Context, cfg config.Config, conn *sql.DB, remotes []string) (stop func()) {
 	bundle, _, err := pki.EnsureCA(ctx, conn)
 	if err != nil {
-		fmt.Printf("  warning: beacon relay disabled — load CA: %v\n", err)
+		fmt.Printf("  warning: relay disabled — load CA: %v\n", err)
 		return nil
 	}
 	grpcCert, err := pki.EnsureServiceCert(ctx, conn, bundle.Fleet, pki.ServiceGRPC)
 	if err != nil {
-		fmt.Printf("  warning: beacon relay disabled — gRPC cert: %v\n", err)
+		fmt.Printf("  warning: relay disabled — gRPC cert: %v\n", err)
 		return nil
 	}
 	relayCert, err := pki.EnsureServiceCert(ctx, conn, bundle.Fleet, pki.ServiceRelay)
 	if err != nil {
-		fmt.Printf("  warning: beacon relay disabled — relay cert: %v\n", err)
+		fmt.Printf("  warning: relay disabled — relay cert: %v\n", err)
 		return nil
 	}
 	srv, err := relayhost.AccountServer(conn, grpcCert, bundle.Fleet.CertPEM)
 	if err != nil {
-		fmt.Printf("  warning: beacon relay disabled — gRPC server: %v\n", err)
+		fmt.Printf("  warning: relay disabled — gRPC server: %v\n", err)
 		return nil
 	}
 
 	// The embedded relay binds a public listener; remote relays are dialed
 	// out to. The same gRPC server backs both.
 	var emb *relayhost.Embedded
-	if cfg.Beacon.Embedded {
+	if cfg.Relay.Embedded {
 		emb, err = relayhost.StartEmbedded(srv, relayhost.EmbeddedConfig{
-			ClientListen: cfg.Beacon.ClientListen,
+			ClientListen: cfg.Relay.ClientListen,
 			RelayCert:    relayCert,
 			DeviceCAPEM:  bundle.Device.CertPEM,
 			FleetCAPEM:   bundle.Fleet.CertPEM,
@@ -196,7 +196,7 @@ func startBeaconRelay(ctx context.Context, cfg config.Config, conn *sql.DB, remo
 				fmt.Printf("  warning: remote relay %s stopped: %v\n", addr, err)
 			}
 		}(ep)
-		fmt.Printf("  relay:   reverse tunnel to remote beacon %s\n", ep)
+		fmt.Printf("  relay:   reverse tunnel to remote relay %s\n", ep)
 	}
 
 	if emb == nil && dialed == 0 {

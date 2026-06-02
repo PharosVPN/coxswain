@@ -19,7 +19,7 @@ import (
 )
 
 // Service-certificate roles (the `service_certs` table) — coxswain's certs for the
-// beacon relay tier (DESIGN §2, M6b-2).
+// relay tier (DESIGN §2, M6b-2).
 const (
 	// ServiceGRPC is coxswain's account/sync gRPC server cert. The relay dials it
 	// with SNI "coxswain-grpc".

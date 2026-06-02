@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package control is coxswain's outbound gRPC control plane: it dials each buoy
+// Package control is coxswain's outbound gRPC control plane: it dials each node
 // node over mTLS and drives the NodeControl service (DESIGN §6, §7).
 package control
 
@@ -13,12 +13,12 @@ import (
 	"fmt"
 	"net"
 
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-// Dialer opens mTLS gRPC connections to buoy nodes. It is built once from
+// Dialer opens mTLS gRPC connections to nodes. It is built once from
 // coxswain's controller certificate and reused for every node.
 type Dialer struct {
 	creds         credentials.TransportCredentials
@@ -71,5 +71,5 @@ func (d *Dialer) Dial(addr string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("control: dial %s: %w", addr, err)
 	}
-	return &Client{cc: cc, rpc: buoyv1.NewNodeControlClient(cc)}, nil
+	return &Client{cc: cc, rpc: nodev1.NewNodeControlClient(cc)}, nil
 }

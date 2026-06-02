@@ -19,7 +19,7 @@ func newSSHKeyCmd() *cobra.Command {
 		Long: "Print coxswain's outbound SSH public key. Add this key to a new\n" +
 			"node's ~/.ssh/authorized_keys (or the cloud provider's SSH keys)\n" +
 			"before running `cox nodes add` — coxswain dials out with it to\n" +
-			"install the buoy agent.",
+			"install the node agent.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, conn, err := openState(cfgPath)

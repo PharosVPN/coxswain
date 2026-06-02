@@ -33,8 +33,8 @@ func TestPresetWriteLoadRoundTrip(t *testing.T) {
 			if got.Protocols != want.Protocols {
 				t.Errorf("protocols: got %+v want %+v", got.Protocols, want.Protocols)
 			}
-			if !reflect.DeepEqual(got.Beacon, want.Beacon) {
-				t.Errorf("beacon: got %+v want %+v", got.Beacon, want.Beacon)
+			if !reflect.DeepEqual(got.Relay, want.Relay) {
+				t.Errorf("relay: got %+v want %+v", got.Relay, want.Relay)
 			}
 		})
 	}

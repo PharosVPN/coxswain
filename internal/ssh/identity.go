@@ -2,7 +2,7 @@
 // Copyright (C) 2026 The PharosVPN Authors
 
 // Package ssh is coxswain's SSH layer: its own outbound SSH identity and the
-// client used to install and update the buoy agent on a node (DESIGN §5).
+// client used to install and update the node agent on a node (DESIGN §5).
 // SSH is a deployment channel only — all node control is gRPC.
 package ssh
 

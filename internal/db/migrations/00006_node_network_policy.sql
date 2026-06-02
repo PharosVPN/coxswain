@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- Copyright (C) 2026 The PharosVPN Authors
 --
--- Per-node network policy (DESIGN §3, decision 16). Operators set each buoy's
+-- Per-node network policy (DESIGN §3, decision 16). Operators set each node's
 -- traffic handling: forwarding, masquerade (source NAT), client isolation.
 -- New nodes default to the common internet-egress VPN posture.
 

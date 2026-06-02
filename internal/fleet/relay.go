@@ -14,7 +14,7 @@ import (
 )
 
 // Relay kinds (the `relays` table). The embedded relay runs in coxswain's own
-// process; a remote relay is a beacon binary coxswain enrols over SSH and reaches
+// process; a remote relay is a relay binary coxswain enrols over SSH and reaches
 // by dialling out to its reverse-tunnel listener (DESIGN §2).
 const (
 	RelayKindEmbedded = "embedded"
@@ -32,7 +32,7 @@ type Relay struct {
 	// Endpoint is the reverse-tunnel address coxswain dials for a remote relay.
 	// Empty for the embedded relay.
 	Endpoint string
-	// EgressEndpoint is the relay's `beacon egress` tunnel address coxswain dials
+	// EgressEndpoint is the relay's `relay egress` tunnel address coxswain dials
 	// to route its control-plane connections (gRPC + SSH) to nodes through this
 	// relay (DESIGN §3, decision 19). Empty means the relay carries no egress.
 	EgressEndpoint string
@@ -40,7 +40,7 @@ type Relay struct {
 	// closest to coxswain, the last hop reaches the node). 0 when the relay is
 	// not an egress hop. Only meaningful with EgressEndpoint set.
 	EgressHop int
-	// OnionEndpoint is the relay's `beacon onion` listener address; OnionPubKey
+	// OnionEndpoint is the relay's `relay onion` listener address; OnionPubKey
 	// is its base64 X25519 onion public key (DESIGN §3, decision 20). Both set
 	// means the relay can serve as an onion hop, reusing EgressHop for ordering.
 	OnionEndpoint string

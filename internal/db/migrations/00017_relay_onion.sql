@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 The PharosVPN Authors
 --
 -- Control-plane onion routing (DESIGN §3, decision 20). An egress relay can also
--- be an onion hop: it runs `beacon onion` and publishes an X25519 onion key.
+-- be an onion hop: it runs `relay onion` and publishes an X25519 onion key.
 -- onion_endpoint is the relay's onion listener address coxswain/relays dial;
 -- onion_pubkey is its base64 X25519 onion public key, which coxswain seals
 -- circuit layers to. The onion chain reuses the egress chain's egress_hop order.

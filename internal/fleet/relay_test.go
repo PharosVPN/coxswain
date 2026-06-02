@@ -16,7 +16,7 @@ func TestRelayCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	created, err := fleet.CreateRelay(ctx, conn, fleet.Relay{
-		Name: "edge-1", Kind: fleet.RelayKindRemote, Endpoint: "beacon.example.net:8444",
+		Name: "edge-1", Kind: fleet.RelayKindRemote, Endpoint: "relay.example.net:8444",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelay: %v", err)
@@ -32,7 +32,7 @@ func TestRelayCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRelay: %v", err)
 	}
-	if got.Name != "edge-1" || got.Endpoint != "beacon.example.net:8444" {
+	if got.Name != "edge-1" || got.Endpoint != "relay.example.net:8444" {
 		t.Errorf("GetRelay: got %+v", got)
 	}
 

@@ -70,7 +70,7 @@
 		loadError = '';
 		try {
 			nodes = await api.get<Node[]>('/api/nodes');
-			// Relays + links enrich the map with beacon roles and route arcs;
+			// Relays + links enrich the map with relay roles and route arcs;
 			// tolerate their absence on older controllers.
 			try {
 				[relays, links] = await Promise.all([
@@ -362,7 +362,7 @@
 						<div class="text-xs text-ink-3">No rules — forwarding is off.</div>
 					{/if}
 					<div class="mt-2 text-[11px] text-ink-4">
-						%i = the WireGuard interface · %e = the node's egress interface (autodetected by buoy)
+						%i = the WireGuard interface · %e = the node's egress interface (autodetected by the node)
 					</div>
 				{:else}
 					<div class="text-xs text-ink-3">Generating…</div>

@@ -15,7 +15,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/deploy"
 	"github.com/PharosVPN/coxswain/internal/fleet"
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/wg"
@@ -37,7 +37,7 @@ const controlRPCTimeout = 10 * time.Second
 func newNodesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nodes",
-		Short: "Onboard and manage buoy fleet nodes",
+		Short: "Onboard and manage fleet nodes",
 	}
 	cmd.AddCommand(
 		newNodesAddCmd(),
@@ -106,7 +106,7 @@ func newNodesStatusCmd() *cobra.Command {
 					proto, svc.GetRunning(), svc.GetListening(), svc.GetPeerCount())
 			}
 
-			// Persist the AmneziaWG identity buoy reports — its public key and
+			// Persist the AmneziaWG identity node reports — its public key and
 			// per-node obfuscation. Provisioning needs both before it can place
 			// a device on the node (DESIGN §3).
 			if pubKey, obf := control.AmneziaWGFromStatus(status); pubKey != "" {
@@ -147,9 +147,9 @@ func newNodesAddCmd() *cobra.Command {
 	var port int
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
-		Short: "Onboard a new buoy node over SSH",
-		Long: "Onboard a buoy node (DESIGN §5). coxswain connects to <ssh-host>\n" +
-			"over SSH, installs the buoy agent, signs the certificate request\n" +
+		Short: "Onboard a new node over SSH",
+		Long: "Onboard a node (DESIGN §5). coxswain connects to <ssh-host>\n" +
+			"over SSH, installs the node agent, signs the certificate request\n" +
 			"the agent generates on the node, and starts the service.\n\n" +
 			"Add coxswain's SSH key (see `cox ssh-key`) to the host first.",
 		Args: cobra.ExactArgs(1),
@@ -161,7 +161,7 @@ func newNodesAddCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			spec, err := installSpec(binaryPath, url, cfg.Node.BuoyBinaryURL, "node.buoy_binary_url")
+			spec, err := installSpec(binaryPath, url, cfg.Node.NodeBinaryURL, "node.node_binary_url")
 			if err != nil {
 				return err
 			}
@@ -212,8 +212,8 @@ func newNodesAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "node name (generated from the region if empty)")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user)")
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
-	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local buoy binary to upload")
-	cmd.Flags().StringVar(&url, "url", "", "URL the node downloads buoy from (overrides config)")
+	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local node binary to upload")
+	cmd.Flags().StringVar(&url, "url", "", "URL the node downloads node from (overrides config)")
 	_ = cmd.MarkFlagRequired("region")
 	return cmd
 }
@@ -253,18 +253,18 @@ func newNodesListCmd() *cobra.Command {
 	return cmd
 }
 
-// toBuoyAmneziaWGPeers converts coxswain's fleet.Peer rows for one node into the
+// toNodeAmneziaWGPeers converts coxswain's fleet.Peer rows for one node into the
 // proto Peer messages PushAmneziaWGConfig expects. Non-AmneziaWG peers are
 // skipped — XRay lands in B3 with its own encoder.
-func toBuoyAmneziaWGPeers(peers []fleet.Peer) []*buoyv1.Peer {
-	out := make([]*buoyv1.Peer, 0, len(peers))
+func toNodeAmneziaWGPeers(peers []fleet.Peer) []*nodev1.Peer {
+	out := make([]*nodev1.Peer, 0, len(peers))
 	for _, p := range peers {
 		if p.Protocol != profile.ProtocolAmneziaWG {
 			continue
 		}
-		out = append(out, &buoyv1.Peer{
+		out = append(out, &nodev1.Peer{
 			Id:           p.ID,
-			Protocol:     buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 			PublicKey:    p.PublicKey,
 			AllowedIps:   []string{p.AllowedIP},
 			PresharedKey: p.PresharedKey,
@@ -279,9 +279,9 @@ func newNodesPushCmd() *cobra.Command {
 		Use:   "push <node-id>",
 		Short: "Push the current peer set to a node's AmneziaWG data plane",
 		Long: "Reconcile a node by pushing coxswain's current AmneziaWG peer set\n" +
-			"over the control channel (PushConfig — full-replace). buoy bumps\n" +
+			"over the control channel (PushConfig — full-replace). node bumps\n" +
 			"awg0 in place, no tunnel drops. coxswain assigns a monotonic revision\n" +
-			"per node; buoy rejects stale revisions with FailedPrecondition.",
+			"per node; node rejects stale revisions with FailedPrecondition.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -303,7 +303,7 @@ func newNodesPushCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			amneziaPeers := toBuoyAmneziaWGPeers(peers)
+			amneziaPeers := toNodeAmneziaWGPeers(peers)
 
 			dialer, err := newControlDialer(ctx, conn)
 			if err != nil {
@@ -395,7 +395,7 @@ func newNodesUpdateCmd() *cobra.Command {
 	var cfgPath, binaryPath, url string
 	cmd := &cobra.Command{
 		Use:   "update <node-id>",
-		Short: "Re-deploy the buoy agent on a node over SSH",
+		Short: "Re-deploy the node agent on a node over SSH",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -409,7 +409,7 @@ func newNodesUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			spec, err := installSpec(binaryPath, url, cfg.Node.BuoyBinaryURL, "node.buoy_binary_url")
+			spec, err := installSpec(binaryPath, url, cfg.Node.NodeBinaryURL, "node.node_binary_url")
 			if err != nil {
 				return err
 			}
@@ -429,20 +429,20 @@ func newNodesUpdateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
-	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local buoy binary to upload")
-	cmd.Flags().StringVar(&url, "url", "", "URL the node downloads buoy from (overrides config)")
+	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local node binary to upload")
+	cmd.Flags().StringVar(&url, "url", "", "URL the node downloads node from (overrides config)")
 	return cmd
 }
 
 func newNodesStartCmd() *cobra.Command {
-	return newNodesPowerCmd("start", "Start the buoy service on a node", fleet.StatusActive)
+	return newNodesPowerCmd("start", "Start the node service on a node", fleet.StatusActive)
 }
 
 func newNodesStopCmd() *cobra.Command {
-	return newNodesPowerCmd("stop", "Stop the buoy service on a node", fleet.StatusStopped)
+	return newNodesPowerCmd("stop", "Stop the node service on a node", fleet.StatusStopped)
 }
 
-// newNodesPowerCmd builds the shared start/stop command. It controls the buoy
+// newNodesPowerCmd builds the shared start/stop command. It controls the node
 // service on the node over SSH — the VM itself is left running.
 func newNodesPowerCmd(verb, short, newStatus string) *cobra.Command {
 	var cfgPath string
@@ -475,7 +475,7 @@ func newNodesPowerCmd(verb, short, newStatus string) *cobra.Command {
 			if _, err := fleet.UpdateNode(ctx, conn, node); err != nil {
 				return err
 			}
-			fmt.Printf("node %s: buoy service %sped — status %s\n", node.ID, verb, newStatus)
+			fmt.Printf("node %s: node service %sped — status %s\n", node.ID, verb, newStatus)
 			return nil
 		},
 	}

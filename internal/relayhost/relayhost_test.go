@@ -113,7 +113,7 @@ func TestEmbeddedRelayRoundTrip(t *testing.T) {
 }
 
 // TestRunRemoteStopsOnContextCancel checks that the remote reverse-tunnel
-// dialer reconnects against an unreachable beacon and unwinds cleanly when its
+// dialer reconnects against an unreachable relay and unwinds cleanly when its
 // context is cancelled — coxswain's shutdown path must not hang on a dead relay.
 func TestRunRemoteStopsOnContextCancel(t *testing.T) {
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))

@@ -38,7 +38,7 @@ type Result struct {
 // the device's owner. A node is "ready" once it has reported its WG public
 // key and has a public address.
 //
-// The peer records are coxswain's desired state; pushing them to buoy over the
+// The peer records are coxswain's desired state; pushing them to node over the
 // control channel is the control loop's job.
 func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Options) (Result, error) {
 	device, err := account.GetDevice(ctx, db, deviceID)

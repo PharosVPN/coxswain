@@ -26,7 +26,7 @@ type Config struct {
 	Log       LogConfig       `koanf:"log" yaml:"log"`
 	UI        UIConfig        `koanf:"ui" yaml:"ui"`
 	Protocols ProtocolsConfig `koanf:"protocols" yaml:"protocols"`
-	Beacon    BeaconConfig    `koanf:"beacon" yaml:"beacon"`
+	Relay     RelayConfig     `koanf:"relay" yaml:"relay"`
 	Accounts  AccountsConfig  `koanf:"accounts" yaml:"accounts"`
 	Retention RetentionConfig `koanf:"retention" yaml:"retention"`
 	Reality   RealityConfig   `koanf:"reality" yaml:"reality"`
@@ -45,11 +45,11 @@ type AdminConfig struct {
 }
 
 // NodeConfig holds defaults for SSH-based node onboarding (DESIGN §5). coxswain
-// reaches a node over SSH only to install and update the buoy agent.
+// reaches a node over SSH only to install and update the node agent.
 type NodeConfig struct {
-	// BuoyBinaryURL is the default download URL for the buoy agent, used by
+	// NodeBinaryURL is the default download URL for the node agent, used by
 	// `cox nodes add` when no local binary is supplied.
-	BuoyBinaryURL string `koanf:"buoy_binary_url" yaml:"buoy_binary_url"`
+	NodeBinaryURL string `koanf:"node_binary_url" yaml:"node_binary_url"`
 	// SSHUser is the default SSH user for reaching new nodes.
 	SSHUser string `koanf:"ssh_user" yaml:"ssh_user"`
 	// SSHPort is the default SSH port for reaching new nodes.
@@ -75,21 +75,21 @@ type ProtocolsConfig struct {
 	XRay      bool `koanf:"xray" yaml:"xray"`
 }
 
-// BeaconConfig controls the relay tier (DESIGN §2).
-type BeaconConfig struct {
-	// Embedded runs a beacon relay in-process inside coxswain.
+// RelayConfig controls the relay tier (DESIGN §2).
+type RelayConfig struct {
+	// Embedded runs a relay in-process inside coxswain.
 	Embedded bool `koanf:"embedded" yaml:"embedded"`
-	// Remote enables dialing out to remote beacon relays over a reverse tunnel.
+	// Remote enables dialing out to remote relays over a reverse tunnel.
 	Remote bool `koanf:"remote" yaml:"remote"`
-	// RemoteEndpoints are the tunnel-listener addresses of remote beacon
+	// RemoteEndpoints are the tunnel-listener addresses of remote relay
 	// relays coxswain dials out to (DESIGN §2). coxswain keeps zero inbound ports —
 	// it reconnects to each forever. Used only when Remote is true. Relays
 	// enrolled with `cox relays add` are dialed in addition to these.
 	RemoteEndpoints []string `koanf:"remote_endpoints" yaml:"remote_endpoints"`
-	// BinaryURL is the default download URL for the beacon binary, used by
+	// BinaryURL is the default download URL for the relay binary, used by
 	// `cox relays add` when no local binary is supplied.
 	BinaryURL string `koanf:"binary_url" yaml:"binary_url"`
-	// PublicEndpoint is the address clients reach a beacon at — baked into
+	// PublicEndpoint is the address clients reach a relay at — baked into
 	// enrollment tickets so a scanned device knows where to connect.
 	PublicEndpoint string `koanf:"public_endpoint" yaml:"public_endpoint"`
 	// ClientListen is the address the embedded relay binds for caravel mTLS

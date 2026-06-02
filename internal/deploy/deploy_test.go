@@ -37,7 +37,7 @@ func newFakeRemote(t *testing.T) *fakeRemote {
 		t.Fatalf("node key: %v", err)
 	}
 	der, err := x509.CreateCertificateRequest(rand.Reader,
-		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "buoy"}}, key)
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "node"}}, key)
 	if err != nil {
 		t.Fatalf("node CSR: %v", err)
 	}
@@ -51,14 +51,14 @@ func newFakeRemote(t *testing.T) *fakeRemote {
 func (f *fakeRemote) Run(_ context.Context, cmd string, _ []byte) ([]byte, error) {
 	f.commands = append(f.commands, cmd)
 	switch cmd {
-	case "/usr/local/bin/buoy gen-csr":
+	case "/usr/local/bin/node gen-csr":
 		return f.csrPEM, nil
-	case "/usr/local/bin/buoy version":
-		return []byte("buoy 0.1.0-test\n"), nil
-	case "/usr/local/bin/beacon gen-csr":
+	case "/usr/local/bin/node version":
+		return []byte("node 0.1.0-test\n"), nil
+	case "/usr/local/bin/relay gen-csr":
 		return f.csrPEM, nil
-	case "/usr/local/bin/beacon version":
-		return []byte("beacon 0.1.0-test\n"), nil
+	case "/usr/local/bin/relay version":
+		return []byte("relay 0.1.0-test\n"), nil
 	default:
 		return nil, nil
 	}
@@ -98,7 +98,7 @@ func TestAddNode(t *testing.T) {
 		Region:  "ams",
 		SSHHost: "203.0.113.10",
 		SSHUser: "root",
-		Install: deploy.InstallSpec{URL: "https://dl.example/buoy"},
+		Install: deploy.InstallSpec{URL: "https://dl.example/node"},
 	})
 	if err != nil {
 		t.Fatalf("AddNode: %v", err)
@@ -113,11 +113,11 @@ func TestAddNode(t *testing.T) {
 	if res.NodeCertID == "" {
 		t.Error("no node cert recorded")
 	}
-	if res.AgentVersion != "buoy 0.1.0-test" {
+	if res.AgentVersion != "node 0.1.0-test" {
 		t.Errorf("agent version: got %q", res.AgentVersion)
 	}
 	for _, want := range []string{
-		"/etc/buoy/node.crt", "/etc/buoy/ca.crt", "/etc/systemd/system/buoy.service",
+		"/etc/node/node.crt", "/etc/node/ca.crt", "/etc/systemd/system/node.service",
 	} {
 		if _, ok := remote.uploads[want]; !ok {
 			t.Errorf("expected upload of %s", want)
@@ -143,7 +143,7 @@ func TestAddNodeUploadsBinary(t *testing.T) {
 	}
 	remote := newFakeRemote(t)
 
-	binary := []byte("\x7fELF fake buoy binary")
+	binary := []byte("\x7fELF fake node binary")
 	if _, err := deploy.AddNode(ctx, conn, remote, bundle, deploy.AddParams{
 		Region:  "fra",
 		SSHHost: "node.example.com",
@@ -151,8 +151,8 @@ func TestAddNodeUploadsBinary(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddNode: %v", err)
 	}
-	if got := remote.uploads["/usr/local/bin/buoy"]; string(got) != string(binary) {
-		t.Error("buoy binary was not uploaded")
+	if got := remote.uploads["/usr/local/bin/node"]; string(got) != string(binary) {
+		t.Error("node binary was not uploaded")
 	}
 }
 
@@ -166,7 +166,7 @@ func TestInstallSpecValidation(t *testing.T) {
 
 	for name, spec := range map[string]deploy.InstallSpec{
 		"neither": {},
-		"both":    {Binary: []byte("x"), URL: "https://example/buoy"},
+		"both":    {Binary: []byte("x"), URL: "https://example/node"},
 	} {
 		_, err := deploy.AddNode(ctx, conn, newFakeRemote(t), bundle, deploy.AddParams{
 			Region: "ams", SSHHost: "203.0.113.1", Install: spec,

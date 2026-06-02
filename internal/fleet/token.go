@@ -22,8 +22,8 @@ const TokenTTL = 24 * time.Hour
 
 // Bootstrap token kinds — which role enrols with the token.
 const (
-	KindBuoy   = "buoy"
-	KindBeacon = "beacon"
+	KindNode  = "node"
+	KindRelay = "relay"
 )
 
 // Bootstrap token errors.
@@ -52,7 +52,7 @@ func (t Token) Used() bool { return t.UsedAt != nil }
 // to the operator exactly once and never persisted.
 func IssueToken(ctx context.Context, db *sql.DB, kind, nodeID string) (Token, string, error) {
 	switch kind {
-	case KindBuoy, KindBeacon:
+	case KindNode, KindRelay:
 	default:
 		return Token{}, "", fmt.Errorf("issue token: unknown kind %q", kind)
 	}

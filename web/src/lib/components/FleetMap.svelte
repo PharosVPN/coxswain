@@ -44,7 +44,7 @@
 	const landPath = pathOf(land as any) ?? '';
 	const graticulePath = pathOf(geoGraticule10()) ?? '';
 
-	const ROLE_ORDER: Role[] = ['helm', 'buoy', 'beacon'];
+	const ROLE_ORDER: Role[] = ['controller', 'node', 'relay'];
 
 	// Aggregate every entity into a per-host site, so a box that is a node AND a
 	// relay (AND, one day, the controller) becomes a single multi-badge pin.
@@ -61,13 +61,13 @@
 		};
 		for (const n of nodes) {
 			const s = ensure(n.public_ip || n.id, n.region);
-			if (!s.roles.includes('buoy')) s.roles.push('buoy');
+			if (!s.roles.includes('node')) s.roles.push('node');
 			s.node = n;
 			s.label = n.name;
 		}
 		for (const r of relays) {
 			const s = ensure(r.host || r.id, r.region);
-			if (!s.roles.includes('beacon')) s.roles.push('beacon');
+			if (!s.roles.includes('relay')) s.roles.push('relay');
 			s.relays.push(r);
 			if (!s.label) s.label = r.name;
 		}
@@ -226,7 +226,7 @@
 	// One readable line per role on a host — what it is + what it's doing here.
 	function roleLines(site: Site): { role: Role; label: string; detail: string }[] {
 		return site.roles.map((role) => {
-			if (role === 'buoy') {
+			if (role === 'node') {
 				const n = site.node;
 				let detail = 'dead end';
 				if (n?.forwarding) {
@@ -235,7 +235,7 @@
 				}
 				return { role, label: 'Node', detail };
 			}
-			if (role === 'beacon') {
+			if (role === 'relay') {
 				const r = site.relays[0];
 				const parts: string[] = [];
 				if (r?.egress) parts.push(`egress · hop ${r.egress_hop}`);

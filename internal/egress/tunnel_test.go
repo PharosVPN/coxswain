@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	bxegress "github.com/PharosVPN/beacon/egress"
+	bxegress "github.com/PharosVPN/relay/egress"
 )
 
 // newEcho starts a TCP echo backend — the stand-in node the relay dials.
@@ -34,7 +34,7 @@ func newEcho(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// startRelay runs a beacon egress relay on a plain TCP listener (the test
+// startRelay runs a relay egress relay on a plain TCP listener (the test
 // skips TLS by injecting a plain dialer into the Tunnel) and returns its addr.
 func startRelay(t *testing.T, ctx context.Context) string {
 	t.Helper()

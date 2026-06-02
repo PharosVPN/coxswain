@@ -41,7 +41,7 @@ already have a tunnel (peer) on the entry node.
 
 ## Two-node validation runbook
 
-Prerequisites: two enrolled buoy nodes (`entry`, `exit`) reachable by coxswain,
+Prerequisites: two enrolled node nodes (`entry`, `exit`) reachable by coxswain,
 one device with a profile pinned to `entry`, and a real AmneziaWG client.
 
 1. **Confirm both nodes' identities are cached.**
@@ -93,7 +93,7 @@ one device with a profile pinned to `entry`, and a real AmneziaWG client.
 ## Scope
 
 This is the 2-hop path (one inner link). Deeper chains (3 hops, MTU-gated ≥ 1280)
-and a NAT'd exit reached via the beacon reverse tunnel are future work; the
+and a NAT'd exit reached via the relay reverse tunnel are future work; the
 contract and the inner-link/transit machinery are built to extend to them.
 
 ## Automated coverage
@@ -102,8 +102,8 @@ The control-plane wiring is covered without two live VMs:
 - `coxswain/internal/cascade` tests drive provisioning, bind/switch/clear and
   teardown against a fake fleet, asserting the exact `ConfigureInnerLink`,
   `AddPeer`, `RemovePeer` and `SetNetworkConfig` calls.
-- `buoy` tests (`internal/control`, `internal/awg`, `internal/netpolicy`) prove
+- `node` tests (`internal/control`, `internal/awg`, `internal/netpolicy`) prove
   the node applies an inner link and per-device transit routes.
 - The transit rule strings are pinned **identically** in
-  `coxswain/internal/netpolicy` and `buoy/internal/netpolicy`, so the admin-UI
+  `coxswain/internal/netpolicy` and `node/internal/netpolicy`, so the admin-UI
   preview matches what the node applies.

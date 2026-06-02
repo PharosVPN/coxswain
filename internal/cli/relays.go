@@ -20,7 +20,7 @@ import (
 func newRelaysCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "relays",
-		Short: "Enroll and manage beacon relays",
+		Short: "Enroll and manage relays",
 	}
 	cmd.AddCommand(
 		newRelaysAddCmd(),
@@ -46,10 +46,10 @@ func newRelaysAddCmd() *cobra.Command {
 	var egress, onion, noIngress bool
 	cmd := &cobra.Command{
 		Use:   "add <ssh-host>",
-		Short: "Enroll a new beacon relay over SSH",
-		Long: "Enroll a remote beacon relay (BUILD.md \"Relay enrollment\n" +
+		Short: "Enroll a new relay over SSH",
+		Long: "Enroll a remote relay (BUILD.md \"Relay enrollment\n" +
 			"contract\"). coxswain connects to <ssh-host> over SSH, installs the\n" +
-			"beacon binary, signs the relay certificate request the binary\n" +
+			"relay binary, signs the relay certificate request the binary\n" +
 			"generates on the host, pushes the trust material, and starts the\n" +
 			"service. coxswain then reaches the relay by dialling out to its\n" +
 			"reverse tunnel — no inbound port.\n\n" +
@@ -67,10 +67,10 @@ func newRelaysAddCmd() *cobra.Command {
 				return fmt.Errorf("--endpoint is required (the relay's reverse-tunnel address coxswain dials), or pass --no-ingress")
 			}
 			if hostname == "" {
-				hostname = hostOnly(cfg.Beacon.PublicEndpoint)
+				hostname = hostOnly(cfg.Relay.PublicEndpoint)
 			}
 			if hostname == "" {
-				return fmt.Errorf("no relay hostname — set beacon.public_endpoint or pass --hostname")
+				return fmt.Errorf("no relay hostname — set relay.public_endpoint or pass --hostname")
 			}
 
 			egressEndpoint := ""
@@ -101,7 +101,7 @@ func newRelaysAddCmd() *cobra.Command {
 				onionEndpoint = net.JoinHostPort(hostname, strconv.Itoa(onionPort))
 			}
 
-			spec, err := installSpec(binaryPath, url, cfg.Beacon.BinaryURL, "beacon.binary_url")
+			spec, err := installSpec(binaryPath, url, cfg.Relay.BinaryURL, "relay.binary_url")
 			if err != nil {
 				return err
 			}
@@ -153,7 +153,7 @@ func newRelaysAddCmd() *cobra.Command {
 			}
 			fmt.Printf("  cert hostname  %s\n", hostname)
 			fmt.Printf("  cert serial    %s\n", res.CertSerial)
-			fmt.Printf("  beacon version %s\n", dash(res.AgentVersion))
+			fmt.Printf("  relay version %s\n", dash(res.AgentVersion))
 			fmt.Printf("  status         %s\n", res.Relay.Status)
 			fmt.Println("  cox serve will dial this relay on its next start.")
 			return nil
@@ -163,17 +163,17 @@ func newRelaysAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "relay name (generated if empty)")
 	cmd.Flags().StringVar(&region, "region", "", "region code for the map (e.g. nyc1)")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address coxswain dials (required)")
-	cmd.Flags().StringVar(&hostname, "hostname", "", "relay cert hostname (defaults to beacon.public_endpoint)")
+	cmd.Flags().StringVar(&hostname, "hostname", "", "relay cert hostname (defaults to relay.public_endpoint)")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user)")
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
-	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local beacon binary to upload")
-	cmd.Flags().StringVar(&url, "url", "", "URL the host downloads beacon from (overrides config)")
+	cmd.Flags().StringVar(&binaryPath, "binary", "", "path to a local relay binary to upload")
+	cmd.Flags().StringVar(&url, "url", "", "URL the host downloads relay from (overrides config)")
 	cmd.Flags().BoolVar(&egress, "egress", false, "also run a control-plane egress relay here, so coxswain reaches nodes through it (decision 19)")
 	cmd.Flags().IntVar(&egressPort, "egress-port", 8456, "port the egress relay listens on (coxswain dials hostname:port)")
 	cmd.Flags().IntVar(&egressHop, "egress-hop", 0, "explicit chain position (1=closest to coxswain); 0 auto-assigns the next hop")
 	cmd.Flags().BoolVar(&onion, "onion", false, "also run an onion hop here (decision 20); requires --egress. coxswain uses onion when every chain relay is onion-capable")
 	cmd.Flags().IntVar(&onionPort, "onion-port", 8457, "port the onion relay listens on")
-	cmd.Flags().BoolVar(&noIngress, "no-ingress", false, "skip the client-facing ingress beacon (egress/onion only) — lets a relay share a host with a buoy node")
+	cmd.Flags().BoolVar(&noIngress, "no-ingress", false, "skip the client-facing ingress relay (egress/onion only) — lets a relay share a host with a node")
 	return cmd
 }
 
@@ -181,7 +181,7 @@ func newRelaysListCmd() *cobra.Command {
 	var cfgPath string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List beacon relays",
+		Short: "List relays",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, conn, err := openState(cfgPath)
@@ -231,7 +231,7 @@ func newRelaysSetEgressCmd() *cobra.Command {
 			"chain (decision 19), or remove it from the chain. --hop sets the\n" +
 			"1-based position (hop 1 is closest to coxswain); --disable drops the\n" +
 			"relay from the chain — coxswain stops routing through it on the next\n" +
-			"command, though the beacon-egress service keeps running on the host\n" +
+			"command, though the relay-egress service keeps running on the host\n" +
 			"until the operator stops it. Takes effect on coxswain's next dial.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -284,7 +284,7 @@ func newRelaysRemoveCmd() *cobra.Command {
 		Aliases: []string{"rm"},
 		Short:   "Remove a relay from the inventory",
 		Long: "Remove a relay record. coxswain stops dialling it on the next\n" +
-			"`cox serve`. The beacon binary keeps running on the host until\n" +
+			"`cox serve`. The relay binary keeps running on the host until\n" +
 			"the operator stops it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

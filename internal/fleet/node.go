@@ -27,7 +27,7 @@ const (
 	StatusError        = "error"        // provisioning or enrollment failed
 )
 
-// Node is one buoy in the fleet inventory (the `nodes` table).
+// Node is one node in the fleet inventory (the `nodes` table).
 type Node struct {
 	ID       string
 	Name     string
@@ -39,18 +39,18 @@ type Node struct {
 	ControlAddr string
 	CloudID     string
 	// SSHHost, SSHUser, SSHPort are how coxswain reaches the node to install and
-	// update the buoy agent (DESIGN §5). SSH is a deployment channel only.
+	// update the node agent (DESIGN §5). SSH is a deployment channel only.
 	SSHHost string
 	SSHUser string
 	SSHPort int
 	// SSHHostKey pins the node's SSH host key, captured on first connect.
 	SSHHostKey string
-	// AgentVersion is the buoy build last deployed to the node.
+	// AgentVersion is the node build last deployed to the node.
 	AgentVersion string
-	// WGPublicKey is the node's AmneziaWG server public key, reported by buoy.
+	// WGPublicKey is the node's AmneziaWG server public key, reported by node.
 	WGPublicKey string
 	// Obfuscation is the node's per-node AmneziaWG obfuscation parameter set,
-	// reported by buoy alongside WGPublicKey (DESIGN §3). Zero until reported.
+	// reported by node alongside WGPublicKey (DESIGN §3). Zero until reported.
 	Obfuscation wg.Obfuscation
 	// Forwarding, Masquerade, Isolation are the node's network policy
 	// (DESIGN §3, decision 16), set per node from the admin UI.
@@ -59,7 +59,7 @@ type Node struct {
 	Isolation  bool
 	Status     string
 	// ConfigRevision is the last PushConfig revision coxswain assigned to this
-	// node (B2 — buoy rejects stale revisions with FailedPrecondition).
+	// node (B2 — node rejects stale revisions with FailedPrecondition).
 	ConfigRevision int64
 	Version        int
 	CreatedAt      time.Time
@@ -230,7 +230,7 @@ func DeleteNode(ctx context.Context, db *sql.DB, id string) error {
 }
 
 // NextNodeConfigRevision atomically bumps and returns the next PushConfig
-// revision for the node — coxswain's monotonic counter that buoy enforces via
+// revision for the node — coxswain's monotonic counter that node enforces via
 // FailedPrecondition on stale values (B2). A missing node yields ErrNotFound.
 func NextNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) (int64, error) {
 	var rev int64
@@ -247,9 +247,9 @@ func NextNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) (int
 	return rev, nil
 }
 
-// SetNodeAmneziaWG records the AmneziaWG server identity buoy reported for a
+// SetNodeAmneziaWG records the AmneziaWG server identity node reported for a
 // node — its public key and obfuscation parameter set. coxswain calls this when it
-// learns the values from a node's GetStatus; buoy is the source of truth, so
+// learns the values from a node's GetStatus; node is the source of truth, so
 // the write is unconditional (no optimistic-version check) but still bumps
 // version and updated_at. A missing row yields ErrNotFound.
 func SetNodeAmneziaWG(ctx context.Context, db *sql.DB, nodeID, publicKey string, obf wg.Obfuscation) error {

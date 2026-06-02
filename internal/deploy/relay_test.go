@@ -23,11 +23,11 @@ func TestAddRelay(t *testing.T) {
 
 	res, err := deploy.AddRelay(ctx, conn, remote, bundle, deploy.RelayParams{
 		Name:     "edge-1",
-		Endpoint: "beacon.example.net:8444",
-		Hostname: "beacon.example.net",
+		Endpoint: "relay.example.net:8444",
+		Hostname: "relay.example.net",
 		SSHHost:  "203.0.113.20",
 		SSHUser:  "root",
-		Install:  deploy.InstallSpec{URL: "https://dl.example/beacon"},
+		Install:  deploy.InstallSpec{URL: "https://dl.example/relay"},
 	})
 	if err != nil {
 		t.Fatalf("AddRelay: %v", err)
@@ -39,20 +39,20 @@ func TestAddRelay(t *testing.T) {
 	if res.Relay.Kind != fleet.RelayKindRemote {
 		t.Errorf("kind: got %q", res.Relay.Kind)
 	}
-	if res.Relay.Endpoint != "beacon.example.net:8444" {
+	if res.Relay.Endpoint != "relay.example.net:8444" {
 		t.Errorf("endpoint: got %q", res.Relay.Endpoint)
 	}
 	if res.CertSerial == "" {
 		t.Error("no cert serial reported")
 	}
-	if res.AgentVersion != "beacon 0.1.0-test" {
+	if res.AgentVersion != "relay 0.1.0-test" {
 		t.Errorf("agent version: got %q", res.AgentVersion)
 	}
 
 	// The contract's three trust files plus the unit were pushed.
 	for _, want := range []string{
-		"/etc/beacon/relay.crt", "/etc/beacon/fleet-ca.crt",
-		"/etc/beacon/device-ca.crt", "/etc/systemd/system/beacon.service",
+		"/etc/relay/relay.crt", "/etc/relay/fleet-ca.crt",
+		"/etc/relay/device-ca.crt", "/etc/systemd/system/relay.service",
 	} {
 		if _, ok := remote.uploads[want]; !ok {
 			t.Errorf("expected upload of %s", want)
@@ -78,10 +78,10 @@ func TestAddRelayRequiresEndpointAndHostname(t *testing.T) {
 	}
 
 	base := deploy.RelayParams{
-		Endpoint: "beacon.example.net:8444",
-		Hostname: "beacon.example.net",
+		Endpoint: "relay.example.net:8444",
+		Hostname: "relay.example.net",
 		SSHHost:  "203.0.113.20",
-		Install:  deploy.InstallSpec{URL: "https://dl.example/beacon"},
+		Install:  deploy.InstallSpec{URL: "https://dl.example/relay"},
 	}
 	for name, mutate := range map[string]func(*deploy.RelayParams){
 		"no endpoint": func(p *deploy.RelayParams) { p.Endpoint = "" },

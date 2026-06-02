@@ -18,7 +18,7 @@ import (
 )
 
 // ControllerCert is coxswain's own client certificate, presented when coxswain dials a
-// buoy node's mTLS control port (DESIGN §4). coxswain legitimately holds this
+// node's mTLS control port (DESIGN §4). coxswain legitimately holds this
 // private key — it is coxswain's own identity.
 type ControllerCert struct {
 	Cert    *x509.Certificate

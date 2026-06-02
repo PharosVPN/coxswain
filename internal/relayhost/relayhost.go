@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package relayhost wires coxswain's account/sync gRPC service to the beacon
+// Package relayhost wires coxswain's account/sync gRPC service to the relay
 // relay tier (DESIGN §2, M6b-2): an in-process embedded relay over an
 // in-memory pipe, and a dialer for remote relays over the reverse tunnel.
 package relayhost
@@ -16,11 +16,11 @@ import (
 	"log"
 	"net"
 
-	"github.com/PharosVPN/beacon/relay"
-	"github.com/PharosVPN/beacon/tunnel"
 	"github.com/PharosVPN/coxswain/internal/accountsvc"
 	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
+	"github.com/PharosVPN/relay/core"
+	"github.com/PharosVPN/relay/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -62,19 +62,19 @@ type EmbeddedConfig struct {
 
 // Embedded is a running in-process relay plus the gRPC server behind it.
 type Embedded struct {
-	relay *relay.Relay
+	relay *core.Relay
 	srv   *grpc.Server
-	pipe  *relay.Pipe
+	pipe  *core.Pipe
 }
 
 // StartEmbedded runs srv behind an in-process relay over an in-memory pipe
 // (DESIGN §2). mTLS runs over the pipe, so the embedded and remote auth paths
 // are one path.
 func StartEmbedded(srv *grpc.Server, cfg EmbeddedConfig) (*Embedded, error) {
-	pipe := relay.NewPipe()
+	pipe := core.NewPipe()
 	go func() { _ = srv.Serve(pipe) }()
 
-	r, err := relay.Start(relay.Config{
+	r, err := core.Start(core.Config{
 		ClientListenAddr:  cfg.ClientListen,
 		RelayCertPEM:      cfg.RelayCert.CertPEM,
 		RelayKeyPEM:       cfg.RelayCert.KeyPEM,
@@ -101,9 +101,9 @@ func (e *Embedded) Stop() {
 	_ = e.pipe.Close()
 }
 
-// RunRemote dials a remote beacon and serves srv over the reverse tunnel,
+// RunRemote dials a remote relay and serves srv over the reverse tunnel,
 // reconnecting forever until ctx is cancelled. coxswain keeps zero inbound ports —
-// it dials out. relayAddr is the remote beacon's tunnel listener.
+// it dials out. relayAddr is the remote relay's tunnel listener.
 func RunRemote(ctx context.Context, srv *grpc.Server, relayAddr string, relayCert pki.ServiceCert, fleetCAPEM []byte) error {
 	cert, err := tls.X509KeyPair(relayCert.CertPEM, relayCert.KeyPEM)
 	if err != nil {

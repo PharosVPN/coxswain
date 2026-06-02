@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	bxegress "github.com/PharosVPN/beacon/egress"
+	bxegress "github.com/PharosVPN/relay/egress"
 )
 
 // testTLS mints a throwaway CA and one dual-EKU leaf (server+client, SAN
@@ -78,7 +78,7 @@ func testTLS(t *testing.T) (server, client *tls.Config) {
 	return server, client
 }
 
-// startTLSRelay runs a beacon egress relay behind a mutual-TLS listener on
+// startTLSRelay runs a relay egress relay behind a mutual-TLS listener on
 // 127.0.0.1 and returns its address.
 func startTLSRelay(t *testing.T, ctx context.Context, serverTLS *tls.Config) string {
 	t.Helper()

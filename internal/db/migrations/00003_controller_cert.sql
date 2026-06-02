@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 The PharosVPN Authors
 --
 -- coxswain's own controller client certificate (DESIGN §4). coxswain presents this
--- when it dials a buoy node's mTLS control port. Unlike user/node keys, this
+-- when it dials a node node's mTLS control port. Unlike user/node keys, this
 -- private key legitimately belongs to coxswain.
 
 -- +goose Up

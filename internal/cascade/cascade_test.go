@@ -13,40 +13,40 @@ import (
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/db"
 	"github.com/PharosVPN/coxswain/internal/fleet"
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/wg"
 )
 
 // fakeNode records every control RPC the coordinator makes to one node.
 type fakeNode struct {
-	configure  []*buoyv1.InnerLinkConfig
+	configure  []*nodev1.InnerLinkConfig
 	removeLink []string
-	addPeer    []*buoyv1.Peer
+	addPeer    []*nodev1.Peer
 	removePeer []string
-	setNet     []*buoyv1.NetworkConfig
+	setNet     []*nodev1.NetworkConfig
 }
 
-func (f *fakeNode) ConfigureInnerLink(_ context.Context, cfg *buoyv1.InnerLinkConfig, rev int64) (*buoyv1.ConfigureInnerLinkResponse, error) {
+func (f *fakeNode) ConfigureInnerLink(_ context.Context, cfg *nodev1.InnerLinkConfig, rev int64) (*nodev1.ConfigureInnerLinkResponse, error) {
 	f.configure = append(f.configure, cfg)
-	return &buoyv1.ConfigureInnerLinkResponse{AppliedRevision: rev, Reloaded: true}, nil
+	return &nodev1.ConfigureInnerLinkResponse{AppliedRevision: rev, Reloaded: true}, nil
 }
-func (f *fakeNode) RemoveInnerLink(_ context.Context, iface string) (*buoyv1.RemoveInnerLinkResponse, error) {
+func (f *fakeNode) RemoveInnerLink(_ context.Context, iface string) (*nodev1.RemoveInnerLinkResponse, error) {
 	f.removeLink = append(f.removeLink, iface)
-	return &buoyv1.RemoveInnerLinkResponse{Removed: true}, nil
+	return &nodev1.RemoveInnerLinkResponse{Removed: true}, nil
 }
-func (f *fakeNode) AddPeer(_ context.Context, p *buoyv1.Peer) (*buoyv1.PeerResponse, error) {
+func (f *fakeNode) AddPeer(_ context.Context, p *nodev1.Peer) (*nodev1.PeerResponse, error) {
 	f.addPeer = append(f.addPeer, p)
-	return &buoyv1.PeerResponse{Applied: true}, nil
+	return &nodev1.PeerResponse{Applied: true}, nil
 }
-func (f *fakeNode) RemovePeer(_ context.Context, _ buoyv1.Protocol, pub string) (*buoyv1.PeerResponse, error) {
+func (f *fakeNode) RemovePeer(_ context.Context, _ nodev1.Protocol, pub string) (*nodev1.PeerResponse, error) {
 	f.removePeer = append(f.removePeer, pub)
-	return &buoyv1.PeerResponse{Applied: true}, nil
+	return &nodev1.PeerResponse{Applied: true}, nil
 }
-func (f *fakeNode) SetNetworkConfig(_ context.Context, fwd, masq, iso bool, transits []*buoyv1.TransitRoute) (*buoyv1.SetNetworkConfigResponse, error) {
-	f.setNet = append(f.setNet, &buoyv1.NetworkConfig{
+func (f *fakeNode) SetNetworkConfig(_ context.Context, fwd, masq, iso bool, transits []*nodev1.TransitRoute) (*nodev1.SetNetworkConfigResponse, error) {
+	f.setNet = append(f.setNet, &nodev1.NetworkConfig{
 		Forwarding: fwd, Masquerade: masq, Isolation: iso, Transits: transits,
 	})
-	return &buoyv1.SetNetworkConfigResponse{Applied: true}, nil
+	return &nodev1.SetNetworkConfigResponse{Applied: true}, nil
 }
 func (f *fakeNode) Close() error { return nil }
 
@@ -74,7 +74,7 @@ func newDB(t *testing.T) *sql.DB {
 	return conn
 }
 
-// validObf is an obfuscation set that satisfies buoy's structural rules.
+// validObf is an obfuscation set that satisfies node's structural rules.
 func validObf() wg.Obfuscation {
 	return wg.Obfuscation{Jc: 5, Jmin: 25, Jmax: 800, S1: 20, S2: 30, S3: 40, S4: 50, H1: 10, H2: 11, H3: 12, H4: 13}
 }

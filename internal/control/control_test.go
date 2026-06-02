@@ -20,7 +20,7 @@ import (
 
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/db"
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/wg"
 	"google.golang.org/grpc"
@@ -33,13 +33,13 @@ import (
 // recordingNode is a minimal NodeControl server that captures the last
 // PushConfig request so a test can assert on the encoded payload.
 type recordingNode struct {
-	buoyv1.UnimplementedNodeControlServer
-	lastPush *buoyv1.PushConfigRequest
+	nodev1.UnimplementedNodeControlServer
+	lastPush *nodev1.PushConfigRequest
 }
 
-func (n *recordingNode) PushConfig(_ context.Context, req *buoyv1.PushConfigRequest) (*buoyv1.PushConfigResponse, error) {
+func (n *recordingNode) PushConfig(_ context.Context, req *nodev1.PushConfigRequest) (*nodev1.PushConfigResponse, error) {
 	n.lastPush = req
-	return &buoyv1.PushConfigResponse{AppliedRevision: req.GetRevision(), Reloaded: true}, nil
+	return &nodev1.PushConfigResponse{AppliedRevision: req.GetRevision(), Reloaded: true}, nil
 }
 
 // TestPushAmneziaWGConfigRoundTrip verifies the encoding contract for
@@ -49,7 +49,7 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 	rec := &recordingNode{}
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	buoyv1.RegisterNodeControlServer(srv, rec)
+	nodev1.RegisterNodeControlServer(srv, rec)
 	go srv.Serve(lis) //nolint:errcheck // stops on Stop
 	t.Cleanup(srv.Stop)
 
@@ -64,10 +64,10 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 	t.Cleanup(func() { cc.Close() })
 	client := control.NewClientFromConn(cc)
 
-	peers := []*buoyv1.Peer{
+	peers := []*nodev1.Peer{
 		{
 			Id:           "pee_1",
-			Protocol:     buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 			PublicKey:    "cGVlci1vbmU=",
 			AllowedIps:   []string{"10.86.0.7/32"},
 			PresharedKey: "cHNrLW9uZQ==",
@@ -75,7 +75,7 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 		},
 		{
 			Id:           "pee_2",
-			Protocol:     buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 			PublicKey:    "cGVlci10d28=",
 			AllowedIps:   []string{"10.86.0.8/32"},
 			PresharedKey: "cHNrLXR3bw==",
@@ -93,7 +93,7 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 	if rec.lastPush == nil {
 		t.Fatal("server saw no PushConfig request")
 	}
-	if rec.lastPush.GetProtocol() != buoyv1.Protocol_PROTOCOL_AMNEZIAWG {
+	if rec.lastPush.GetProtocol() != nodev1.Protocol_PROTOCOL_AMNEZIAWG {
 		t.Errorf("protocol: got %v", rec.lastPush.GetProtocol())
 	}
 	if rec.lastPush.GetRevision() != 17 {
@@ -101,7 +101,7 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 	}
 
 	// The wire bytes must decode as the typed message — that's the contract.
-	var decoded buoyv1.AmneziaWGConfig
+	var decoded nodev1.AmneziaWGConfig
 	if err := proto.Unmarshal(rec.lastPush.GetConfig(), &decoded); err != nil {
 		t.Fatalf("unmarshal AmneziaWGConfig: %v", err)
 	}
@@ -123,14 +123,14 @@ func TestPushAmneziaWGConfigRoundTrip(t *testing.T) {
 func TestAmneziaWGFromStatus(t *testing.T) {
 	// A status with no AmneziaWG block — node has not configured its data
 	// plane yet.
-	if pk, obf := control.AmneziaWGFromStatus(&buoyv1.GetStatusResponse{}); pk != "" || !obf.IsZero() {
+	if pk, obf := control.AmneziaWGFromStatus(&nodev1.GetStatusResponse{}); pk != "" || !obf.IsZero() {
 		t.Errorf("empty status: got (%q, %+v)", pk, obf)
 	}
 
-	status := &buoyv1.GetStatusResponse{
-		Amneziawg: &buoyv1.AmneziaWGInfo{
+	status := &nodev1.GetStatusResponse{
+		Amneziawg: &nodev1.AmneziaWGInfo{
 			PublicKey: "node-wg-pub",
-			Obfuscation: &buoyv1.AmneziaWGObfuscation{
+			Obfuscation: &nodev1.AmneziaWGObfuscation{
 				Jc: 4, Jmin: 40, Jmax: 70, S1: 30, S2: 45, S3: 60, S4: 75,
 				H1: 1515448789, H2: 2406647629, H3: 3604601557, H4: 1124628755,
 				I1: "<b 0x00000000>",
@@ -153,18 +153,18 @@ func TestAmneziaWGFromStatus(t *testing.T) {
 
 // fakeNode is a minimal NodeControl server for exercising the control client.
 type fakeNode struct {
-	buoyv1.UnimplementedNodeControlServer
+	nodev1.UnimplementedNodeControlServer
 }
 
-func (fakeNode) GetStatus(context.Context, *buoyv1.GetStatusRequest) (*buoyv1.GetStatusResponse, error) {
-	return &buoyv1.GetStatusResponse{AgentVersion: "buoy 9.9.9", UptimeSeconds: 42}, nil
+func (fakeNode) GetStatus(context.Context, *nodev1.GetStatusRequest) (*nodev1.GetStatusResponse, error) {
+	return &nodev1.GetStatusResponse{AgentVersion: "node 9.9.9", UptimeSeconds: 42}, nil
 }
 
-func (fakeNode) AddPeer(_ context.Context, req *buoyv1.AddPeerRequest) (*buoyv1.PeerResponse, error) {
-	return &buoyv1.PeerResponse{PeerId: req.GetPeer().GetId(), Applied: true}, nil
+func (fakeNode) AddPeer(_ context.Context, req *nodev1.AddPeerRequest) (*nodev1.PeerResponse, error) {
+	return &nodev1.PeerResponse{PeerId: req.GetPeer().GetId(), Applied: true}, nil
 }
 
-// TestControlClientOverMTLS dials a fake buoy server over the full mTLS path:
+// TestControlClientOverMTLS dials a fake node server over the full mTLS path:
 // coxswain's controller cert vs a Fleet-CA node cert, both chaining to the root.
 func TestControlClientOverMTLS(t *testing.T) {
 	ctx := context.Background()
@@ -192,7 +192,7 @@ func TestControlClientOverMTLS(t *testing.T) {
 		t.Fatalf("node key: %v", err)
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader,
-		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "buoy-test"}}, nodeKey)
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "node-test"}}, nodeKey)
 	if err != nil {
 		t.Fatalf("node CSR: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestControlClientOverMTLS(t *testing.T) {
 		ClientCAs:    roots,
 		MinVersion:   tls.VersionTLS13,
 	})))
-	buoyv1.RegisterNodeControlServer(srv, fakeNode{})
+	nodev1.RegisterNodeControlServer(srv, fakeNode{})
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -246,13 +246,13 @@ func TestControlClientOverMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
-	if status.GetAgentVersion() != "buoy 9.9.9" {
+	if status.GetAgentVersion() != "node 9.9.9" {
 		t.Errorf("agent version: got %q", status.GetAgentVersion())
 	}
 
-	peerResp, err := client.AddPeer(ctx, &buoyv1.Peer{
+	peerResp, err := client.AddPeer(ctx, &nodev1.Peer{
 		Id:        "peer-1",
-		Protocol:  buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+		Protocol:  nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 		PublicKey: "dGVzdA==",
 	})
 	if err != nil {

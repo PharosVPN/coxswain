@@ -25,7 +25,7 @@ import (
 
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/fleet"
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 )
 
 const (
@@ -47,11 +47,11 @@ var ErrMTUTooLow = errors.New("cascade: path MTU below the 1280 floor")
 // NodeClient is the subset of the control client cascade drives. *control.Client
 // satisfies it; tests substitute a fake.
 type NodeClient interface {
-	ConfigureInnerLink(ctx context.Context, cfg *buoyv1.InnerLinkConfig, revision int64) (*buoyv1.ConfigureInnerLinkResponse, error)
-	RemoveInnerLink(ctx context.Context, iface string) (*buoyv1.RemoveInnerLinkResponse, error)
-	AddPeer(ctx context.Context, peer *buoyv1.Peer) (*buoyv1.PeerResponse, error)
-	RemovePeer(ctx context.Context, protocol buoyv1.Protocol, publicKey string) (*buoyv1.PeerResponse, error)
-	SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool, transits []*buoyv1.TransitRoute) (*buoyv1.SetNetworkConfigResponse, error)
+	ConfigureInnerLink(ctx context.Context, cfg *nodev1.InnerLinkConfig, revision int64) (*nodev1.ConfigureInnerLinkResponse, error)
+	RemoveInnerLink(ctx context.Context, iface string) (*nodev1.RemoveInnerLinkResponse, error)
+	AddPeer(ctx context.Context, peer *nodev1.Peer) (*nodev1.PeerResponse, error)
+	RemovePeer(ctx context.Context, protocol nodev1.Protocol, publicKey string) (*nodev1.PeerResponse, error)
+	SetNetworkConfig(ctx context.Context, forwarding, masquerade, isolation bool, transits []*nodev1.TransitRoute) (*nodev1.SetNetworkConfigResponse, error)
 	Close() error
 }
 
@@ -142,7 +142,7 @@ func (c *Coordinator) DeprovisionLink(ctx context.Context, linkID string) error 
 		return err
 	}
 	if err := c.withNode(ctx, exit.ControlAddr, func(cl NodeClient, cctx context.Context) error {
-		_, err := cl.RemovePeer(cctx, buoyv1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
+		_, err := cl.RemovePeer(cctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
 		return err
 	}); err != nil {
 		return err
@@ -241,13 +241,13 @@ func (c *Coordinator) configureEntryLink(ctx context.Context, entry, exit fleet.
 	if err != nil {
 		return err
 	}
-	cfg := &buoyv1.InnerLinkConfig{
+	cfg := &nodev1.InnerLinkConfig{
 		Interface:       link.InnerInterface,
 		ListenPort:      uint32(link.ListenPort),
 		Mtu:             innerLinkMTU,
 		PeerObfuscation: control.AmneziaWGToProto(exit.Obfuscation),
-		Exit: &buoyv1.Peer{
-			Protocol:     buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+		Exit: &nodev1.Peer{
+			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 			PublicKey:    exit.WGPublicKey,
 			Endpoints:    endpointsWithPort(exit.EndpointAddrs(), awgClientPort),
 			AllowedIps:   []string{"0.0.0.0/0"},
@@ -278,11 +278,11 @@ func (c *Coordinator) pushExitPeer(ctx context.Context, entry, exit fleet.Node, 
 	}
 	return c.withNode(ctx, exit.ControlAddr, func(cl NodeClient, cctx context.Context) error {
 		if len(allowed) == 0 {
-			_, err := cl.RemovePeer(cctx, buoyv1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
+			_, err := cl.RemovePeer(cctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
 			return err
 		}
-		_, err := cl.AddPeer(cctx, &buoyv1.Peer{
-			Protocol:     buoyv1.Protocol_PROTOCOL_AMNEZIAWG,
+		_, err := cl.AddPeer(cctx, &nodev1.Peer{
+			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 			PublicKey:    entry.WGPublicKey,
 			AllowedIps:   allowed,
 			PresharedKey: link.PresharedKey,
@@ -300,7 +300,7 @@ func (c *Coordinator) pushEntryTransits(ctx context.Context, entry fleet.Node) e
 	if err != nil {
 		return err
 	}
-	var transits []*buoyv1.TransitRoute
+	var transits []*nodev1.TransitRoute
 	for _, link := range links {
 		devices, err := fleet.ListDeviceIDsByLink(ctx, c.db, link.ID)
 		if err != nil {
@@ -311,7 +311,7 @@ func (c *Coordinator) pushEntryTransits(ctx context.Context, entry fleet.Node) e
 			if err != nil {
 				return err
 			}
-			transits = append(transits, &buoyv1.TransitRoute{
+			transits = append(transits, &nodev1.TransitRoute{
 				DeviceCidr:     cidr32(ip),
 				InnerInterface: link.InnerInterface,
 				Mark:           uint32(link.Fwmark),

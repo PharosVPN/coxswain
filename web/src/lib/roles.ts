@@ -5,7 +5,7 @@
 // composable roles); color = how it's DOING (one status glow). A single cheap
 // box can be all three at once — the individual's whole private internet.
 
-export type Role = 'helm' | 'buoy' | 'beacon';
+export type Role = 'controller' | 'node' | 'relay';
 
 export interface RoleMeta {
 	id: Role;
@@ -13,12 +13,12 @@ export interface RoleMeta {
 	sub: string;
 }
 
-// Maritime, like the rest of PharosVPN: the lighthouse steers, the buoy marks a
-// surfacing point, the beacon relays a signal.
+// Named by function: the controller steers the fleet, a node is where you
+// surface on the internet, a relay is a hop that hides the controller.
 export const ROLES: RoleMeta[] = [
-	{ id: 'helm', label: 'Controller', sub: 'coxswain — the lighthouse that steers the fleet' },
-	{ id: 'buoy', label: 'Node', sub: 'buoy — where you surface on the internet' },
-	{ id: 'beacon', label: 'Relay', sub: 'beacon — a hop that hides the controller' }
+	{ id: 'controller', label: 'Controller', sub: 'steers the fleet' },
+	{ id: 'node', label: 'Node', sub: 'where you surface on the internet' },
+	{ id: 'relay', label: 'Relay', sub: 'a hop that hides the controller' }
 ];
 
 export interface StatusMeta {

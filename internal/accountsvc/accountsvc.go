@@ -3,7 +3,7 @@
 
 // Package accountsvc implements the AccountSync gRPC service (DESIGN §8) — the
 // relayed client service that authenticates end users and serves their
-// end-to-end-encrypted profile bundles. caravel reaches it through a beacon
+// end-to-end-encrypted profile bundles. caravel reaches it through a relay
 // relay; coxswain serves only ciphertext.
 package accountsvc
 

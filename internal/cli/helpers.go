@@ -15,7 +15,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/PharosVPN/beacon/onion"
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/control"
@@ -24,6 +23,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/ssh"
+	"github.com/PharosVPN/relay/onion"
 )
 
 // openState loads the config file and opens the migrated state database. The
@@ -81,7 +81,7 @@ func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, er
 }
 
 // newCascadeCoordinator builds a cascade coordinator backed by the state DB and
-// the buoy control-plane dialer.
+// the node control-plane dialer.
 func newCascadeCoordinator(ctx context.Context, conn *sql.DB) (*cascade.Coordinator, error) {
 	dialer, err := newControlDialer(ctx, conn)
 	if err != nil {
@@ -92,7 +92,7 @@ func newCascadeCoordinator(ctx context.Context, conn *sql.DB) (*cascade.Coordina
 	}), nil
 }
 
-// newControlDialer builds the mTLS gRPC dialer for the buoy control plane,
+// newControlDialer builds the mTLS gRPC dialer for the node control plane,
 // ensuring coxswain's CA and controller certificate exist.
 func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error) {
 	bundle, _, err := pki.EnsureCA(ctx, conn)

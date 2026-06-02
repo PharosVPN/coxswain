@@ -11,7 +11,7 @@ import (
 	"net"
 )
 
-// Hop is one relay in an egress chain: the relay's `beacon egress` endpoint and
+// Hop is one relay in an egress chain: the relay's `relay egress` endpoint and
 // the TLS config coxswain authenticates to it with (its controller cert + the
 // roots that verify the relay). NewChain sets ServerName per hop.
 type Hop struct {

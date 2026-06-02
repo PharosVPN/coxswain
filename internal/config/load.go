@@ -71,11 +71,11 @@ func (c Config) Validate() error {
 	if c.StateDir == "" {
 		return fmt.Errorf("state_dir must not be empty")
 	}
-	if c.Beacon.Remote && !c.Beacon.Embedded {
+	if c.Relay.Remote && !c.Relay.Embedded {
 		// Remote relays are dialed by the same machinery as the embedded one;
 		// disabling the embedded relay while keeping remote is not a state we
 		// support in v1.
-		return fmt.Errorf("beacon.remote requires beacon.embedded")
+		return fmt.Errorf("relay.remote requires relay.embedded")
 	}
 	return nil
 }

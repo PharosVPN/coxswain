@@ -8,7 +8,7 @@ import "fmt"
 // Obfuscation is one node's AmneziaWG obfuscation parameter set (DESIGN §3).
 // Every node runs AmneziaWG — there is no plain-WireGuard path — and each node
 // randomises its own values for traffic diversity, so the set is per-node, not
-// fleet-wide. buoy generates and applies it; coxswain stores it and a client must
+// fleet-wide. node generates and applies it; coxswain stores it and a client must
 // receive the exact values to build a tunnel that handshakes.
 //
 // Field names match the AmneziaWG config keys verbatim:
@@ -45,7 +45,7 @@ func (o Obfuscation) IsZero() bool {
 }
 
 // Validate checks an obfuscation set against AmneziaWG's structural rules.
-// buoy generates and enforces these on the node; coxswain re-checks what a node
+// node generates and enforces these on the node; coxswain re-checks what a node
 // reports so a malformed set is rejected loudly rather than silently producing
 // profiles that cannot handshake.
 func (o Obfuscation) Validate() error {

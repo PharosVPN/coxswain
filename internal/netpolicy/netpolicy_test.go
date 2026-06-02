@@ -36,8 +36,8 @@ func TestValidate(t *testing.T) {
 }
 
 // TestRulesTransit pins the transit rule set. These strings are the cross-repo
-// contract with buoy/internal/netpolicy — they MUST match buoy's
-// TestTransitRulesCanonical exactly, or preview (here) and apply (buoy) diverge.
+// contract with node/internal/netpolicy — they MUST match node's
+// TestTransitRulesCanonical exactly, or preview (here) and apply (node) diverge.
 func TestRulesTransit(t *testing.T) {
 	p := netpolicy.Policy{
 		Forwarding: true,
@@ -71,7 +71,7 @@ func TestRulesTransit(t *testing.T) {
 	// A transit node forwards returns asymmetrically (in on the inner interface,
 	// route-back via egress), which rp_filter drops — so the cascade entry must
 	// relax it while it carries transits, and restore it on teardown. Matches
-	// buoy's TestTransitRulesCanonical.
+	// node's TestTransitRulesCanonical.
 	if !strings.Contains(strings.Join(r.PreUp, "\n"), "sysctl -w net.ipv4.conf.all.rp_filter=0") {
 		t.Errorf("PreUp missing the rp_filter relax\n got: %#v", r.PreUp)
 	}

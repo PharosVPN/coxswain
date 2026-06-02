@@ -16,7 +16,7 @@ func TestIssueAndRedeemToken(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()
 
-	tok, secret, err := fleet.IssueToken(ctx, conn, fleet.KindBuoy, "")
+	tok, secret, err := fleet.IssueToken(ctx, conn, fleet.KindNode, "")
 	if err != nil {
 		t.Fatalf("IssueToken: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRedeemTokenTwice(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()
 
-	_, secret, err := fleet.IssueToken(ctx, conn, fleet.KindBuoy, "")
+	_, secret, err := fleet.IssueToken(ctx, conn, fleet.KindNode, "")
 	if err != nil {
 		t.Fatalf("IssueToken: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRedeemTokenExpired(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()
 
-	tok, secret, err := fleet.IssueToken(ctx, conn, fleet.KindBeacon, "")
+	tok, secret, err := fleet.IssueToken(ctx, conn, fleet.KindRelay, "")
 	if err != nil {
 		t.Fatalf("IssueToken: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	bxegress "github.com/PharosVPN/beacon/egress"
+	bxegress "github.com/PharosVPN/relay/egress"
 )
 
 const dialTimeout = 10 * time.Second

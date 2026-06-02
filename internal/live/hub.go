@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package live is coxswain's live plane (DESIGN §7): it holds each buoy node's
+// Package live is coxswain's live plane (DESIGN §7): it holds each node's
 // WatchEvents stream open and fans events out through a Hub to subscribers.
 // The admin WebSocket that serves browsers from the Hub lives in package api.
 package live
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	buoyv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/buoy/v1"
+	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 )
 
 // subscriberBuffer is how many events a slow subscriber may fall behind before
@@ -28,8 +28,8 @@ type Event struct {
 	Message  string    `json:"message,omitempty"`
 }
 
-// eventFrom converts a buoy proto event from a node into a live.Event.
-func eventFrom(nodeID string, e *buoyv1.Event) Event {
+// eventFrom converts a node proto event from a node into a live.Event.
+func eventFrom(nodeID string, e *nodev1.Event) Event {
 	ev := Event{
 		NodeID:  nodeID,
 		Type:    strings.TrimPrefix(e.GetType().String(), "EVENT_TYPE_"),

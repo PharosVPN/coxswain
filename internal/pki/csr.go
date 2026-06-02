@@ -26,7 +26,7 @@ type SignedCert struct {
 	CertPEM []byte
 }
 
-// SignNodeCSR validates a buoy node's certificate request and signs it with
+// SignNodeCSR validates a node's certificate request and signs it with
 // the Fleet CA, yielding a one-year server certificate (DESIGN §5). The node
 // keeps its private key; only the CSR crosses to coxswain.
 //
@@ -81,7 +81,7 @@ func SignNodeCSR(fleet Authority, csrPEM []byte, extraIPs []net.IP, extraDNS []s
 	}, nil
 }
 
-// SignRelayCSR signs a remote beacon relay's certificate request with the
+// SignRelayCSR signs a remote relay's certificate request with the
 // Fleet CA (BUILD.md "Relay enrollment contract"). Unlike SignNodeCSR it takes
 // only the CSR's public key: coxswain is the sole authority on a relay's identity,
 // so it overrides the subject and EKUs rather than trust the request.

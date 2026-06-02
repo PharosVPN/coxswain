@@ -14,19 +14,19 @@ full architecture.
 
 - **Private, behind NAT — zero inbound ports.** Every connection is
   coxswain-initiated *outbound*. The controller never appears in public DNS.
-- **Drives the fleet.** Holds a long-lived mTLS/gRPC connection to each `buoy`
+- **Drives the fleet.** Holds a long-lived mTLS/gRPC connection to each `node`
   node: pushes config and peers, receives a live event stream.
 - **Issues credentials.** Holds the in-repo CA; mints node, relay, and
   per-user/device certificates.
 - **Serves admins.** Embedded SvelteKit admin UI on localhost, live-updating
   over WebSocket, multi-admin safe via optimistic concurrency.
 - **Serves users.** Account login + end-to-end-encrypted profile sync, reached
-  by clients only through a `beacon` relay (embedded by default).
+  by clients only through a `relay` relay (embedded by default).
 
 ## Stack
 
 Go · SQLite (Goose migrations) · gRPC over mTLS · embedded SvelteKit 2 / Svelte 5
-admin UI · SSH-based `buoy` agent onboarding.
+admin UI · SSH-based `node` agent onboarding.
 
 ## Status
 
