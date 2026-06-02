@@ -117,34 +117,37 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 	return control.NewDialer(chain, cc.KeyPEM, bundle.Root.CertPEM, opts...)
 }
 
-// activeEgressRelay returns the relay coxswain should route its control plane
-// through (DESIGN §3, decision 19), or nil if none is enrolled. v1 is a single
-// relay: the first active remote relay carrying an egress endpoint.
-func activeEgressRelay(ctx context.Context, conn *sql.DB) (*fleet.Relay, error) {
+// egressRelays returns the relays coxswain should route its control plane
+// through (DESIGN §3, decision 19), in chain order — every active remote relay
+// carrying an egress endpoint, oldest first (enrollment order: hop 0 is closest
+// to coxswain, the last hop reaches the node). Empty means direct dial.
+func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
 	relays, err := fleet.ListRelays(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	for i := range relays {
-		if r := relays[i]; r.Kind == fleet.RelayKindRemote && r.Status == fleet.StatusActive && r.EgressEndpoint != "" {
-			return &r, nil
+	var chain []fleet.Relay
+	for _, r := range relays {
+		if r.Kind == fleet.RelayKindRemote && r.Status == fleet.StatusActive && r.EgressEndpoint != "" {
+			chain = append(chain, r)
 		}
 	}
-	return nil, nil
+	return chain, nil
 }
 
-// newEgressTunnel builds the egress tunnel to the enrolled egress relay, or
-// returns nil when none is configured (direct dial). coxswain presents its
-// controller cert (Fleet-CA leaf) and verifies the relay's cert against the
-// root — the same identity it already uses for the buoy control plane; the
-// relay only needs a valid Fleet-CA client cert on this leg (it is otherwise
-// protocol-blind).
+// newEgressTunnel builds the egress tunnel through the enrolled egress relays,
+// or returns nil when none is configured (direct dial). With several relays it
+// is a chain — coxswain → relay0 → … → relayN → node — so no single relay sees
+// both coxswain's address and the node's (ladder step 2). coxswain presents its
+// controller cert (Fleet-CA leaf) to every hop and verifies each relay against
+// the root; a relay only needs a valid Fleet-CA client cert on this leg (it is
+// otherwise protocol-blind).
 func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) {
-	relay, err := activeEgressRelay(ctx, conn)
+	chain, err := egressRelays(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("egress relay lookup: %w", err)
 	}
-	if relay == nil {
+	if len(chain) == 0 {
 		return nil, nil
 	}
 	bundle, _, err := pki.EnsureCA(ctx, conn)
@@ -155,10 +158,10 @@ func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) 
 	if err != nil {
 		return nil, fmt.Errorf("controller cert: %w", err)
 	}
-	chain := make([]byte, 0, len(cc.CertPEM)+len(bundle.Fleet.CertPEM))
-	chain = append(chain, cc.CertPEM...)
-	chain = append(chain, bundle.Fleet.CertPEM...)
-	cert, err := tls.X509KeyPair(chain, cc.KeyPEM)
+	certChain := make([]byte, 0, len(cc.CertPEM)+len(bundle.Fleet.CertPEM))
+	certChain = append(certChain, cc.CertPEM...)
+	certChain = append(certChain, bundle.Fleet.CertPEM...)
+	cert, err := tls.X509KeyPair(certChain, cc.KeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("egress client cert: %w", err)
 	}
@@ -166,11 +169,16 @@ func newEgressTunnel(ctx context.Context, conn *sql.DB) (*egress.Tunnel, error) 
 	if !roots.AppendCertsFromPEM(bundle.Root.CertPEM) {
 		return nil, errors.New("egress: no root CA in bundle")
 	}
-	return egress.New(relay.EgressEndpoint, &tls.Config{
+	base := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      roots,
 		MinVersion:   tls.VersionTLS13,
-	}), nil
+	}
+	hops := make([]egress.Hop, len(chain))
+	for i, r := range chain {
+		hops[i] = egress.Hop{Endpoint: r.EgressEndpoint, TLS: base}
+	}
+	return egress.NewChain(hops)
 }
 
 // routeSSHThroughEgress points cfg.Dialer at the enrolled egress relay, if one
