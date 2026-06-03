@@ -10,10 +10,13 @@ import (
 	"net"
 	"strconv"
 
+	"strings"
+
 	"github.com/PharosVPN/coxswain/internal/api"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/deploy"
 	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/server"
 	"github.com/PharosVPN/coxswain/internal/ssh"
@@ -27,6 +30,17 @@ import (
 type cliDeployer struct {
 	cfg  config.Config
 	conn *sql.DB
+	geo  *geoip.Resolver
+}
+
+// regionFromIP derives a short region label (lowercased country code) from a
+// host's IP, so a deployed component carries a sensible region without the
+// admin typing one. Empty when geoip can't place the IP.
+func (d cliDeployer) regionFromIP(host string) string {
+	if loc, ok := d.geo.Lookup(host); ok {
+		return strings.ToLower(loc.CountryCode)
+	}
+	return ""
 }
 
 func (d cliDeployer) Bootstrap(ctx context.Context, req api.BootstrapRequest) (fleet.Server, error) {
@@ -61,7 +75,13 @@ func (d cliDeployer) DeployNode(ctx context.Context, serverID, name, region stri
 	if err != nil {
 		return fleet.Node{}, err
 	}
-	spec, err := installSpec("", "", d.cfg.Node.NodeBinaryURL, "node.node_binary_url")
+	if region == "" {
+		region = srv.Region
+	}
+	if region == "" {
+		region = d.regionFromIP(srv.SSHHost)
+	}
+	spec, err := installSpec(d.cfg.Node.BinaryPath, "", d.cfg.Node.NodeBinaryURL, "node.binary_path or node.node_binary_url")
 	if err != nil {
 		return fleet.Node{}, err
 	}
@@ -75,9 +95,17 @@ func (d cliDeployer) DeployRelay(ctx context.Context, serverID string, req api.R
 	if err != nil {
 		return fleet.Relay{}, err
 	}
-	spec, err := installSpec("", "", d.cfg.Relay.BinaryURL, "relay.binary_url")
+	spec, err := installSpec(d.cfg.Relay.BinaryPath, "", d.cfg.Relay.BinaryURL, "relay.binary_path or relay.binary_url")
 	if err != nil {
 		return fleet.Relay{}, err
+	}
+
+	region := req.Region
+	if region == "" {
+		region = srv.Region
+	}
+	if region == "" {
+		region = d.regionFromIP(srv.SSHHost)
 	}
 
 	hostname := srv.SSHHost
@@ -114,7 +142,7 @@ func (d cliDeployer) DeployRelay(ctx context.Context, serverID string, req api.R
 
 	res, err := server.DeployRelay(ctx, d.conn, id, bundle, srv, deploy.RelayParams{
 		Name:           req.Name,
-		Region:         req.Region,
+		Region:         region,
 		Endpoint:       endpoint,
 		Hostname:       hostname,
 		EgressEndpoint: egressEndpoint,

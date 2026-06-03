@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/live"
 	"github.com/PharosVPN/coxswain/internal/provision"
 )
@@ -29,14 +30,16 @@ type Server struct {
 	hub      *live.Hub
 	provOpts provision.Options
 	deployer Deployer
+	geo      *geoip.Resolver
 	http     *http.Server
 }
 
 // NewServer builds the admin server bound to addr (a localhost address).
 // provOpts carries the fleet settings device provisioning needs; deployer
-// performs server onboarding and component deploys (nil disables those routes).
-func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer) *Server {
-	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer}
+// performs server onboarding and component deploys (nil disables those routes);
+// geo resolves host IPs to locations for the map (nil disables resolution).
+func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, geo *geoip.Resolver) *Server {
+	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, geo: geo}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -60,7 +63,8 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
 	mux.HandleFunc("GET /api/node-links", s.requireAuth(s.handleListNodeLinks))
 
-	// Servers — machines cox owns; onboard by password, then deploy roles.
+	// Servers — machines cox owns; onboard by key or password, then deploy roles.
+	mux.HandleFunc("GET /api/ssh-key", s.requireAuth(s.handleSSHKey))
 	mux.HandleFunc("GET /api/servers", s.requireAuth(s.handleListServers))
 	mux.HandleFunc("POST /api/servers", s.requireAuth(s.handleCreateServer))
 	mux.HandleFunc("DELETE /api/servers/{id}", s.requireAuth(s.handleDeleteServer))

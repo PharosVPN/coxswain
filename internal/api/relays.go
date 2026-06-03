@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/geoip"
 )
 
 // relayView is the API representation of a relay for the admin map: where it is,
@@ -23,10 +24,11 @@ type relayView struct {
 	// can merge a relay onto a node that shares the same box.
 	Host string `json:"host"`
 	// Egress / Onion report which control-plane roles this relay carries.
-	Egress    bool   `json:"egress"`
-	EgressHop int    `json:"egress_hop"`
-	Onion     bool   `json:"onion"`
-	ServerID  string `json:"server_id"`
+	Egress    bool            `json:"egress"`
+	EgressHop int             `json:"egress_hop"`
+	Onion     bool            `json:"onion"`
+	ServerID  string          `json:"server_id"`
+	Location  *geoip.Location `json:"location,omitempty"`
 }
 
 func hostOf(endpoint string) string {
@@ -51,7 +53,7 @@ func relayHost(r fleet.Relay) string {
 	return ""
 }
 
-func toRelayView(r fleet.Relay) relayView {
+func (s *Server) relayView(r fleet.Relay) relayView {
 	return relayView{
 		ID:        r.ID,
 		Name:      r.Name,
@@ -63,6 +65,7 @@ func toRelayView(r fleet.Relay) relayView {
 		EgressHop: r.EgressHop,
 		Onion:     r.OnionEndpoint != "" && r.OnionPubKey != "",
 		ServerID:  r.ServerID,
+		Location:  s.locate(relayHost(r)),
 	}
 }
 
@@ -74,7 +77,7 @@ func (s *Server) handleListRelays(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]relayView, 0, len(relays))
 	for _, rl := range relays {
-		views = append(views, toRelayView(rl))
+		views = append(views, s.relayView(rl))
 	}
 	writeJSON(w, http.StatusOK, views)
 }

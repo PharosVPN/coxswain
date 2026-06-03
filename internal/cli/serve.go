@@ -7,12 +7,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/PharosVPN/coxswain/internal/api"
 	"github.com/PharosVPN/coxswain/internal/auth"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/live"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
@@ -88,6 +90,16 @@ func newServeCmd() *cobra.Command {
 				}(n)
 			}
 
+			// Resolve server locations from their IPs (auto-region). The mmdb is
+			// large + licensed, so it's loaded from a path, not embedded; absent
+			// is fine — the UI falls back to its region-code map.
+			geo := geoip.Open(cfg.GeoIPDatabase,
+				filepath.Join(cfg.StateDir, "GeoLite2-City.mmdb"), "GeoLite2-City.mmdb")
+			defer geo.Close()
+			if geo.Available() {
+				fmt.Println("  geoip:   GeoLite2-City loaded — server regions auto-resolved")
+			}
+
 			provOpts := provision.Options{
 				VPNSubnet: cfg.Fleet.VPNSubnet,
 				PortMin:   cfg.Fleet.EndpointPortMin,
@@ -98,7 +110,7 @@ func newServeCmd() *cobra.Command {
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
 			}
-			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn})
+			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, geo)
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)

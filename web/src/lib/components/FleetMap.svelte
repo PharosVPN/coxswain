@@ -65,16 +65,19 @@
 			if (!s.roles.includes('node')) s.roles.push('node');
 			s.node = n;
 			s.label = n.name;
+			if (n.location) s.location = n.location;
 		}
 		for (const r of relays) {
 			const s = ensure(r.host || r.id, r.region);
 			if (!s.roles.includes('relay')) s.roles.push('relay');
 			s.relays.push(r);
 			if (!s.label) s.label = r.name;
+			if (r.location) s.location = r.location;
 		}
 		for (const sv of servers) {
 			const s = ensure(sv.ssh_host || sv.id, sv.region);
 			s.server = sv;
+			if (sv.location) s.location = sv.location;
 			// A bare server (no role deployed yet) shows as a plain host pin; once a
 			// node/relay lands on it, those badges take over.
 			if (s.roles.length === 0) s.roles.push('server');
@@ -98,7 +101,11 @@
 		return sites
 			.map((s) => {
 				const loc = locate(s.region);
-				const xy = projection([loc.lon, loc.lat]);
+				// Prefer the IP-resolved coordinates when present; fall back to the
+				// region-code map for legacy records.
+				const lon = s.location ? s.location.longitude : loc.lon;
+				const lat = s.location ? s.location.latitude : loc.lat;
+				const xy = projection([lon, lat]);
 				return { site: s, loc, xy };
 			})
 			.filter((p) => p.xy)
@@ -213,6 +220,15 @@
 	}
 	function pinWidth(count: number): number {
 		return count * (CHIP * 2) + (count - 1) * GAP;
+	}
+
+	// cityLabel prefers the IP-resolved city/country; falls back to the region map.
+	function cityLabel(site: Site): string {
+		if (site.location) {
+			return [site.location.city, site.location.country_code].filter(Boolean).join(', ');
+		}
+		const loc = locate(site.region);
+		return `${loc.flag} ${loc.city || site.region}`.trim();
 	}
 
 	function statusLabel(s: string): string {
@@ -340,7 +356,7 @@
 				<!-- rich hover card: city, status, a row per role, the host -->
 				<g class="card" transform="translate({-CARD_W / 2},{cy})">
 					<rect class="card-bg" x="0" y="0" width={CARD_W} height={ch} rx="11" />
-					<text class="card-city" x="14" y="22">{p.loc.flag} {p.loc.city || p.site.region}</text>
+					<text class="card-city" x="14" y="22">{cityLabel(p.site)}</text>
 					<g transform="translate({CARD_W - 14},14)">
 						<circle cx="-5" cy="4" r="3.5" style="fill: {p.color}" />
 						<text class="card-status" x="-13" y="7.5" text-anchor="end" style="fill: {p.color}"

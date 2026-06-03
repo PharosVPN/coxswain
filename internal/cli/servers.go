@@ -32,14 +32,17 @@ func newServersCmd() *cobra.Command {
 func newServersAddCmd() *cobra.Command {
 	var cfgPath, name, region, user, password string
 	var port int
+	var useKey bool
 	cmd := &cobra.Command{
 		Use:   "add <ip>",
-		Short: "Onboard a server with a one-time password (cox installs its SSH key)",
-		Long: "Onboard a raw machine. coxswain SSHes in with the one-time password\n" +
-			"you supply, installs its own SSH key, pins the host key, then uses\n" +
-			"key auth from then on. The password is used once and never stored.\n" +
-			"Deploy node/relay roles onto it afterwards with `cox nodes add\n" +
-			"--server <id>` / `cox relays add --server <id>`.",
+		Short: "Onboard a server by key or one-time password (cox installs its SSH key)",
+		Long: "Onboard a raw machine, by one of two methods:\n\n" +
+			"  --key       coxswain's SSH key is already on the host (e.g. you added\n" +
+			"              it as the droplet's login key at creation; see `cox ssh-key`)\n" +
+			"  --password  coxswain logs in with the one-time password, installs its\n" +
+			"  (or prompt) key, then switches to key auth. The password is never stored.\n\n" +
+			"Then deploy node/relay roles with `cox nodes add --server <id>` /\n" +
+			"`cox relays add --server <id>`. The region is resolved from the IP.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -58,14 +61,16 @@ func newServersAddCmd() *cobra.Command {
 			if port == 0 {
 				port = cfg.Node.SSHPort
 			}
-			if password == "" {
-				password, err = promptPassword(fmt.Sprintf("SSH password for %s@%s: ", user, args[0]))
-				if err != nil {
-					return err
+			if !useKey {
+				if password == "" {
+					password, err = promptPassword(fmt.Sprintf("SSH password for %s@%s: ", user, args[0]))
+					if err != nil {
+						return err
+					}
 				}
-			}
-			if password == "" {
-				return fmt.Errorf("a one-time password is required (use --password or run interactively)")
+				if password == "" {
+					return fmt.Errorf("provide a password (--password or prompt), or use --key if coxswain's key is already on the host")
+				}
 			}
 
 			id, _, err := ssh.EnsureIdentity(ctx, conn)
@@ -105,6 +110,7 @@ func newServersAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user, then root)")
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
 	cmd.Flags().StringVar(&password, "password", "", "one-time SSH password (prompted if omitted; never stored)")
+	cmd.Flags().BoolVar(&useKey, "key", false, "use coxswain's SSH key (already installed on the host) instead of a password")
 	return cmd
 }
 
