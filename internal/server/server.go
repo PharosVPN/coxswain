@@ -30,53 +30,66 @@ type BootstrapParams struct {
 	Host     string // required — IP/hostname to SSH into (and the server's address)
 	User     string // required — SSH login user
 	Port     int    // 0 means 22
-	Password string // required — the one-time password; never persisted
+	Password string // optional — a one-time password; empty means key auth (cox's key already installed). Never persisted.
 	Dialer   Dialer // optional egress dialer
 }
 
-// Bootstrap onboards a raw machine: it SSHes in with the one-time password,
-// installs coxswain's SSH public key, pins the host key (TOFU), verifies key
-// auth works, and records the Server. The password is used once and never
-// stored. A host key that changes between the password leg and the key leg
-// aborts the bootstrap (possible MITM) — the admin must retry.
+// Bootstrap onboards a raw machine and records it as a Server, by one of two
+// methods:
+//
+//   - Password: SSH in with the one-time password, install coxswain's SSH key,
+//     then re-dial with the key to verify it and pin the host key. The password
+//     is used once and never stored. A host key that changes between the two
+//     legs aborts the bootstrap (possible MITM).
+//   - Key (Password empty): coxswain's key is already on the host (e.g. added
+//     as the droplet's login key at creation) — dial with the key and pin the
+//     host key on first use.
 func Bootstrap(ctx context.Context, db *sql.DB, identity ssh.Identity, p BootstrapParams) (fleet.Server, error) {
 	if p.Host == "" || p.User == "" {
 		return fleet.Server{}, fmt.Errorf("server: host and user are required")
 	}
-	if p.Password == "" {
-		return fleet.Server{}, fmt.Errorf("server: a one-time password is required to onboard a new server")
-	}
 
-	// 1. Password dial; capture the host key (TOFU).
-	pwConn, err := ssh.Dial(ctx, ssh.DialConfig{
-		Host: p.Host, Port: p.Port, User: p.User, Password: p.Password, Dialer: p.Dialer,
-	})
-	if err != nil {
-		return fleet.Server{}, fmt.Errorf("server: password login to %s: %w", p.Host, err)
-	}
-	hostKey := pwConn.HostKey()
-
-	// 2. Install coxswain's key into authorized_keys, idempotently.
-	if _, err := pwConn.Run(ctx, installKeyCmd(identity.AuthorizedKey), nil); err != nil {
+	var hostKey string
+	if p.Password != "" {
+		// Password leg: log in, install coxswain's key, capture the host key.
+		pwConn, err := ssh.Dial(ctx, ssh.DialConfig{
+			Host: p.Host, Port: p.Port, User: p.User, Password: p.Password, Dialer: p.Dialer,
+		})
+		if err != nil {
+			return fleet.Server{}, fmt.Errorf("server: password login to %s: %w", p.Host, err)
+		}
+		hostKey = pwConn.HostKey()
+		if _, err := pwConn.Run(ctx, installKeyCmd(identity.AuthorizedKey), nil); err != nil {
+			pwConn.Close()
+			return fleet.Server{}, fmt.Errorf("server: install key on %s: %w", p.Host, err)
+		}
 		pwConn.Close()
-		return fleet.Server{}, fmt.Errorf("server: install key on %s: %w", p.Host, err)
-	}
-	pwConn.Close()
 
-	// 3. Re-dial with key auth, pinning the host key, to verify the install and
-	//    confirm the host key end-to-end.
-	keyConn, err := ssh.Dial(ctx, ssh.DialConfig{
-		Host: p.Host, Port: p.Port, User: p.User, Signer: identity.Signer,
-		KnownHostKey: hostKey, Dialer: p.Dialer,
-	})
-	if err != nil {
-		return fleet.Server{}, fmt.Errorf("server: key auth to %s failed after install: %w", p.Host, err)
-	}
-	if keyConn.HostKey() != hostKey {
+		// Key leg: verify the install worked and confirm the host key end-to-end.
+		keyConn, err := ssh.Dial(ctx, ssh.DialConfig{
+			Host: p.Host, Port: p.Port, User: p.User, Signer: identity.Signer,
+			KnownHostKey: hostKey, Dialer: p.Dialer,
+		})
+		if err != nil {
+			return fleet.Server{}, fmt.Errorf("server: key auth to %s failed after install: %w", p.Host, err)
+		}
+		if keyConn.HostKey() != hostKey {
+			keyConn.Close()
+			return fleet.Server{}, fmt.Errorf("server: host key for %s changed during bootstrap — aborting (retry)", p.Host)
+		}
 		keyConn.Close()
-		return fleet.Server{}, fmt.Errorf("server: host key for %s changed during bootstrap — aborting (retry)", p.Host)
+	} else {
+		// Key-only: coxswain's key is already installed. Dial with it and pin
+		// the host key on first use (TOFU).
+		keyConn, err := ssh.Dial(ctx, ssh.DialConfig{
+			Host: p.Host, Port: p.Port, User: p.User, Signer: identity.Signer, Dialer: p.Dialer,
+		})
+		if err != nil {
+			return fleet.Server{}, fmt.Errorf("server: key login to %s failed — add coxswain's SSH key to the host (or onboard with a password): %w", p.Host, err)
+		}
+		hostKey = keyConn.HostKey()
+		keyConn.Close()
 	}
-	keyConn.Close()
 
 	// 4. Persist. Re-onboarding the same host updates the existing row rather
 	//    than creating a duplicate (the key install is idempotent too).

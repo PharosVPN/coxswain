@@ -9,7 +9,30 @@ import (
 	"net/http"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/geoip"
+	"github.com/PharosVPN/coxswain/internal/ssh"
 )
+
+// handleSSHKey returns coxswain's public SSH key in authorized_keys format, so
+// the admin can add it as a login key when creating a machine — then onboard it
+// with `--key` (no password).
+func (s *Server) handleSSHKey(w http.ResponseWriter, r *http.Request) {
+	id, _, err := ssh.EnsureIdentity(r.Context(), s.db)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load SSH key")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"public_key": id.AuthorizedKey})
+}
+
+// locate resolves a host IP to a location for the map/cards, or nil when the
+// geoip database is unavailable or the IP can't be placed.
+func (s *Server) locate(host string) *geoip.Location {
+	if loc, ok := s.geo.Lookup(host); ok {
+		return &loc
+	}
+	return nil
+}
 
 // Deployer onboards servers (machines) and deploys node/relay roles onto them.
 // It is implemented in the CLI layer (serve.go), which holds the CA, SSH
@@ -43,24 +66,26 @@ type RelayDeployRequest struct {
 }
 
 type serverView struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Region  string `json:"region"`
-	SSHHost string `json:"ssh_host"`
-	IsSelf  bool   `json:"is_self"`
-	Status  string `json:"status"`
-	Version int    `json:"version"`
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Region   string          `json:"region"`
+	SSHHost  string          `json:"ssh_host"`
+	IsSelf   bool            `json:"is_self"`
+	Status   string          `json:"status"`
+	Location *geoip.Location `json:"location,omitempty"`
+	Version  int             `json:"version"`
 }
 
-func toServerView(s fleet.Server) serverView {
+func (s *Server) serverView(srv fleet.Server) serverView {
 	return serverView{
-		ID:      s.ID,
-		Name:    s.Name,
-		Region:  s.Region,
-		SSHHost: s.SSHHost,
-		IsSelf:  s.IsSelf,
-		Status:  s.Status,
-		Version: s.Version,
+		ID:       srv.ID,
+		Name:     srv.Name,
+		Region:   srv.Region,
+		SSHHost:  srv.SSHHost,
+		IsSelf:   srv.IsSelf,
+		Status:   srv.Status,
+		Location: s.locate(srv.SSHHost),
+		Version:  srv.Version,
 	}
 }
 
@@ -72,7 +97,7 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]serverView, 0, len(servers))
 	for _, srv := range servers {
-		views = append(views, toServerView(srv))
+		views = append(views, s.serverView(srv))
 	}
 	writeJSON(w, http.StatusOK, views)
 }
@@ -93,7 +118,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "onboard failed: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, toServerView(srv))
+	writeJSON(w, http.StatusCreated, s.serverView(srv))
 }
 
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +164,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "deploy node failed: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, toNodeView(node))
+		writeJSON(w, http.StatusCreated, s.nodeView(node))
 	case "relay":
 		relay, err := s.deployer.DeployRelay(r.Context(), id, RelayDeployRequest{
 			Name:       req.Name,
@@ -153,7 +178,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "deploy relay failed: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, toRelayView(relay))
+		writeJSON(w, http.StatusCreated, s.relayView(relay))
 	default:
 		writeError(w, http.StatusBadRequest, "role must be \"node\" or \"relay\"")
 	}

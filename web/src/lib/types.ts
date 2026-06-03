@@ -9,6 +9,16 @@ export interface User {
 	version: number;
 }
 
+// GeoLocation is a host's location resolved from its IP (MaxMind GeoLite2),
+// so the admin never types a region.
+export interface GeoLocation {
+	city: string;
+	country: string;
+	country_code: string;
+	latitude: number;
+	longitude: number;
+}
+
 export interface Node {
 	id: string;
 	name: string;
@@ -25,6 +35,7 @@ export interface Node {
 	created_at: string;
 	updated_at: string;
 	server_id?: string;
+	location?: GeoLocation;
 }
 
 export interface Relay {
@@ -38,6 +49,7 @@ export interface Relay {
 	egress_hop: number;
 	onion: boolean;
 	server_id?: string;
+	location?: GeoLocation;
 }
 
 // Server is a machine cox owns — onboarded by password, then keyed. Roles
@@ -50,6 +62,7 @@ export interface Server {
 	is_self: boolean;
 	status: string;
 	version: number;
+	location?: GeoLocation;
 }
 
 // NodeLink is one cascade edge — an inner AmneziaWG link from an entry node to
@@ -71,6 +84,7 @@ export interface Site {
 	node?: Node;
 	relays: Relay[];
 	server?: Server;
+	location?: GeoLocation;
 	label: string;
 }
 

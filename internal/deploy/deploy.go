@@ -102,9 +102,6 @@ type AddResult struct {
 // certificate, and starts the service. On failure the node record is left
 // with status "error".
 func AddNode(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, p AddParams) (AddResult, error) {
-	if p.Region == "" {
-		return AddResult{}, fmt.Errorf("deploy: region is required")
-	}
 	if p.SSHHost == "" {
 		return AddResult{}, fmt.Errorf("deploy: ssh host is required")
 	}
@@ -255,8 +252,11 @@ func markFailed(ctx context.Context, db *sql.DB, node fleet.Node) {
 }
 
 func generateName(region string) string {
-	suffix := strings.TrimPrefix(idgen.New("n"), "n_")
-	return fmt.Sprintf("node-%s-%s", region, suffix[:6])
+	suffix := strings.TrimPrefix(idgen.New("n"), "n_")[:6]
+	if region == "" {
+		return "node-" + suffix
+	}
+	return fmt.Sprintf("node-%s-%s", region, suffix)
 }
 
 func shellQuote(s string) string {

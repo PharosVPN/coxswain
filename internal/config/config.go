@@ -22,6 +22,10 @@ type Config struct {
 	Posture Posture `koanf:"posture" yaml:"posture"`
 	// StateDir holds the SQLite database, snapshots, and other on-disk state.
 	StateDir string `koanf:"state_dir" yaml:"state_dir"`
+	// GeoIPDatabase is the path to a MaxMind GeoLite2-City.mmdb used to resolve
+	// a server's location from its IP (so the admin never types a region).
+	// Empty falls back to GeoLite2-City.mmdb in the state dir, then the cwd.
+	GeoIPDatabase string `koanf:"geoip_db" yaml:"geoip_db"`
 
 	Log       LogConfig       `koanf:"log" yaml:"log"`
 	UI        UIConfig        `koanf:"ui" yaml:"ui"`
@@ -50,6 +54,10 @@ type NodeConfig struct {
 	// NodeBinaryURL is the default download URL for the node agent, used by
 	// `cox nodes add` when no local binary is supplied.
 	NodeBinaryURL string `koanf:"node_binary_url" yaml:"node_binary_url"`
+	// BinaryPath is a local path to the (linux) node binary the controller
+	// uploads when deploying a node from the admin UI / API (which can't take a
+	// --binary flag). Falls back to NodeBinaryURL.
+	BinaryPath string `koanf:"binary_path" yaml:"binary_path"`
 	// SSHUser is the default SSH user for reaching new nodes.
 	SSHUser string `koanf:"ssh_user" yaml:"ssh_user"`
 	// SSHPort is the default SSH port for reaching new nodes.
@@ -89,6 +97,9 @@ type RelayConfig struct {
 	// BinaryURL is the default download URL for the relay binary, used by
 	// `cox relays add` when no local binary is supplied.
 	BinaryURL string `koanf:"binary_url" yaml:"binary_url"`
+	// BinaryPath is a local path to the (linux) relay binary the controller
+	// uploads when deploying a relay from the admin UI / API. Falls back to BinaryURL.
+	BinaryPath string `koanf:"binary_path" yaml:"binary_path"`
 	// PublicEndpoint is the address clients reach a relay at — baked into
 	// enrollment tickets so a scanned device knows where to connect.
 	PublicEndpoint string `koanf:"public_endpoint" yaml:"public_endpoint"`
