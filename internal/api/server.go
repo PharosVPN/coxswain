@@ -26,20 +26,23 @@ const (
 
 // Server is the admin HTTP server.
 type Server struct {
-	db       *sql.DB
-	hub      *live.Hub
-	provOpts provision.Options
-	deployer Deployer
-	geo      *geoip.Resolver
-	http     *http.Server
+	db             *sql.DB
+	hub            *live.Hub
+	provOpts       provision.Options
+	deployer       Deployer
+	geo            *geoip.Resolver
+	controllerHost string
+	http           *http.Server
 }
 
 // NewServer builds the admin server bound to addr (a localhost address).
 // provOpts carries the fleet settings device provisioning needs; deployer
 // performs server onboarding and component deploys (nil disables those routes);
-// geo resolves host IPs to locations for the map (nil disables resolution).
-func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, geo *geoip.Resolver) *Server {
-	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, geo: geo}
+// geo resolves host IPs to locations for the map (nil disables resolution);
+// controllerHost is the controller's own public IP (for plotting it on the map;
+// empty when undetected).
+func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, geo *geoip.Resolver, controllerHost string) *Server {
+	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, geo: geo, controllerHost: controllerHost}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -62,6 +65,9 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("GET /api/relays", s.requireAuth(s.handleListRelays))
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
 	mux.HandleFunc("GET /api/node-links", s.requireAuth(s.handleListNodeLinks))
+
+	// The controller itself — its public IP + resolved location, for the map.
+	mux.HandleFunc("GET /api/self", s.requireAuth(s.handleSelf))
 
 	// Servers — machines cox owns; onboard by key or password, then deploy roles.
 	mux.HandleFunc("GET /api/ssh-key", s.requireAuth(s.handleSSHKey))

@@ -11,16 +11,17 @@
 	import { geoNaturalEarth1, geoPath, geoGraticule10 } from 'd3-geo';
 	import { feature } from 'topojson-client';
 	import landTopo from 'world-atlas/land-110m.json';
-	import type { Node, Relay, NodeLink, Server, Site } from '$lib/types';
+	import type { Node, Relay, NodeLink, Server, Self, Site } from '$lib/types';
 	import { locate } from '$lib/geo';
 	import { ROLES, STATUSES, statusColor, dominantStatus, type Role } from '$lib/roles';
 	import RoleGlyph from './RoleGlyph.svelte';
 
-	let { nodes = [], relays = [], links = [], servers = [], selectedKey = '', onselect }: {
+	let { nodes = [], relays = [], links = [], servers = [], controller = null, selectedKey = '', onselect }: {
 		nodes?: Node[];
 		relays?: Relay[];
 		links?: NodeLink[];
 		servers?: Server[];
+		controller?: Self | null;
 		selectedKey?: string;
 		onselect?: (s: Site) => void;
 	} = $props();
@@ -82,6 +83,13 @@
 			// node/relay lands on it, those badges take over.
 			if (s.roles.length === 0) s.roles.push('server');
 			if (!s.label) s.label = sv.name;
+		}
+		// The controller itself (the brain) — plotted from its public IP's location.
+		if (controller?.location) {
+			const s = ensure('controller', controller.location.country_code || '');
+			if (!s.roles.includes('controller')) s.roles.push('controller');
+			s.location = controller.location;
+			s.label = controller.name || 'controller';
 		}
 		return [...byHost.values()].map((s) => {
 			const statuses = [

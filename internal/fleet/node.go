@@ -216,6 +216,27 @@ func UpdateNode(ctx context.Context, db *sql.DB, n Node) (Node, error) {
 	return n, nil
 }
 
+// CountClientsThroughNode returns how many distinct devices route through the
+// node's data plane — either with a tunnel terminating on it (a peer, i.e. the
+// node is their entry) or with a cascade exit binding whose link has the node
+// as entry or exit. Removal is blocked while this is non-zero, so a client's
+// profile is never silently orphaned.
+func CountClientsThroughNode(ctx context.Context, db *sql.DB, nodeID string) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT device_id) FROM (
+			SELECT device_id FROM peers WHERE node_id = ?
+			UNION
+			SELECT de.device_id FROM device_exits de
+			  JOIN node_links nl ON de.node_link_id = nl.id
+			  WHERE nl.entry_node_id = ? OR nl.exit_node_id = ?
+		)`, nodeID, nodeID, nodeID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count clients through node: %w", err)
+	}
+	return n, nil
+}
+
 // DeleteNode removes a node. A missing row yields ErrNotFound.
 func DeleteNode(ctx context.Context, db *sql.DB, id string) error {
 	res, err := db.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)
