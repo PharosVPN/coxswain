@@ -1,16 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 The PharosVPN Authors
 
-// Package cascade coordinates node cascade / multi-hop (DESIGN §3, decision 18).
-// coxswain is the sole mesh coordinator: it provisions entry→exit inner links
-// and binds a device's traffic to egress through a chosen exit, driving both
-// nodes over the existing control plane.
+// Package cascade coordinates the node-cascade data plane (DESIGN §3, decision
+// 18): named multi-hop paths entry → [mid] → exit. coxswain is the sole mesh
+// coordinator. It provisions the inner AmneziaWG links between consecutive hops
+// and binds a device's traffic to a path, driving every node over the control
+// plane.
 //
-// The entry node policy-routes a cascaded device into the inner link (no SNAT —
-// the literal transit rule); the exit node sees the entry as an ordinary
-// forwarded+masqueraded peer whose AllowedIPs accumulate the cascaded devices'
-// tunnel addresses. A device only ever handshakes with, and holds credentials
-// for, its entry — never the exit.
+// An inner link terminates on the next hop's client interface (awg0): the
+// dialing node runs ConfigureInnerLink toward the target's public endpoint, and
+// the target sees the dialer as an ordinary forwarded peer whose AllowedIPs
+// accumulate the cascaded devices' tunnel addresses. A node policy-routes a
+// cascaded device into the inner link toward the next hop (a transit, no SNAT);
+// the final hop (exit) masquerades. A *mid* is simply a node with both — it
+// receives the previous hop as a peer AND dials the next hop with a transit —
+// so it composes from the same primitives, no new node capability.
+//
+// The one invariant that makes multi-hop correct: at *every* hop the device's
+// tunnel CIDR is the address allocated on the PATH ENTRY (hops[0]), since a
+// client only ever handshakes with, and holds credentials for, its entry.
 package cascade
 
 import (
@@ -30,10 +38,12 @@ import (
 
 const (
 	// awgClientPort is the UDP port a node's client interface (awg0) listens on;
-	// the entry dials the exit there for the inner link (DESIGN §3).
+	// each hop dials the next hop there for the inner link (DESIGN §3).
 	awgClientPort = 443
-	// innerLinkMTU is the inner interface MTU: the client MTU (1420) less one
-	// AmneziaWG encapsulation. It stays above the IPv6 floor for a 2-hop path.
+	// innerLinkMTU is every inner interface's MTU: the client MTU (1420) less one
+	// AmneziaWG encapsulation. It is constant at every hop — each node fully
+	// decapsulates and re-encapsulates, so there is one AmneziaWG layer per
+	// physical link, never nested, and a 2-hop path stays above the IPv6 floor.
 	innerLinkMTU = 1340
 	// mtuFloor is the minimum end-to-end MTU a cascade path may have (DESIGN §3).
 	mtuFloor = 1280
@@ -70,58 +80,74 @@ func New(db *sql.DB, dial DialFunc) *Coordinator {
 	return &Coordinator{db: db, dial: dial}
 }
 
-// ProvisionLink creates an entry→exit edge and configures the entry's inner
-// AmneziaWG interface toward the exit. The exit-side peer and per-device
-// transit routes are wired when a device binds (BindExit), so a fresh link
-// carries no traffic until then.
-func (c *Coordinator) ProvisionLink(ctx context.Context, entryID, exitID string) (fleet.NodeLink, error) {
-	entry, exit, err := c.edgeNodes(ctx, entryID, exitID)
+// ProvisionPath brings up the inner-link chain for a path: an inner AmneziaWG
+// interface on each hop dialing the next. The per-device peers and transit
+// routes are wired when a device binds (BindDeviceToPath), so a freshly
+// provisioned path carries no traffic until then. Idempotent — re-running heals
+// drift (ConfigureInnerLink is create-or-update). The edge (node_link) for each
+// segment is shared across paths that traverse the same pair.
+func (c *Coordinator) ProvisionPath(ctx context.Context, pathID string) (fleet.Path, error) {
+	p, err := fleet.GetPath(ctx, c.db, pathID)
 	if err != nil {
-		return fleet.NodeLink{}, err
+		return fleet.Path{}, err
 	}
-	if entry.ControlAddr == "" {
-		return fleet.NodeLink{}, fmt.Errorf("cascade: entry node %s has no control address", entryID)
+	hops, err := fleet.ListPathHops(ctx, c.db, pathID)
+	if err != nil {
+		return fleet.Path{}, err
 	}
-	if entry.WGPublicKey == "" || exit.WGPublicKey == "" {
-		return fleet.NodeLink{}, fmt.Errorf("cascade: both nodes need a configured AmneziaWG identity — run `cox nodes status` first")
+	if len(hops) < 2 {
+		return fleet.Path{}, fmt.Errorf("cascade: path %s has fewer than two hops", pathID)
 	}
-	if len(exit.EndpointAddrs()) == 0 {
-		return fleet.NodeLink{}, fmt.Errorf("cascade: exit node %s has no public endpoint", exitID)
+	if len(hops)-1 > fleet.MaxPathHops {
+		return fleet.Path{}, fmt.Errorf("cascade: path %s exceeds the %d-hop limit", pathID, fleet.MaxPathHops)
 	}
 	if innerLinkMTU < mtuFloor {
-		return fleet.NodeLink{}, ErrMTUTooLow
+		return fleet.Path{}, ErrMTUTooLow
 	}
 
-	psk, err := generatePSK()
-	if err != nil {
-		return fleet.NodeLink{}, err
+	nodes := make([]fleet.Node, len(hops))
+	for i, h := range hops {
+		n, err := fleet.GetNode(ctx, c.db, h.NodeID)
+		if err != nil {
+			return fleet.Path{}, fmt.Errorf("cascade: path hop %d: %w", i, err)
+		}
+		nodes[i] = n
 	}
-	link, err := fleet.CreateNodeLink(ctx, c.db, entryID, exitID, psk)
-	if err != nil {
-		return fleet.NodeLink{}, err
+
+	for i := 0; i < len(nodes)-1; i++ {
+		entry, exit := nodes[i], nodes[i+1]
+		if err := validateSegment(entry, exit); err != nil {
+			_ = fleet.SetPathStatus(ctx, c.db, pathID, "error", p.Version)
+			return fleet.Path{}, err
+		}
+		if _, err := c.ensureEdge(ctx, entry, exit); err != nil {
+			_ = fleet.SetPathStatus(ctx, c.db, pathID, "error", p.Version)
+			return fleet.Path{}, err
+		}
 	}
-	if err := c.configureEntryLink(ctx, entry, exit, link); err != nil {
-		_ = fleet.DeleteNodeLink(ctx, c.db, link.ID) // best-effort rollback
-		return fleet.NodeLink{}, err
+	if err := fleet.SetPathStatus(ctx, c.db, pathID, fleet.StatusActive, p.Version); err == nil {
+		p.Status = fleet.StatusActive
 	}
-	if err := fleet.SetNodeLinkStatus(ctx, c.db, link.ID, "active", link.Version); err == nil {
-		link.Status = "active"
-	}
-	return link, nil
+	return p, nil
 }
 
-// DeprovisionLink tears an edge down: it clears any device bindings on the link,
-// reconciles the entry's transits, removes the inner interface on the entry and
-// the entry peer on the exit, and deletes the row.
-func (c *Coordinator) DeprovisionLink(ctx context.Context, linkID string) error {
-	link, err := fleet.GetNodeLink(ctx, c.db, linkID)
-	if errors.Is(err, fleet.ErrNotFound) {
+// DeprovisionPath tears a path down: it unbinds every device on the path,
+// reconciles so any sibling path sharing an edge keeps its state, removes each
+// segment's inner interface (only when no other path still uses that edge), and
+// deletes the path row (its hops cascade).
+func (c *Coordinator) DeprovisionPath(ctx context.Context, pathID string) error {
+	if _, err := fleet.GetPath(ctx, c.db, pathID); errors.Is(err, fleet.ErrNotFound) {
 		return nil
+	} else if err != nil {
+		return err
 	}
+	hops, err := fleet.ListPathHops(ctx, c.db, pathID)
 	if err != nil {
 		return err
 	}
-	devices, err := fleet.ListDeviceIDsByLink(ctx, c.db, link.ID)
+
+	// 1. Unbind every device on this path.
+	devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pathID)
 	if err != nil {
 		return err
 	}
@@ -130,63 +156,101 @@ func (c *Coordinator) DeprovisionLink(ctx context.Context, linkID string) error 
 			return err
 		}
 	}
-	entry, exit, err := c.edgeNodes(ctx, link.EntryNodeID, link.ExitNodeID)
-	if err != nil {
+
+	// 2. Reconcile this path plus any sibling sharing one of its edges, so a
+	//    shared edge re-converges to the surviving paths' device union before we
+	//    consider tearing anything down.
+	affected := map[string]bool{pathID: true}
+	for i := 0; i < len(hops)-1; i++ {
+		siblings, err := fleet.ListPathsByEdge(ctx, c.db, hops[i].NodeID, hops[i+1].NodeID)
+		if err != nil {
+			return err
+		}
+		for _, s := range siblings {
+			affected[s] = true
+		}
+	}
+	if err := c.reconcile(ctx, affected); err != nil {
 		return err
 	}
-	// Remove the inner interface on the entry and the entry peer on the exit.
-	if err := c.withNode(ctx, entry.ControlAddr, func(cl NodeClient, cctx context.Context) error {
-		_, err := cl.RemoveInnerLink(cctx, link.InnerInterface)
-		return err
-	}); err != nil {
-		return err
+
+	// 3. Remove each segment's inner interface, but only if this is the last path
+	//    using that edge (the ref-count includes the path being torn down, so
+	//    <= 1 means "only this one"). Skipping a shared edge keeps siblings alive.
+	for i := 0; i < len(hops)-1; i++ {
+		entry, exit, err := c.edgeNodes(ctx, hops[i].NodeID, hops[i+1].NodeID)
+		if err != nil {
+			return err
+		}
+		link, err := fleet.GetNodeLinkByEdge(ctx, c.db, entry.ID, exit.ID)
+		if errors.Is(err, fleet.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		cnt, err := fleet.CountPathsUsingLink(ctx, c.db, link.ID)
+		if err != nil {
+			return err
+		}
+		if cnt > 1 {
+			continue
+		}
+		if err := c.withNode(ctx, entry.ControlAddr, func(cl NodeClient, cctx context.Context) error {
+			_, err := cl.RemoveInnerLink(cctx, link.InnerInterface)
+			return err
+		}); err != nil {
+			return err
+		}
+		// Belt and braces: reconcile already cleared the exit peer when no device
+		// remained, but drop it explicitly in case the edge had none bound.
+		_ = c.withNode(ctx, exit.ControlAddr, func(cl NodeClient, cctx context.Context) error {
+			_, err := cl.RemovePeer(cctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
+			return err
+		})
+		if err := fleet.DeleteNodeLink(ctx, c.db, link.ID); err != nil {
+			return err
+		}
 	}
-	if err := c.withNode(ctx, exit.ControlAddr, func(cl NodeClient, cctx context.Context) error {
-		_, err := cl.RemovePeer(cctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, entry.WGPublicKey)
-		return err
-	}); err != nil {
-		return err
-	}
-	if err := c.pushEntryTransits(ctx, entry); err != nil {
-		return err
-	}
-	return fleet.DeleteNodeLink(ctx, c.db, link.ID)
+
+	return fleet.DeletePath(ctx, c.db, pathID)
 }
 
-// BindExit routes a device's traffic, arriving at entry, to egress via exit over
-// their inner link (which must already exist). It is also the live exit-switch:
-// re-binding to a different exit replaces the binding and reconciles both the
-// old and new links. The device must already have a tunnel (peer) on the entry.
-func (c *Coordinator) BindExit(ctx context.Context, deviceID, entryID, exitID string) error {
-	link, err := fleet.GetNodeLinkByEdge(ctx, c.db, entryID, exitID)
-	if errors.Is(err, fleet.ErrNotFound) {
-		return fmt.Errorf("cascade: no inner link from %s to %s — create it with `cox links add` first", entryID, exitID)
-	}
+// BindDeviceToPath routes a device's traffic, arriving at the path entry, along
+// the path to egress at its exit. The path must already be provisioned and the
+// device must already have a tunnel (peer) on the path entry. It is also the
+// live switch: re-binding to a different path replaces the binding and
+// reconciles both the old and new paths.
+func (c *Coordinator) BindDeviceToPath(ctx context.Context, deviceID, pathID string) error {
+	hops, err := fleet.ListPathHops(ctx, c.db, pathID)
 	if err != nil {
 		return err
 	}
-	if _, err := c.deviceIPOnNode(ctx, deviceID, entryID); err != nil {
+	if len(hops) < 2 {
+		return fmt.Errorf("cascade: path %s has fewer than two hops", pathID)
+	}
+	if _, err := c.deviceIPOnNode(ctx, deviceID, hops[0].NodeID); err != nil {
 		return err
 	}
 	if innerLinkMTU < mtuFloor {
 		return ErrMTUTooLow
 	}
 
-	affected := map[string]bool{link.ID: true}
-	if old, err := fleet.GetDeviceExit(ctx, c.db, deviceID); err == nil && old.NodeLinkID != link.ID {
-		affected[old.NodeLinkID] = true
+	affected := map[string]bool{pathID: true}
+	if old, err := fleet.GetDeviceExit(ctx, c.db, deviceID); err == nil && old.PathID != pathID {
+		affected[old.PathID] = true
 	} else if err != nil && !errors.Is(err, fleet.ErrNotFound) {
 		return err
 	}
-	if err := fleet.SetDeviceExit(ctx, c.db, deviceID, link.ID); err != nil {
+	if err := fleet.SetDeviceExit(ctx, c.db, deviceID, pathID); err != nil {
 		return err
 	}
-	return c.reconcileLinks(ctx, affected)
+	return c.reconcile(ctx, affected)
 }
 
-// ClearExit removes a device's cascade binding (back to normal egress at its
-// entry) and reconciles the link it left.
-func (c *Coordinator) ClearExit(ctx context.Context, deviceID string) error {
+// ClearDevicePath removes a device's path binding (back to normal egress at its
+// entry) and reconciles the path it left.
+func (c *Coordinator) ClearDevicePath(ctx context.Context, deviceID string) error {
 	old, err := fleet.GetDeviceExit(ctx, c.db, deviceID)
 	if errors.Is(err, fleet.ErrNotFound) {
 		return nil
@@ -197,45 +261,78 @@ func (c *Coordinator) ClearExit(ctx context.Context, deviceID string) error {
 	if err := fleet.DeleteDeviceExit(ctx, c.db, deviceID); err != nil {
 		return err
 	}
-	return c.reconcileLinks(ctx, map[string]bool{old.NodeLinkID: true})
+	return c.reconcile(ctx, map[string]bool{old.PathID: true})
 }
 
 // --- internals --------------------------------------------------------------
 
-// reconcileLinks pushes the current exit-peer membership for each affected link
-// and the current transit set for each affected entry node.
-func (c *Coordinator) reconcileLinks(ctx context.Context, linkIDs map[string]bool) error {
-	entries := map[string]bool{}
-	for lid := range linkIDs {
-		link, err := fleet.GetNodeLink(ctx, c.db, lid)
-		if errors.Is(err, fleet.ErrNotFound) {
-			continue
-		}
+// reconcile recomputes the desired data-plane state for every edge and transit-
+// owning node touched by the affected paths, and pushes it. Desired state is a
+// pure function of (paths, hops, device bindings, node tunnel IPs); both the
+// edge-peer membership and the per-node transit set are unioned across all
+// paths, so reconciling one path naturally keeps a shared edge's siblings
+// intact. Exit peers are pushed before transits so a freshly marked packet
+// never points at a downstream hop that hasn't accepted the device yet.
+func (c *Coordinator) reconcile(ctx context.Context, pathIDs map[string]bool) error {
+	type edge struct{ entry, exit string }
+	edges := map[edge]bool{}
+	transitNodes := map[string]bool{}
+	for pid := range pathIDs {
+		hops, err := fleet.ListPathHops(ctx, c.db, pid)
 		if err != nil {
 			return err
 		}
-		entry, exit, err := c.edgeNodes(ctx, link.EntryNodeID, link.ExitNodeID)
-		if err != nil {
-			return err
+		for i := 0; i < len(hops)-1; i++ {
+			edges[edge{hops[i].NodeID, hops[i+1].NodeID}] = true
+			transitNodes[hops[i].NodeID] = true
 		}
-		if err := c.pushExitPeer(ctx, entry, exit, link); err != nil {
-			return err
-		}
-		entries[entry.ID] = true
 	}
-	for eid := range entries {
-		entry, err := fleet.GetNode(ctx, c.db, eid)
+	for e := range edges {
+		if err := c.pushEdgePeer(ctx, e.entry, e.exit); err != nil {
+			return err
+		}
+	}
+	for nid := range transitNodes {
+		node, err := fleet.GetNode(ctx, c.db, nid)
 		if err != nil {
 			return err
 		}
-		if err := c.pushEntryTransits(ctx, entry); err != nil {
+		if err := c.pushNodeTransits(ctx, node); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// configureEntryLink calls ConfigureInnerLink on the entry node.
+// ensureEdge returns the node_link for the entry→exit segment, creating it (and
+// allocating the entry-side inner-link resources) if absent, then runs
+// ConfigureInnerLink on the entry. The row is shared across paths that traverse
+// the same pair. Idempotent.
+func (c *Coordinator) ensureEdge(ctx context.Context, entry, exit fleet.Node) (fleet.NodeLink, error) {
+	link, err := fleet.GetNodeLinkByEdge(ctx, c.db, entry.ID, exit.ID)
+	if errors.Is(err, fleet.ErrNotFound) {
+		psk, gErr := generatePSK()
+		if gErr != nil {
+			return fleet.NodeLink{}, gErr
+		}
+		link, err = fleet.CreateNodeLink(ctx, c.db, entry.ID, exit.ID, psk)
+	}
+	if err != nil {
+		return fleet.NodeLink{}, err
+	}
+	if err := c.configureEntryLink(ctx, entry, exit, link); err != nil {
+		return fleet.NodeLink{}, err
+	}
+	if link.Status != fleet.StatusActive {
+		if sErr := fleet.SetNodeLinkStatus(ctx, c.db, link.ID, fleet.StatusActive, link.Version); sErr == nil {
+			link.Status = fleet.StatusActive
+		}
+	}
+	return link, nil
+}
+
+// configureEntryLink calls ConfigureInnerLink on the entry node so it dials the
+// exit (segment target) over the inner link, carrying the exit's obfuscation.
 func (c *Coordinator) configureEntryLink(ctx context.Context, entry, exit fleet.Node, link fleet.NodeLink) error {
 	rev, err := fleet.NextNodeLinkConfigRevision(ctx, c.db, link.ID)
 	if err != nil {
@@ -260,21 +357,21 @@ func (c *Coordinator) configureEntryLink(ctx context.Context, entry, exit fleet.
 	})
 }
 
-// pushExitPeer sets the exit's entry-peer AllowedIPs to exactly the tunnel
-// addresses of the devices currently bound to this link. With none bound, the
-// entry peer is removed from the exit.
-func (c *Coordinator) pushExitPeer(ctx context.Context, entry, exit fleet.Node, link fleet.NodeLink) error {
-	devices, err := fleet.ListDeviceIDsByLink(ctx, c.db, link.ID)
+// pushEdgePeer sets the exit's peer (the segment entry) AllowedIPs to exactly
+// the path-entry tunnel addresses of every device on any path traversing this
+// edge. With none, the peer is removed from the exit.
+func (c *Coordinator) pushEdgePeer(ctx context.Context, entryID, exitID string) error {
+	entry, exit, err := c.edgeNodes(ctx, entryID, exitID)
 	if err != nil {
 		return err
 	}
-	allowed := make([]string, 0, len(devices))
-	for _, d := range devices {
-		ip, err := c.deviceIPOnNode(ctx, d, entry.ID)
-		if err != nil {
-			return err
-		}
-		allowed = append(allowed, cidr32(ip))
+	link, err := fleet.GetNodeLinkByEdge(ctx, c.db, entryID, exitID)
+	if err != nil {
+		return err
+	}
+	allowed, err := c.devicesOnEdge(ctx, entryID, exitID)
+	if err != nil {
+		return err
 	}
 	return c.withNode(ctx, exit.ControlAddr, func(cl NodeClient, cctx context.Context) error {
 		if len(allowed) == 0 {
@@ -291,39 +388,98 @@ func (c *Coordinator) pushExitPeer(ctx context.Context, entry, exit fleet.Node, 
 	})
 }
 
-// pushEntryTransits recomputes and pushes the entry node's full transit set —
-// one route per device bound to any link leaving this entry — alongside its
-// base forwarding/masquerade/isolation policy. Forwarding is forced on when any
-// transit exists, since transit requires it.
-func (c *Coordinator) pushEntryTransits(ctx context.Context, entry fleet.Node) error {
-	links, err := fleet.ListNodeLinksByEntry(ctx, c.db, entry.ID)
+// pushNodeTransits recomputes and pushes a node's full transit set — one route
+// per device, for every downstream hop the node has across all paths — alongside
+// its base forwarding/masquerade/isolation policy. The device CIDR is always the
+// device's address on the PATH ENTRY. Forwarding is forced on when any transit
+// exists, since transit requires it.
+func (c *Coordinator) pushNodeTransits(ctx context.Context, node fleet.Node) error {
+	pids, err := fleet.ListPathIDsContainingNode(ctx, c.db, node.ID)
 	if err != nil {
 		return err
 	}
 	var transits []*nodev1.TransitRoute
-	for _, link := range links {
-		devices, err := fleet.ListDeviceIDsByLink(ctx, c.db, link.ID)
+	seen := map[string]bool{}
+	for _, pid := range pids {
+		hops, err := fleet.ListPathHops(ctx, c.db, pid)
+		if err != nil {
+			return err
+		}
+		idx := indexOfNode(hops, node.ID)
+		if idx < 0 || idx >= len(hops)-1 {
+			continue // not present, or the exit (no downstream hop)
+		}
+		link, err := fleet.GetNodeLinkByEdge(ctx, c.db, node.ID, hops[idx+1].NodeID)
+		if errors.Is(err, fleet.ErrNotFound) {
+			continue // segment not provisioned yet
+		}
+		if err != nil {
+			return err
+		}
+		devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pid)
 		if err != nil {
 			return err
 		}
 		for _, d := range devices {
-			ip, err := c.deviceIPOnNode(ctx, d, entry.ID)
+			ip, err := c.deviceIPOnNode(ctx, d, hops[0].NodeID)
 			if err != nil {
 				return err
 			}
+			cidr := cidr32(ip)
+			key := cidr + "@" + link.InnerInterface
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 			transits = append(transits, &nodev1.TransitRoute{
-				DeviceCidr:     cidr32(ip),
+				DeviceCidr:     cidr,
 				InnerInterface: link.InnerInterface,
 				Mark:           uint32(link.Fwmark),
 				Table:          uint32(link.TableID),
 			})
 		}
 	}
-	forwarding := entry.Forwarding || len(transits) > 0
-	return c.withNode(ctx, entry.ControlAddr, func(cl NodeClient, cctx context.Context) error {
-		_, err := cl.SetNetworkConfig(cctx, forwarding, entry.Masquerade, entry.Isolation, transits)
+	forwarding := node.Forwarding || len(transits) > 0
+	return c.withNode(ctx, node.ControlAddr, func(cl NodeClient, cctx context.Context) error {
+		_, err := cl.SetNetworkConfig(cctx, forwarding, node.Masquerade, node.Isolation, transits)
 		return err
 	})
+}
+
+// devicesOnEdge returns the deduplicated path-entry tunnel CIDRs of every device
+// on any path that traverses the entry→exit edge as a consecutive hop pair.
+func (c *Coordinator) devicesOnEdge(ctx context.Context, entryID, exitID string) ([]string, error) {
+	pids, err := fleet.ListPathsByEdge(ctx, c.db, entryID, exitID)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, pid := range pids {
+		hops, err := fleet.ListPathHops(ctx, c.db, pid)
+		if err != nil {
+			return nil, err
+		}
+		if len(hops) == 0 {
+			continue
+		}
+		devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pid)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range devices {
+			ip, err := c.deviceIPOnNode(ctx, d, hops[0].NodeID)
+			if err != nil {
+				return nil, err
+			}
+			cidr := cidr32(ip)
+			if !seen[cidr] {
+				seen[cidr] = true
+				out = append(out, cidr)
+			}
+		}
+	}
+	return out, nil
 }
 
 // edgeNodes fetches an edge's entry and exit nodes.
@@ -349,7 +505,7 @@ func (c *Coordinator) deviceIPOnNode(ctx context.Context, deviceID, nodeID strin
 			return p.AllowedIP, nil
 		}
 	}
-	return "", fmt.Errorf("cascade: device %s has no tunnel on entry node %s", deviceID, nodeID)
+	return "", fmt.Errorf("cascade: device %s has no tunnel on path entry node %s", deviceID, nodeID)
 }
 
 // withNode dials a node, runs fn with a bounded context, and closes the client.
@@ -365,6 +521,32 @@ func (c *Coordinator) withNode(ctx context.Context, addr string, fn func(NodeCli
 	cctx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
 	return fn(cl, cctx)
+}
+
+// validateSegment checks a segment's endpoints can carry an inner link: the
+// entry must be controllable, both nodes need an AmneziaWG identity, and the
+// exit must be publicly reachable for the entry to dial.
+func validateSegment(entry, exit fleet.Node) error {
+	if entry.ControlAddr == "" {
+		return fmt.Errorf("cascade: node %s has no control address", entry.ID)
+	}
+	if entry.WGPublicKey == "" || exit.WGPublicKey == "" {
+		return fmt.Errorf("cascade: both nodes need a configured AmneziaWG identity — run `cox nodes status` first")
+	}
+	if len(exit.EndpointAddrs()) == 0 {
+		return fmt.Errorf("cascade: node %s has no public endpoint", exit.ID)
+	}
+	return nil
+}
+
+// indexOfNode returns the hop index of nodeID in hops, or -1.
+func indexOfNode(hops []fleet.PathHop, nodeID string) int {
+	for i, h := range hops {
+		if h.NodeID == nodeID {
+			return i
+		}
+	}
+	return -1
 }
 
 // generatePSK returns a fresh 32-byte WireGuard preshared key, base64-encoded.

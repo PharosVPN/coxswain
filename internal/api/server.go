@@ -30,6 +30,7 @@ type Server struct {
 	hub            *live.Hub
 	provOpts       provision.Options
 	deployer       Deployer
+	paths          PathCoordinator
 	geo            *geoip.Resolver
 	controllerHost string
 	http           *http.Server
@@ -38,11 +39,12 @@ type Server struct {
 // NewServer builds the admin server bound to addr (a localhost address).
 // provOpts carries the fleet settings device provisioning needs; deployer
 // performs server onboarding and component deploys (nil disables those routes);
-// geo resolves host IPs to locations for the map (nil disables resolution);
-// controllerHost is the controller's own public IP (for plotting it on the map;
-// empty when undetected).
-func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, geo *geoip.Resolver, controllerHost string) *Server {
-	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, geo: geo, controllerHost: controllerHost}
+// paths provisions/binds data-plane paths over the node control plane (nil
+// disables those routes); geo resolves host IPs to locations for the map (nil
+// disables resolution); controllerHost is the controller's own public IP (for
+// plotting it on the map; empty when undetected).
+func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, paths PathCoordinator, geo *geoip.Resolver, controllerHost string) *Server {
+	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, paths: paths, geo: geo, controllerHost: controllerHost}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -66,6 +68,12 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
 	mux.HandleFunc("GET /api/node-links", s.requireAuth(s.handleListNodeLinks))
 
+	// Data-plane paths — named multi-hop chains entry → [mid] → exit.
+	mux.HandleFunc("GET /api/paths", s.requireAuth(s.handleListPaths))
+	mux.HandleFunc("POST /api/paths", s.requireAuth(s.handleCreatePath))
+	mux.HandleFunc("DELETE /api/paths/{id}", s.requireAuth(s.handleDeletePath))
+	mux.HandleFunc("POST /api/paths/{id}/provision", s.requireAuth(s.handleProvisionPath))
+
 	// The controller itself — its public IP + resolved location, for the map.
 	mux.HandleFunc("GET /api/self", s.requireAuth(s.handleSelf))
 
@@ -75,6 +83,7 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("POST /api/servers", s.requireAuth(s.handleCreateServer))
 	mux.HandleFunc("DELETE /api/servers/{id}", s.requireAuth(s.handleDeleteServer))
 	mux.HandleFunc("POST /api/servers/{id}/deploy", s.requireAuth(s.handleDeployServer))
+	mux.HandleFunc("PATCH /api/servers/{id}/route", s.requireAuth(s.handleSetServerRoute))
 
 	// Admins.
 	mux.HandleFunc("GET /api/admins", s.requireAuth(s.handleListAdmins))
@@ -91,6 +100,9 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("POST /api/users/{id}/devices", s.requireAuth(s.handleCreateDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}", s.requireAuth(s.handleDeleteDevice))
 	mux.HandleFunc("POST /api/devices/{id}/provision", s.requireAuth(s.handleProvisionDevice))
+	// Bind a device's traffic onto a data-plane path (the live switch), or clear it.
+	mux.HandleFunc("POST /api/devices/{id}/bind", s.requireAuth(s.handleBindDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}/bind", s.requireAuth(s.handleClearDevice))
 
 	// Live events — auth-gated (closes the M4 gap).
 	mux.HandleFunc("GET /ws/events", s.requireAuth(s.handleEvents))

@@ -70,6 +70,9 @@ export interface Server {
 	ssh_host: string;
 	is_self: boolean;
 	status: string;
+	// route is the ordered relay-id hops coxswain reaches this server through;
+	// empty = direct (the default).
+	route: string[];
 	version: number;
 	location?: GeoLocation;
 }
@@ -82,6 +85,18 @@ export interface NodeLink {
 	exit_node_id: string;
 	status: string;
 	color: string;
+}
+
+// Path is a named, ordered data plane: entry → [mid] → exit. `hops` is the
+// ordered list of node ids (entry first, exit last); the map draws an arc per
+// consecutive pair, all in the path's colour.
+export interface Path {
+	id: string;
+	name: string;
+	color: string;
+	status: string;
+	hops: string[];
+	version: number;
 }
 
 // Site is one host on the fleet map — the aggregate of every role at an IP.

@@ -66,10 +66,6 @@ func newServeCmd() *cobra.Command {
 				}
 			}
 
-			dialer, err := newControlDialer(ctx, conn)
-			if err != nil {
-				return err
-			}
 			nodes, err := fleet.ListNodes(ctx, conn)
 			if err != nil {
 				return err
@@ -80,6 +76,13 @@ func newServeCmd() *cobra.Command {
 			watched := 0
 			for _, n := range nodes {
 				if n.ControlAddr == "" {
+					continue
+				}
+				// Each node is watched through its own server route (or direct),
+				// so the live control plane honours the same routing as onboarding.
+				dialer, dErr := newControlDialer(ctx, conn, nodeRoute(ctx, conn, n))
+				if dErr != nil {
+					fmt.Printf("  watch:   %s unreachable to set up (%v)\n", n.Name, dErr)
 					continue
 				}
 				watched++
@@ -117,7 +120,16 @@ func newServeCmd() *cobra.Command {
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
 			}
-			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, geo, controllerHost)
+			// The cascade coordinator drives data-plane path provisioning/binding
+			// over the node control plane; a nil interface (a missing CA) disables
+			// those routes. Keep it a genuine nil interface, not a typed nil.
+			var pathCoord api.PathCoordinator
+			if coord, cErr := newCascadeCoordinator(ctx, conn); cErr != nil {
+				fmt.Printf("  paths:   provisioning unavailable (%v)\n", cErr)
+			} else {
+				pathCoord = coord
+			}
+			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, pathCoord, geo, controllerHost)
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)

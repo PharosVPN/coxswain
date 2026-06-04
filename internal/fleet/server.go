@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/idgen"
@@ -31,15 +32,29 @@ type Server struct {
 	// SSHHostKey pins the host's SSH key, captured at bootstrap (TOFU).
 	SSHHostKey string
 	// IsSelf marks the controller's own host: deploys run locally, not over SSH.
-	IsSelf    bool
-	Status    string
+	IsSelf bool
+	Status string
+	// Route is the ordered relay hops coxswain dials this server through on every
+	// channel (onboard/deploy SSH + node gRPC); empty means direct (the default).
+	Route     []string
 	Version   int
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
 const serverColumns = `id, name, region, ssh_host, ssh_user, ssh_port,
-	ssh_host_key, is_self, status, version, created_at, updated_at`
+	ssh_host_key, is_self, status, route, version, created_at, updated_at`
+
+// routeToCSV / routeFromCSV (de)serialize the ordered relay-id hop list to the
+// single `route` column. Empty list ⇄ empty string (direct).
+func routeToCSV(route []string) string { return strings.Join(route, ",") }
+
+func routeFromCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
 
 // CreateServer inserts a new server. ID and Status are filled in if empty and
 // SSHPort defaults to 22. The stored Server is returned.
@@ -59,9 +74,9 @@ func CreateServer(ctx context.Context, db *sql.DB, s Server) (Server, error) {
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO servers (`+serverColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.Name, s.Region, s.SSHHost, s.SSHUser, s.SSHPort,
-		s.SSHHostKey, boolToInt(s.IsSelf), s.Status, s.Version, s.CreatedAt, s.UpdatedAt)
+		s.SSHHostKey, boolToInt(s.IsSelf), s.Status, routeToCSV(s.Route), s.Version, s.CreatedAt, s.UpdatedAt)
 	if err != nil {
 		return Server{}, fmt.Errorf("create server: %w", err)
 	}
@@ -124,11 +139,11 @@ func UpdateServer(ctx context.Context, db *sql.DB, s Server) (Server, error) {
 	now := time.Now().UTC()
 	res, err := db.ExecContext(ctx,
 		`UPDATE servers SET name = ?, region = ?, ssh_host = ?, ssh_user = ?,
-		        ssh_port = ?, ssh_host_key = ?, is_self = ?, status = ?,
+		        ssh_port = ?, ssh_host_key = ?, is_self = ?, status = ?, route = ?,
 		        version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
 		s.Name, s.Region, s.SSHHost, s.SSHUser, s.SSHPort, s.SSHHostKey,
-		boolToInt(s.IsSelf), s.Status, now, s.ID, s.Version)
+		boolToInt(s.IsSelf), s.Status, routeToCSV(s.Route), now, s.ID, s.Version)
 	if err != nil {
 		return Server{}, fmt.Errorf("update server: %w", err)
 	}
@@ -197,15 +212,33 @@ func scanServer(s rowScanner) (Server, error) {
 	var (
 		srv    Server
 		isSelf int
+		route  string
 	)
 	err := s.Scan(&srv.ID, &srv.Name, &srv.Region, &srv.SSHHost, &srv.SSHUser,
-		&srv.SSHPort, &srv.SSHHostKey, &isSelf, &srv.Status, &srv.Version,
+		&srv.SSHPort, &srv.SSHHostKey, &isSelf, &srv.Status, &route, &srv.Version,
 		&srv.CreatedAt, &srv.UpdatedAt)
 	if err != nil {
 		return Server{}, err
 	}
 	srv.IsSelf = isSelf != 0
+	srv.Route = routeFromCSV(route)
 	return srv, nil
+}
+
+// SetServerRoute replaces a server's control-plane provision route (the ordered
+// relay hops it is dialed through; empty = direct), bumping version and
+// updated_at. A missing row yields ErrNotFound.
+func SetServerRoute(ctx context.Context, db *sql.DB, id string, route []string) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE servers SET route = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+		routeToCSV(route), time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("set server route: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func boolToInt(b bool) int {

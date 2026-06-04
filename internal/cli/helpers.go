@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/cascade"
@@ -45,23 +44,23 @@ func openState(cfgPath string) (config.Config, *sql.DB, error) {
 }
 
 // dialNew opens an SSH connection to a not-yet-enrolled node. The host key is
-// trusted on first use and captured for later pinning. If an egress relay is
-// enrolled, the SSH session is routed through it (decision 19).
-func dialNew(ctx context.Context, conn *sql.DB, host, user string, port int) (*ssh.Conn, error) {
+// trusted on first use and captured for later pinning. A non-empty route
+// tunnels the SSH session through those relay hops; empty = direct (the default).
+func dialNew(ctx context.Context, conn *sql.DB, host, user string, port int, route []string) (*ssh.Conn, error) {
 	id, _, err := ssh.EnsureIdentity(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 	cfg := ssh.DialConfig{Host: host, Port: port, User: user, Signer: id.Signer}
-	if err := routeSSHThroughEgress(ctx, conn, &cfg); err != nil {
+	if err := applyRoute(ctx, conn, &cfg, route); err != nil {
 		return nil, err
 	}
 	return ssh.Dial(ctx, cfg)
 }
 
 // dialNode opens an SSH connection to an enrolled node, verifying its pinned
-// host key. If an egress relay is enrolled, the SSH session is routed through
-// it (decision 19) — host-key pinning stays end-to-end.
+// host key, tunnelled through the node's server route if it has one (else
+// direct) — host-key pinning stays end-to-end.
 func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, error) {
 	id, _, err := ssh.EnsureIdentity(ctx, conn)
 	if err != nil {
@@ -74,27 +73,32 @@ func dialNode(ctx context.Context, conn *sql.DB, node fleet.Node) (*ssh.Conn, er
 		Signer:       id.Signer,
 		KnownHostKey: node.SSHHostKey,
 	}
-	if err := routeSSHThroughEgress(ctx, conn, &cfg); err != nil {
+	if err := applyRoute(ctx, conn, &cfg, nodeRoute(ctx, conn, node)); err != nil {
 		return nil, err
 	}
 	return ssh.Dial(ctx, cfg)
 }
 
-// newCascadeCoordinator builds a cascade coordinator backed by the state DB and
-// the node control-plane dialer.
+// newCascadeCoordinator builds a cascade coordinator whose node dials are routed
+// per target: each node is reached through its server's provision route (or
+// direct), so the gRPC control plane honours the same routing as onboarding.
 func newCascadeCoordinator(ctx context.Context, conn *sql.DB) (*cascade.Coordinator, error) {
-	dialer, err := newControlDialer(ctx, conn)
-	if err != nil {
-		return nil, err
+	if _, err := newControlDialer(ctx, conn, nil); err != nil {
+		return nil, err // fail fast if the controller cert can't be built
 	}
 	return cascade.New(conn, func(addr string) (cascade.NodeClient, error) {
+		dialer, err := newControlDialer(ctx, conn, routeForControlAddr(ctx, conn, addr))
+		if err != nil {
+			return nil, err
+		}
 		return dialer.Dial(addr)
 	}), nil
 }
 
 // newControlDialer builds the mTLS gRPC dialer for the node control plane,
-// ensuring coxswain's CA and controller certificate exist.
-func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error) {
+// ensuring coxswain's CA and controller certificate exist. A non-empty route
+// tunnels the dial through those relay hops; empty = direct.
+func newControlDialer(ctx context.Context, conn *sql.DB, route []string) (*control.Dialer, error) {
 	bundle, _, err := pki.EnsureCA(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("load CA: %w", err)
@@ -108,7 +112,7 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 	chain = append(chain, bundle.Fleet.CertPEM...)
 
 	var opts []control.Option
-	dial, err := newEgressDialer(ctx, conn)
+	dial, err := egressDialerForRoute(ctx, conn, route)
 	if err != nil {
 		return nil, err
 	}
@@ -120,23 +124,34 @@ func newControlDialer(ctx context.Context, conn *sql.DB) (*control.Dialer, error
 	return control.NewDialer(chain, cc.KeyPEM, bundle.Root.CertPEM, opts...)
 }
 
-// egressRelays returns the relays coxswain should route its control plane
-// through (DESIGN §3, decision 19), in chain order — every active remote relay
-// carrying an egress endpoint, sorted by EgressHop ascending (hop 1 closest to
-// coxswain, the last hop reaches the node), ties broken by creation order for
-// determinism. Empty means direct dial.
-func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
-	relays, err := fleet.ListRelays(ctx, conn) // already ordered by created_at
+// relaysForRoute loads the relays named by an ordered route (relay ids), in that
+// order — the hops coxswain tunnels a control-plane dial through. An empty route
+// yields no relays (direct dial). Each hop must be an active remote egress
+// relay; a missing or inactive hop is an error — there is no silent fallback to
+// direct, so a chosen route either holds or fails loudly.
+func relaysForRoute(ctx context.Context, conn *sql.DB, ids []string) ([]fleet.Relay, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	all, err := fleet.ListRelays(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	var chain []fleet.Relay
-	for _, r := range relays {
-		if r.Kind == fleet.RelayKindRemote && r.Status == fleet.StatusActive && r.EgressEndpoint != "" {
-			chain = append(chain, r)
-		}
+	byID := make(map[string]fleet.Relay, len(all))
+	for _, r := range all {
+		byID[r.ID] = r
 	}
-	sort.SliceStable(chain, func(i, j int) bool { return chain[i].EgressHop < chain[j].EgressHop })
+	chain := make([]fleet.Relay, 0, len(ids))
+	for _, id := range ids {
+		r, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("route relay %s not found", id)
+		}
+		if r.Kind != fleet.RelayKindRemote || r.Status != fleet.StatusActive || r.EgressEndpoint == "" {
+			return nil, fmt.Errorf("route relay %s is not an active egress relay", id)
+		}
+		chain = append(chain, r)
+	}
 	return chain, nil
 }
 
@@ -145,15 +160,15 @@ func egressRelays(ctx context.Context, conn *sql.DB) ([]fleet.Relay, error) {
 // both the gRPC and SSH dial chokepoints.
 type controlDial = func(ctx context.Context, network, addr string) (net.Conn, error)
 
-// newEgressDialer returns the dialer coxswain routes its control plane through,
-// or nil when no egress relay is enrolled (direct dial). When every relay in
-// the chain is onion-capable it builds an onion circuit (decision 20) — each
-// relay decrypts only its own layer, seeing neither coxswain's identity nor the
-// full path; otherwise it builds the nested-TLS egress chain (decision 19).
-func newEgressDialer(ctx context.Context, conn *sql.DB) (controlDial, error) {
-	chain, err := egressRelays(ctx, conn)
+// egressDialerForRoute returns the control-plane dialer for an ordered route of
+// relay-id hops, or nil when the route is empty (direct dial — the default).
+// When every hop is onion-capable it builds an onion circuit (decision 20) —
+// each relay decrypts only its own layer, seeing neither coxswain's identity nor
+// the full path; otherwise it builds the nested-TLS egress chain (decision 19).
+func egressDialerForRoute(ctx context.Context, conn *sql.DB, ids []string) (controlDial, error) {
+	chain, err := relaysForRoute(ctx, conn, ids)
 	if err != nil {
-		return nil, fmt.Errorf("egress relay lookup: %w", err)
+		return nil, err
 	}
 	if len(chain) == 0 {
 		return nil, nil
@@ -233,15 +248,48 @@ func chainTunnel(ctx context.Context, conn *sql.DB, chain []fleet.Relay) (*egres
 	return egress.NewChain(hops)
 }
 
-// routeSSHThroughEgress points cfg.Dialer at the egress relays, if any are
-// enrolled; otherwise it leaves cfg untouched (direct dial).
-func routeSSHThroughEgress(ctx context.Context, conn *sql.DB, cfg *ssh.DialConfig) error {
-	dial, err := newEgressDialer(ctx, conn)
+// applyRoute points cfg.Dialer at the given route's relay hops; an empty route
+// leaves cfg untouched (direct dial — the default).
+func applyRoute(ctx context.Context, conn *sql.DB, cfg *ssh.DialConfig, route []string) error {
+	dial, err := egressDialerForRoute(ctx, conn, route)
 	if err != nil {
 		return err
 	}
 	if dial != nil {
 		cfg.Dialer = dial
+	}
+	return nil
+}
+
+// serverRoute returns a server's provision route (ordered relay-id hops), or nil
+// (direct) for the empty server id or a missing server.
+func serverRoute(ctx context.Context, conn *sql.DB, serverID string) []string {
+	if serverID == "" {
+		return nil
+	}
+	if s, err := fleet.GetServer(ctx, conn, serverID); err == nil {
+		return s.Route
+	}
+	return nil
+}
+
+// nodeRoute returns the route coxswain reaches a node through — its server's
+// route, or nil (direct) for a node with no server.
+func nodeRoute(ctx context.Context, conn *sql.DB, node fleet.Node) []string {
+	return serverRoute(ctx, conn, node.ServerID)
+}
+
+// routeForControlAddr maps a node's control address to its server's route, for
+// per-target control-plane dialing. An unknown address yields nil (direct).
+func routeForControlAddr(ctx context.Context, conn *sql.DB, addr string) []string {
+	nodes, err := fleet.ListNodes(ctx, conn)
+	if err != nil {
+		return nil
+	}
+	for _, n := range nodes {
+		if n.ControlAddr == addr {
+			return serverRoute(ctx, conn, n.ServerID)
+		}
 	}
 	return nil
 }

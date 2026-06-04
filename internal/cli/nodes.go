@@ -77,7 +77,7 @@ func newNodesStatusCmd() *cobra.Command {
 				return fmt.Errorf("node %s has no control address", node.ID)
 			}
 
-			dialer, err := newControlDialer(ctx, conn)
+			dialer, err := newControlDialer(ctx, conn, nodeRoute(ctx, conn, node))
 			if err != nil {
 				return err
 			}
@@ -183,7 +183,7 @@ func newNodesAddCmd() *cobra.Command {
 				if iErr != nil {
 					return iErr
 				}
-				dialer, dErr := newEgressDialer(ctx, conn)
+				dialer, dErr := egressDialerForRoute(ctx, conn, srv.Route)
 				if dErr != nil {
 					return dErr
 				}
@@ -204,7 +204,7 @@ func newNodesAddCmd() *cobra.Command {
 					port = cfg.Node.SSHPort
 				}
 				host := args[0]
-				sshConn, dErr := dialNew(ctx, conn, host, user, port)
+				sshConn, dErr := dialNew(ctx, conn, host, user, port, nil)
 				if dErr != nil {
 					return dErr
 				}
@@ -331,7 +331,7 @@ func newNodesPushCmd() *cobra.Command {
 			}
 			amneziaPeers := toNodeAmneziaWGPeers(peers)
 
-			dialer, err := newControlDialer(ctx, conn)
+			dialer, err := newControlDialer(ctx, conn, nodeRoute(ctx, conn, node))
 			if err != nil {
 				return err
 			}
@@ -389,7 +389,7 @@ func newNodesPushPolicyCmd() *cobra.Command {
 				return fmt.Errorf("node %s has no control address", node.ID)
 			}
 
-			dialer, err := newControlDialer(ctx, conn)
+			dialer, err := newControlDialer(ctx, conn, nodeRoute(ctx, conn, node))
 			if err != nil {
 				return err
 			}
