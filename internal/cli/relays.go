@@ -145,7 +145,7 @@ func newRelaysAddCmd() *cobra.Command {
 				if iErr != nil {
 					return iErr
 				}
-				dialer, dErr := newEgressDialer(ctx, conn)
+				dialer, dErr := egressDialerForRoute(ctx, conn, srv.Route)
 				if dErr != nil {
 					return dErr
 				}
@@ -161,7 +161,7 @@ func newRelaysAddCmd() *cobra.Command {
 					port = cfg.Node.SSHPort
 				}
 				host := args[0]
-				sshConn, dErr := dialNew(ctx, conn, host, user, port)
+				sshConn, dErr := dialNew(ctx, conn, host, user, port, nil)
 				if dErr != nil {
 					return dErr
 				}

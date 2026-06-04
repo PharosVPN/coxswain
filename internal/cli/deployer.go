@@ -48,7 +48,9 @@ func (d cliDeployer) Bootstrap(ctx context.Context, req api.BootstrapRequest) (f
 	if err != nil {
 		return fleet.Server{}, err
 	}
-	dialer, err := newEgressDialer(ctx, d.conn)
+	// Direct by default; the onboard rides the chosen route (relay hops) only
+	// when the request supplies one, and that route is persisted on the server.
+	dialer, err := egressDialerForRoute(ctx, d.conn, req.Route)
 	if err != nil {
 		return fleet.Server{}, err
 	}
@@ -66,6 +68,7 @@ func (d cliDeployer) Bootstrap(ctx context.Context, req api.BootstrapRequest) (f
 		User:     user,
 		Port:     req.Port,
 		Password: req.Password,
+		Route:    req.Route,
 		Dialer:   dialer,
 	})
 }
@@ -168,7 +171,8 @@ func (d cliDeployer) deployContext(ctx context.Context, serverID string) (fleet.
 	if err != nil {
 		return fleet.Server{}, pki.Bundle{}, ssh.Identity{}, nil, err
 	}
-	dialer, err := newEgressDialer(ctx, d.conn)
+	// Reach the host the same way onboarding did — via its stored route (or direct).
+	dialer, err := egressDialerForRoute(ctx, d.conn, srv.Route)
 	if err != nil {
 		return fleet.Server{}, pki.Bundle{}, ssh.Identity{}, nil, err
 	}

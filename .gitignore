@@ -13,3 +13,6 @@
 
 # OS / editor cruft
 .DS_Store
+
+# Live test-fleet inventory (transient droplet IPs — never committed)
+/TEST-FLEET.md

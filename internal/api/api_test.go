@@ -43,7 +43,7 @@ func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
 
 	srv := NewServer("", conn, live.NewHub(), provision.Options{
 		VPNSubnet: "10.86.0.0/16", PortMin: 2000, PortMax: 60000,
-	}, nil, nil, "")
+	}, nil, nil, nil, "")
 	ts := httptest.NewServer(srv.http.Handler)
 	t.Cleanup(ts.Close)
 

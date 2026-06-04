@@ -11,15 +11,15 @@
 	import { geoNaturalEarth1, geoPath, geoGraticule10 } from 'd3-geo';
 	import { feature } from 'topojson-client';
 	import landTopo from 'world-atlas/land-110m.json';
-	import type { Node, Relay, NodeLink, Server, Self, Site } from '$lib/types';
+	import type { Node, Relay, Path, Server, Self, Site } from '$lib/types';
 	import { locate } from '$lib/geo';
 	import { ROLES, STATUSES, statusColor, dominantStatus, type Role } from '$lib/roles';
 	import RoleGlyph from './RoleGlyph.svelte';
 
-	let { nodes = [], relays = [], links = [], servers = [], controller = null, selectedKey = '', onselect }: {
+	let { nodes = [], relays = [], paths = [], servers = [], controller = null, selectedKey = '', onselect }: {
 		nodes?: Node[];
 		relays?: Relay[];
-		links?: NodeLink[];
+		paths?: Path[];
 		servers?: Server[];
 		controller?: Self | null;
 		selectedKey?: string;
@@ -183,24 +183,30 @@
 	// status hues and the violet control colour).
 	const PATH_PALETTE = ['#4fd1c4', '#f6c177', '#f08fb0', '#7cc7ff', '#b7e07a', '#ffa07a'];
 
-	// Cascade routes: entry → exit inner links, each in its own colour.
-	const cascadeArcs = $derived(
-		links
-			.map((l, i) => {
-				const a = nodePos.get(l.entry_node_id);
-				const b = nodePos.get(l.exit_node_id);
-				if (!a || !b) return null;
+	// Data-plane paths: each is a chain entry → [mid] → exit, drawn as one arc per
+	// consecutive hop pair in the path's colour. The entry ring marks hops[0]; the
+	// arrow lands on the final segment, so a 2-hop path reads entry → mid → exit.
+	type Arc = { id: string; d: string; color: string; arrow: string | null; entry: Pt | null };
+	const cascadeArcs = $derived.by<Arc[]>(() => {
+		const out: Arc[] = [];
+		paths.forEach((p, i) => {
+			const color = p.color || PATH_PALETTE[i % PATH_PALETTE.length];
+			for (let j = 0; j < p.hops.length - 1; j++) {
+				const a = nodePos.get(p.hops[j]);
+				const b = nodePos.get(p.hops[j + 1]);
+				if (!a || !b) continue;
 				const c = ctrlOf(a, b);
-				return {
-					id: `casc-${l.id}`,
+				out.push({
+					id: `casc-${p.id}-${j}`,
 					d: arcD(a, c, b),
-					arrow: arrowD(a, c, b),
-					entry: a,
-					color: l.color || PATH_PALETTE[i % PATH_PALETTE.length]
-				};
-			})
-			.filter((x) => x !== null)
-	);
+					color,
+					arrow: j === p.hops.length - 2 ? arrowD(a, c, b) : null,
+					entry: j === 0 ? a : null
+				});
+			}
+		});
+		return out;
+	});
 
 	// Control path: the egress/onion chain, drawn hop by hop (the control plane).
 	const chainArcs = $derived.by(() => {
@@ -318,8 +324,12 @@
 			{/each}
 			{#each cascadeArcs as arc (arc.id)}
 				<path id={arc.id} class="arc" style="stroke: {arc.color}" d={arc.d} />
-				<path class="arrow" style="fill: {arc.color}" d={arc.arrow} />
-				<circle class="entry-ring" cx={arc.entry.x} cy={arc.entry.y} r="5" style="stroke: {arc.color}" />
+				{#if arc.arrow}
+					<path class="arrow" style="fill: {arc.color}" d={arc.arrow} />
+				{/if}
+				{#if arc.entry}
+					<circle class="entry-ring" cx={arc.entry.x} cy={arc.entry.y} r="5" style="stroke: {arc.color}" />
+				{/if}
 				{#if motionOK}
 					{#each [0, 1, 2] as k (k)}
 						<circle class="flow" r="2.6" style="fill: {arc.color}">

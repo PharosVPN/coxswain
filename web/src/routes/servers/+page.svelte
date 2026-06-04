@@ -54,6 +54,24 @@
 		}))
 	);
 
+	// Control-plane provision route: how coxswain reaches a server (direct by
+	// default, or through ordered relay hops). MAX_ROUTE_HOPS mirrors the
+	// MaxRouteHops code constant.
+	const MAX_ROUTE_HOPS = 2;
+	const relayById = $derived(new Map(relays.map((r) => [r.id, r])));
+	// Relays usable as control-plane hops — active and carrying an egress/onion role.
+	const routableRelays = $derived(relays.filter((r) => r.status === 'active' && (r.egress || r.onion)));
+
+	function relayLabel(id: string): string {
+		const r = relayById.get(id);
+		if (!r) return id;
+		return `${r.name || r.host} (${r.onion ? 'onion' : 'egress'})`;
+	}
+	function routeText(route: string[]): string {
+		if (!route || route.length === 0) return 'direct';
+		return 'via ' + route.map(relayLabel).join(' → ');
+	}
+
 	function statusBadge(s: string): string {
 		if (s === 'active') return 'badge-success';
 		if (s === 'error' || s === 'unreachable') return 'badge-danger';
@@ -100,6 +118,8 @@
 	let sUser = $state('root');
 	let sPassword = $state('');
 	let sName = $state('');
+	let sRoute = $state<string[]>([]);
+	let sRoutePick = $state('');
 	let addBusy = $state(false);
 	let addError = $state('');
 
@@ -110,7 +130,16 @@
 		sUser = 'root';
 		sPassword = '';
 		sName = '';
+		sRoute = [];
+		sRoutePick = '';
 		addError = '';
+	}
+
+	function addRouteHop() {
+		if (sRoutePick && sRoute.length < MAX_ROUTE_HOPS && !sRoute.includes(sRoutePick)) {
+			sRoute = [...sRoute, sRoutePick];
+			sRoutePick = '';
+		}
 	}
 
 	async function submitAdd() {
@@ -121,7 +150,8 @@
 				ssh_host: sHost,
 				ssh_user: sUser,
 				name: sName,
-				password: method === 'password' ? sPassword : ''
+				password: method === 'password' ? sPassword : '',
+				route: sRoute
 			});
 			sPassword = '';
 			adding = false;
@@ -130,6 +160,39 @@
 			addError = errorMessage(e);
 		}
 		addBusy = false;
+	}
+
+	// ───────── Edit route (re-route an existing server) ─────────
+	let editingRoute = $state<Server | null>(null);
+	let erRoute = $state<string[]>([]);
+	let erPick = $state('');
+	let erBusy = $state(false);
+	let erError = $state('');
+
+	function openEditRoute(s: Server) {
+		editingRoute = s;
+		erRoute = [...(s.route ?? [])];
+		erPick = '';
+		erError = '';
+	}
+	function addErHop() {
+		if (erPick && erRoute.length < MAX_ROUTE_HOPS && !erRoute.includes(erPick)) {
+			erRoute = [...erRoute, erPick];
+			erPick = '';
+		}
+	}
+	async function submitEditRoute() {
+		if (!editingRoute) return;
+		erBusy = true;
+		erError = '';
+		try {
+			await api.patch(`/api/servers/${editingRoute.id}/route`, { route: erRoute });
+			editingRoute = null;
+			await load();
+		} catch (e) {
+			erError = errorMessage(e);
+		}
+		erBusy = false;
 	}
 
 	// ───────── Deploy a component onto a server ─────────
@@ -227,10 +290,14 @@
 						<div class="mt-1 text-sm text-ink-3">
 							<span class="tnum">{c.server.ssh_host}</span>{#if locLabel(c.server)} · {locLabel(c.server)}{/if}
 						</div>
+						{#if !c.server.is_self}
+							<div class="mt-1 text-xs text-ink-3">Route: {routeText(c.server.route)}</div>
+						{/if}
 					</div>
 					<div class="flex flex-none gap-2">
 						<button class="btn btn-secondary btn-sm" onclick={() => openDeploy(c.server)}>Deploy component</button>
 						{#if !c.server.is_self}
+							<button class="btn btn-text btn-sm" onclick={() => openEditRoute(c.server)}>Route</button>
 							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; }}>Remove</button>
 						{/if}
 					</div>
@@ -305,6 +372,36 @@
 			<input id="s-pass" class="input" type="password" autocomplete="off" bind:value={sPassword} />
 		{/if}
 		<p class="mt-3 text-xs text-ink-3">The region is resolved automatically from the IP — no need to type it.</p>
+
+		<p class="overline mt-5">Route</p>
+		<p class="text-xs text-ink-3">
+			How coxswain reaches this machine. <b>Direct</b> (default): your controller dials it itself.
+			Add relay hops to reach it through them — the machine then never sees the controller.
+		</p>
+		<div class="mt-2 flex flex-col gap-2">
+			{#each sRoute as id, i (id)}
+				<div class="hop-row">
+					<span class="hop-kind">Hop {i + 1}</span>
+					<span class="hop-name grow">{relayLabel(id)}</span>
+					<button class="icon-btn" aria-label="Remove hop" onclick={() => (sRoute = sRoute.filter((_, j) => j !== i))}>✕</button>
+				</div>
+			{/each}
+			{#if sRoute.length === 0}<div class="text-sm text-ink-3">Direct — no relay hops.</div>{/if}
+		</div>
+		{#if sRoute.length < MAX_ROUTE_HOPS && routableRelays.filter((r) => !sRoute.includes(r.id)).length > 0}
+			<div class="mt-2 flex gap-2">
+				<select class="input grow" bind:value={sRoutePick}>
+					<option value="" disabled>Add a relay hop…</option>
+					{#each routableRelays.filter((r) => !sRoute.includes(r.id)) as r (r.id)}
+						<option value={r.id}>{r.name || r.host} — {r.region || 'unknown'} ({r.onion ? 'onion' : 'egress'})</option>
+					{/each}
+				</select>
+				<button class="btn btn-secondary" onclick={addRouteHop} disabled={!sRoutePick}>Add hop</button>
+			</div>
+		{:else if routableRelays.length === 0}
+			<p class="mt-1 text-xs text-ink-3">No relays to route through yet — onboard a relay first to use one as a hop.</p>
+		{/if}
+
 		{#if addError}<p class="field-error" role="alert">{addError}</p>{/if}
 		<div class="mt-6 flex justify-end gap-3">
 			<button class="btn btn-secondary" onclick={() => (adding = false)}>Cancel</button>
@@ -350,6 +447,44 @@
 			<button class="btn btn-primary" onclick={submitDeploy} disabled={deployBusy}>
 				{deployBusy ? 'Deploying…' : 'Deploy'}
 			</button>
+		</div>
+	</Modal>
+{/if}
+
+<!-- Edit route -->
+{#if editingRoute}
+	<Modal title="Route to {editingRoute.name || editingRoute.ssh_host}" onclose={() => (editingRoute = null)}>
+		<p class="text-xs text-ink-3">
+			<b>Direct</b>: your controller dials this machine itself (its logs see the controller).
+			Add relay hops to reach it through them instead. Applies to future deploys and the node's control plane.
+		</p>
+		<div class="mt-3 flex flex-col gap-2">
+			{#each erRoute as id, i (id)}
+				<div class="hop-row">
+					<span class="hop-kind">Hop {i + 1}</span>
+					<span class="hop-name grow">{relayLabel(id)}</span>
+					<button class="icon-btn" aria-label="Remove hop" onclick={() => (erRoute = erRoute.filter((_, j) => j !== i))}>✕</button>
+				</div>
+			{/each}
+			{#if erRoute.length === 0}<div class="text-sm text-ink-3">Direct — no relay hops.</div>{/if}
+		</div>
+		{#if erRoute.length < MAX_ROUTE_HOPS && routableRelays.filter((r) => !erRoute.includes(r.id)).length > 0}
+			<div class="mt-2 flex gap-2">
+				<select class="input grow" bind:value={erPick}>
+					<option value="" disabled>Add a relay hop…</option>
+					{#each routableRelays.filter((r) => !erRoute.includes(r.id)) as r (r.id)}
+						<option value={r.id}>{r.name || r.host} — {r.region || 'unknown'} ({r.onion ? 'onion' : 'egress'})</option>
+					{/each}
+				</select>
+				<button class="btn btn-secondary" onclick={addErHop} disabled={!erPick}>Add hop</button>
+			</div>
+		{:else if routableRelays.length === 0}
+			<p class="mt-1 text-xs text-ink-3">No relays to route through yet.</p>
+		{/if}
+		{#if erError}<p class="field-error" role="alert">{erError}</p>{/if}
+		<div class="mt-6 flex justify-end gap-3">
+			<button class="btn btn-secondary" onclick={() => (editingRoute = null)}>Cancel</button>
+			<button class="btn btn-primary" onclick={submitEditRoute} disabled={erBusy}>{erBusy ? 'Saving…' : 'Save route'}</button>
 		</div>
 	</Modal>
 {/if}
@@ -452,5 +587,41 @@
 		font-size: 12px;
 		color: var(--c-gray-200);
 		word-break: break-all;
+	}
+	.hop-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px;
+		border: 1px solid var(--c-line);
+		border-radius: 8px;
+	}
+	.hop-kind {
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--c-brand-100);
+	}
+	.hop-name {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--c-gray-50);
+	}
+	.grow {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	.icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border: 1px solid var(--c-line);
+		border-radius: 6px;
+		background: transparent;
+		color: var(--c-gray-200);
+		cursor: pointer;
 	}
 </style>

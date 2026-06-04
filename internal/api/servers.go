@@ -75,6 +75,9 @@ type BootstrapRequest struct {
 	User     string `json:"ssh_user"`
 	Port     int    `json:"ssh_port"`
 	Password string `json:"password"`
+	// Route is the ordered relay-id hops to onboard (and later reach) this server
+	// through; empty = direct (the default).
+	Route []string `json:"route"`
 }
 
 // RelayDeployRequest carries the relay-specific options for a deploy.
@@ -94,6 +97,7 @@ type serverView struct {
 	SSHHost  string          `json:"ssh_host"`
 	IsSelf   bool            `json:"is_self"`
 	Status   string          `json:"status"`
+	Route    []string        `json:"route"`
 	Location *geoip.Location `json:"location,omitempty"`
 	Version  int             `json:"version"`
 }
@@ -106,9 +110,41 @@ func (s *Server) serverView(srv fleet.Server) serverView {
 		SSHHost:  srv.SSHHost,
 		IsSelf:   srv.IsSelf,
 		Status:   srv.Status,
+		Route:    srv.Route,
 		Location: s.locate(srv.SSHHost),
 		Version:  srv.Version,
 	}
+}
+
+// handleSetServerRoute replaces a server's provision route — the ordered relay
+// hops it is reached through (empty = direct) — without re-onboarding. The
+// change applies to subsequent onboard/deploy SSH and node control-plane dials.
+func (s *Server) handleSetServerRoute(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := fleet.GetServer(r.Context(), s.db, id); errors.Is(err, fleet.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "server not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load server")
+		return
+	}
+	var req struct {
+		Route []string `json:"route"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := fleet.SetServerRoute(r.Context(), s.db, id, req.Route); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to set route")
+		return
+	}
+	srv, err := fleet.GetServer(r.Context(), s.db, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reload server")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.serverView(srv))
 }
 
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
