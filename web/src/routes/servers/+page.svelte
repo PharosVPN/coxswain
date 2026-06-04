@@ -34,6 +34,12 @@
 		return s.region || '';
 	}
 
+	// How many components are deployed on a server (for the remove warning).
+	function compCount(id: string): number {
+		const c = cards.find((x) => x.server.id === id);
+		return c ? c.nodes.length + c.relays.length : 0;
+	}
+
 	// A server with the components deployed onto it, resolved by server_id.
 	interface ServerCard {
 		server: Server;
@@ -224,7 +230,7 @@
 					</div>
 					<div class="flex flex-none gap-2">
 						<button class="btn btn-secondary btn-sm" onclick={() => openDeploy(c.server)}>Deploy component</button>
-						{#if comps === 0 && !c.server.is_self}
+						{#if !c.server.is_self}
 							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; }}>Remove</button>
 						{/if}
 					</div>
@@ -353,8 +359,13 @@
 	<Modal title="Remove server" onclose={() => (removing = null)}>
 		<p class="text-sm text-ink-2">
 			Remove <span class="font-medium text-ink">{removing.name || removing.ssh_host}</span>
-			from the inventory? This does not touch the machine.
+			from the inventory? This forgets it from coxswain — it doesn't touch the machine.
 		</p>
+		{#if compCount(removing.id) > 0}
+			<p class="mt-2 text-sm" style="color: var(--c-warning)">
+				This also removes {compCount(removing.id)} component{compCount(removing.id) === 1 ? '' : 's'} deployed on it.
+			</p>
+		{/if}
 		{#if removeError}<p class="field-error" role="alert">{removeError}</p>{/if}
 		<div class="mt-6 flex justify-end gap-3">
 			<button class="btn btn-secondary" onclick={() => (removing = null)}>Cancel</button>

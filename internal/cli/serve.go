@@ -100,6 +100,13 @@ func newServeCmd() *cobra.Command {
 				fmt.Println("  geoip:   GeoLite2-City loaded — server regions auto-resolved")
 			}
 
+			// The controller's public IP places it on the map (best-effort; an
+			// enterprise setup may have none — then it's set manually, later).
+			controllerHost := detectPublicIP(ctx)
+			if controllerHost != "" {
+				fmt.Printf("  self:    controller public IP %s\n", controllerHost)
+			}
+
 			provOpts := provision.Options{
 				VPNSubnet: cfg.Fleet.VPNSubnet,
 				PortMin:   cfg.Fleet.EndpointPortMin,
@@ -110,7 +117,7 @@ func newServeCmd() *cobra.Command {
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
 			}
-			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, geo)
+			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, geo, controllerHost)
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)

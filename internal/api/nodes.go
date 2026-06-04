@@ -5,6 +5,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -141,7 +142,18 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
-	err := fleet.DeleteNode(r.Context(), s.db, r.PathValue("id"))
+	ctx := r.Context()
+	id := r.PathValue("id")
+	// Block while clients route through this node — their profiles would break.
+	// The admin re-routes (clear exit) / re-provisions them first.
+	if n, err := fleet.CountClientsThroughNode(ctx, s.db, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check node usage")
+		return
+	} else if n > 0 {
+		writeError(w, http.StatusConflict, fmt.Sprintf("%d client(s) route through this node — re-route or re-provision them first", n))
+		return
+	}
+	err := fleet.DeleteNode(ctx, s.db, id)
 	if errors.Is(err, fleet.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "node not found")
 		return

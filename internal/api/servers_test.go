@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -42,21 +43,37 @@ func TestServersEndpoints(t *testing.T) {
 		t.Fatalf("onboard without deployer: got %d want 503", resp.StatusCode)
 	}
 
-	// A server with a deployed node cannot be deleted (409).
-	srv, err := fleet.CreateServer(context.Background(), conn, fleet.Server{
+	// Removing a server cascades to the node/relay records on it (forget-from-
+	// inventory), so a server whose machine is gone can be cleaned up in one go.
+	ctx := context.Background()
+	srv, err := fleet.CreateServer(ctx, conn, fleet.Server{
 		Name: "edge", SSHHost: "203.0.113.10", SSHUser: "root", Status: fleet.StatusActive,
 	})
 	if err != nil {
 		t.Fatalf("seed server: %v", err)
 	}
-	if _, err := fleet.CreateNode(context.Background(), conn, fleet.Node{Name: "n1", Region: "nyc1", ServerID: srv.ID}); err != nil {
+	node, err := fleet.CreateNode(ctx, conn, fleet.Node{Name: "n1", Region: "nyc1", ServerID: srv.ID})
+	if err != nil {
 		t.Fatalf("seed node: %v", err)
 	}
-	if got := del(t, client, ts.URL+"/api/servers/"+srv.ID); got != http.StatusConflict {
-		t.Fatalf("delete in-use server: got %d want 409", got)
+	if got := del(t, client, ts.URL+"/api/servers/"+srv.ID); got != http.StatusNoContent {
+		t.Fatalf("delete server: got %d want 204", got)
+	}
+	if _, err := fleet.GetServer(ctx, conn, srv.ID); !errors.Is(err, fleet.ErrNotFound) {
+		t.Fatalf("server should be gone: %v", err)
+	}
+	if _, err := fleet.GetNode(ctx, conn, node.ID); !errors.Is(err, fleet.ErrNotFound) {
+		t.Fatalf("node on server should be cascade-removed: %v", err)
 	}
 
-	// A missing server is 404.
+	// The self server cannot be removed (409); a missing server is 404.
+	self, err := fleet.CreateServer(ctx, conn, fleet.Server{Name: "controller", SSHHost: "10.0.0.1", SSHUser: "root", IsSelf: true})
+	if err != nil {
+		t.Fatalf("seed self: %v", err)
+	}
+	if got := del(t, client, ts.URL+"/api/servers/"+self.ID); got != http.StatusConflict {
+		t.Fatalf("delete self server: got %d want 409", got)
+	}
 	if got := del(t, client, ts.URL+"/api/servers/srv_missing"); got != http.StatusNotFound {
 		t.Fatalf("delete missing server: got %d want 404", got)
 	}

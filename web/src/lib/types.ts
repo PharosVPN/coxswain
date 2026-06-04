@@ -9,6 +9,15 @@ export interface User {
 	version: number;
 }
 
+// Self is the controller's own marker for the map (GET /api/self): its public
+// IP and the location resolved from it.
+export interface Self {
+	public_ip: string;
+	location?: GeoLocation;
+	name: string;
+	status: string;
+}
+
 // GeoLocation is a host's location resolved from its IP (MaxMind GeoLite2),
 // so the admin never types a region.
 export interface GeoLocation {

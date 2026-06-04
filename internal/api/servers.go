@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
@@ -23,6 +24,27 @@ func (s *Server) handleSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"public_key": id.AuthorizedKey})
+}
+
+// selfView is the controller's own marker for the map: its public IP and the
+// location resolved from it (nil when undetected / not placeable yet).
+type selfView struct {
+	PublicIP string          `json:"public_ip"`
+	Location *geoip.Location `json:"location,omitempty"`
+	Name     string          `json:"name"`
+	Status   string          `json:"status"`
+}
+
+func (s *Server) handleSelf(w http.ResponseWriter, r *http.Request) {
+	v := selfView{PublicIP: s.controllerHost, Name: "controller", Status: "active"}
+	if s.controllerHost != "" {
+		v.Location = s.locate(s.controllerHost)
+	}
+	if self, err := fleet.GetSelfServer(r.Context(), s.db); err == nil {
+		v.Name = self.Name
+		v.Status = self.Status
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 // locate resolves a host IP to a location for the map/cards, or nil when the
@@ -121,17 +143,65 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.serverView(srv))
 }
 
+// handleDeleteServer forgets a server from the inventory, cascading to the
+// node/relay roles recorded on it — so a server whose machine is already gone
+// can be cleaned up in one action. It does not touch software on the host (a
+// record-only removal, matching node removal). The controller's own host
+// (is_self) cannot be removed.
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
-	err := fleet.DeleteServer(r.Context(), s.db, r.PathValue("id"))
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	srv, err := fleet.GetServer(ctx, s.db, id)
 	if errors.Is(err, fleet.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "server not found")
 		return
 	}
-	if errors.Is(err, fleet.ErrServerInUse) {
-		writeError(w, http.StatusConflict, "server still has deployed components")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load server")
 		return
 	}
+	if srv.IsSelf {
+		writeError(w, http.StatusConflict, "cannot remove the controller's own host")
+		return
+	}
+
+	// Block while any node on this server still carries client traffic — the
+	// admin re-routes/re-provisions those clients first (no silent breakage).
+	nodes, err := fleet.ListNodes(ctx, s.db)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load nodes")
+		return
+	}
+	impacted := 0
+	for _, n := range nodes {
+		if n.ServerID != id {
+			continue
+		}
+		if c, err := fleet.CountClientsThroughNode(ctx, s.db, n.ID); err == nil {
+			impacted += c
+		}
+	}
+	if impacted > 0 {
+		writeError(w, http.StatusConflict, fmt.Sprintf("%d client(s) route through node(s) on this server — re-route or re-provision them first", impacted))
+		return
+	}
+
+	// Cascade: drop the components recorded on this server first.
+	for _, n := range nodes {
+		if n.ServerID == id {
+			_ = fleet.DeleteNode(ctx, s.db, n.ID)
+		}
+	}
+	if relays, err := fleet.ListRelays(ctx, s.db); err == nil {
+		for _, rl := range relays {
+			if rl.ServerID == id {
+				_ = fleet.DeleteRelay(ctx, s.db, rl.ID)
+			}
+		}
+	}
+
+	if err := fleet.DeleteServer(ctx, s.db, id); err != nil && !errors.Is(err, fleet.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "failed to delete server")
 		return
 	}
