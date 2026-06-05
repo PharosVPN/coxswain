@@ -173,6 +173,54 @@ func TestProvisionDevice(t *testing.T) {
 	}
 }
 
+// TestProvisionDeviceIdempotent guards that re-provisioning a device keeps its
+// tunnel IP and does not accumulate stale peers — a churned IP orphans the
+// device's cascade fwmark (the live-test regression), and stale peers pile up on
+// every node.
+func TestProvisionDeviceIdempotent(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, _ := enrolledUser(t, conn)
+
+	device, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "phone"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	for _, n := range []fleet.Node{
+		{Name: "ams-1", Region: "eu", PublicIP: "203.0.113.7", WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation},
+		{Name: "fra-1", Region: "eu", PublicIP: "203.0.113.8", WGPublicKey: "bm9kZS1mcmEtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation},
+	} {
+		if _, err := fleet.CreateNode(ctx, conn, n); err != nil {
+			t.Fatalf("CreateNode %s: %v", n.Name, err)
+		}
+	}
+
+	first, err := provision.ProvisionDevice(ctx, conn, device.ID, opts)
+	if err != nil {
+		t.Fatalf("provision 1: %v", err)
+	}
+	second, err := provision.ProvisionDevice(ctx, conn, device.ID, opts)
+	if err != nil {
+		t.Fatalf("provision 2: %v", err)
+	}
+
+	if second.TunnelIP != first.TunnelIP {
+		t.Errorf("re-provision churned the tunnel IP: %q -> %q", first.TunnelIP, second.TunnelIP)
+	}
+	peers, err := fleet.ListPeersByDevice(ctx, conn, device.ID)
+	if err != nil {
+		t.Fatalf("ListPeersByDevice: %v", err)
+	}
+	if len(peers) != 2 {
+		t.Fatalf("stale peers accumulated across re-provision: got %d want 2", len(peers))
+	}
+	for _, p := range peers {
+		if p.AllowedIP != first.TunnelIP {
+			t.Errorf("peer IP drifted from the device's allocation: got %q want %q", p.AllowedIP, first.TunnelIP)
+		}
+	}
+}
+
 func TestAllocateDeviceIPSequential(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()
