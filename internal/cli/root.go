@@ -34,6 +34,7 @@ func newRootCmd() *cobra.Command {
 		newRelaysCmd(),
 		newProfileCmd(),
 		newEnrollCmd(),
+		newDevicesCmd(),
 		newServeCmd(),
 	)
 	return root
