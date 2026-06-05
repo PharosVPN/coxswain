@@ -15,9 +15,10 @@ import (
 
 // MaxPathHops caps a data-plane path at this many inner-link segments — i.e. a
 // path may have at most MaxPathHops+1 nodes (entry → [mid…] → exit). It is a
-// code constant, not a config knob: one line to raise once 2-hop is proven (the
-// node-cascade work iterates by depth anyway). DESIGN §3 hop limit.
-const MaxPathHops = 2
+// code constant, not a config knob. The cascade coordinator, transit routing and
+// inner links are all generic over hop count, so this is the only knob; raised to
+// 4 (up to 3 mids) once multi-hop was proven live. DESIGN §3 hop limit.
+const MaxPathHops = 4
 
 // ErrInvalidPath is returned when a path's hop list is malformed (too few/many
 // hops, a repeated node, or an adjacent self-loop). Callers map it to 400.
