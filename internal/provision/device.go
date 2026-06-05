@@ -9,6 +9,7 @@ package provision
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/PharosVPN/coxswain/internal/account"
@@ -106,6 +107,11 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		})
 	}
 
+	pathView, err := buildPathView(ctx, db, device.ID, nodes)
+	if err != nil {
+		return Result{}, err
+	}
+
 	prof := profile.Build(profile.BuildInput{
 		User:        device.UserID,
 		DeviceWGKey: keys.PrivateKey,
@@ -114,6 +120,7 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		PortMax:     opts.PortMax,
 		Rotation:    opts.Rotation,
 		Nodes:       buildNodes,
+		Path:        pathView,
 	})
 	revision, err := profile.Issue(ctx, db, device.UserID, prof)
 	if err != nil {
@@ -126,4 +133,49 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		PeerCount:      len(buildNodes),
 		ProfileVersion: revision,
 	}, nil
+}
+
+// buildPathView assembles the device's egress chain for the profile's display
+// metadata, or returns nil when the device is not bound to a path (it egresses
+// at a single node). Hop 0 is the entry the client dials; the last is the exit
+// where traffic leaves the fleet (decision 18).
+func buildPathView(ctx context.Context, db *sql.DB, deviceID string, nodes []fleet.Node) (*profile.PathView, error) {
+	de, err := fleet.GetDeviceExit(ctx, db, deviceID)
+	if errors.Is(err, fleet.ErrNotFound) {
+		return nil, nil // no cascade binding — normal single-node egress
+	}
+	if err != nil {
+		return nil, fmt.Errorf("provision: device exit: %w", err)
+	}
+	p, err := fleet.GetPath(ctx, db, de.PathID)
+	if err != nil {
+		return nil, fmt.Errorf("provision: path %s: %w", de.PathID, err)
+	}
+	hops, err := fleet.ListPathHops(ctx, db, de.PathID)
+	if err != nil {
+		return nil, fmt.Errorf("provision: path hops: %w", err)
+	}
+	byID := make(map[string]fleet.Node, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	view := &profile.PathView{Name: p.Name}
+	for i, h := range hops {
+		role := "mid"
+		switch {
+		case i == 0:
+			role = "entry"
+		case i == len(hops)-1:
+			role = "exit"
+		}
+		n := byID[h.NodeID]
+		view.Hops = append(view.Hops, profile.PathHop{
+			ID:     h.NodeID,
+			Name:   n.Name,
+			Region: n.Region,
+			Role:   role,
+			IPs:    n.EndpointAddrs(),
+		})
+	}
+	return view, nil
 }

@@ -53,6 +53,9 @@ type BuildInput struct {
 	PortMax     int
 	Rotation    RotationPolicy
 	Nodes       []BuildNode
+	// Path is the device's egress chain (entry → [mid] → exit) for display, or
+	// nil when the device egresses at a single node.
+	Path *PathView
 }
 
 // amneziaWGParams is the params block of an amneziawg protocol entry.
@@ -71,7 +74,7 @@ type amneziaWGParams struct {
 // Build assembles a populated Profile from a device's peers. Revision and
 // timestamps are filled in by Issue when the profile is sealed.
 func Build(in BuildInput) Profile {
-	p := Profile{FleetID: in.FleetID, User: in.User}
+	p := Profile{FleetID: in.FleetID, User: in.User, Path: in.Path}
 	for _, n := range in.Nodes {
 		pool := make([]EndpointPool, 0, len(n.EndpointIPs))
 		flat := make([]string, 0, len(n.EndpointIPs))
