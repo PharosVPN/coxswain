@@ -264,6 +264,28 @@ func (c *Coordinator) ClearDevicePath(ctx context.Context, deviceID string) erro
 	return c.reconcile(ctx, map[string]bool{old.PathID: true})
 }
 
+// ReconcileNode re-applies the cascade edge peers and transit routes for every
+// path that traverses nodeID. A device-peer PushConfig (`cox nodes push`)
+// full-replaces a node's awg0 peers, which wipes the coordinator-managed edge
+// peer on an exit/mid hop — the previous hop's key carrying the cascaded devices'
+// allowed-IPs. Call this right after such a push so the edge peer is re-added
+// last and re-owns those allowed-IPs (AddPeer moves an allowed-IP to whichever
+// peer claims it last). No-op when the node is in no path.
+func (c *Coordinator) ReconcileNode(ctx context.Context, nodeID string) error {
+	pids, err := fleet.ListPathIDsContainingNode(ctx, c.db, nodeID)
+	if err != nil {
+		return err
+	}
+	if len(pids) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(pids))
+	for _, p := range pids {
+		set[p] = true
+	}
+	return c.reconcile(ctx, set)
+}
+
 // --- internals --------------------------------------------------------------
 
 // reconcile recomputes the desired data-plane state for every edge and transit-

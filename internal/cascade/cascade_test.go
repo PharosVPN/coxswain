@@ -420,6 +420,54 @@ func TestBindRequiresTunnelOnEntry(t *testing.T) {
 	}
 }
 
+// TestReconcileNodeReappliesEdgePeer guards bug #3: a `cox nodes push` device-
+// peer full-replace wipes an exit's cascade edge peer (the entry's key carrying
+// the device IPs); ReconcileNode — called right after the push — must re-add it,
+// or multi-hop egress black-holes. A node in no path is a no-op.
+func TestReconcileNodeReappliesEdgePeer(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	entry := mkNode(t, conn, "entry", "entry:8444", "1.1.1.1", "ENTRYPUB=")
+	exit := mkNode(t, conn, "exit", "exit:8444", "3.3.3.3", "EXITPUB=")
+	dev := mkDeviceOn(t, conn, entry.ID, "u@x.test", "DEVPUB=", "10.86.0.5")
+	ff := newFleet()
+	coord := cascade.New(conn, ff.dial)
+
+	p := mkPath(t, conn, "p", entry.ID, exit.ID)
+	if _, err := coord.ProvisionPath(ctx, p.ID); err != nil {
+		t.Fatalf("ProvisionPath: %v", err)
+	}
+	if err := coord.BindDeviceToPath(ctx, dev, p.ID); err != nil {
+		t.Fatalf("BindDeviceToPath: %v", err)
+	}
+
+	before := len(ff.nodes["exit:8444"].addPeer)
+	if before == 0 {
+		t.Fatal("setup: exit never received its edge peer")
+	}
+
+	// Simulate the post-device-push reconcile.
+	if err := coord.ReconcileNode(ctx, exit.ID); err != nil {
+		t.Fatalf("ReconcileNode: %v", err)
+	}
+	if len(ff.nodes["exit:8444"].addPeer) <= before {
+		t.Fatal("ReconcileNode did not re-issue the exit's edge peer")
+	}
+	if got := ff.nodes["exit:8444"].lastPeer(); got == nil || got.GetPublicKey() != "ENTRYPUB=" ||
+		len(got.GetAllowedIps()) != 1 || got.GetAllowedIps()[0] != "10.86.0.5/32" {
+		t.Errorf("re-applied edge peer = %+v, want ENTRYPUB= allowed [10.86.0.5/32]", got)
+	}
+
+	// A node in no path: no error, no RPCs.
+	lone := mkNode(t, conn, "lone", "lone:8444", "9.9.9.9", "LONEPUB=")
+	if err := coord.ReconcileNode(ctx, lone.ID); err != nil {
+		t.Fatalf("ReconcileNode(no-path): %v", err)
+	}
+	if ff.nodes["lone:8444"] != nil {
+		t.Error("ReconcileNode on a path-less node should make no calls")
+	}
+}
+
 func cidrSet(cidrs []string) map[string]bool {
 	m := make(map[string]bool, len(cidrs))
 	for _, c := range cidrs {

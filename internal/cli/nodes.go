@@ -356,6 +356,18 @@ func newNodesPushCmd() *cobra.Command {
 			fmt.Printf("node %s — pushed %d AmneziaWG peer(s)\n", node.Name, len(amneziaPeers))
 			fmt.Printf("  revision  %d (applied %d)\n", revision, resp.GetAppliedRevision())
 			fmt.Printf("  reloaded  %t\n", resp.GetReloaded())
+
+			// A device-peer push full-replaces awg0, wiping any cascade edge peer
+			// this node carries as an exit/mid hop. Re-apply the cascade state so
+			// the edge peers are re-added (last, so they re-own the device IPs).
+			coord, err := newCascadeCoordinator(ctx, conn)
+			if err != nil {
+				return err
+			}
+			if err := coord.ReconcileNode(ctx, node.ID); err != nil {
+				return fmt.Errorf("re-apply cascade peers on %s: %w", node.Name, err)
+			}
+			fmt.Println("  cascade   edge peers re-applied")
 			return nil
 		},
 	}
