@@ -24,6 +24,7 @@ type nodeView struct {
 	SSHHost      string          `json:"ssh_host"`
 	ControlAddr  string          `json:"control_addr"`
 	AgentVersion string          `json:"agent_version"`
+	EndpointIPs  []string        `json:"endpoint_ips"`
 	Forwarding   bool            `json:"forwarding"`
 	Masquerade   bool            `json:"masquerade"`
 	Isolation    bool            `json:"isolation"`
@@ -44,6 +45,7 @@ func (s *Server) nodeView(n fleet.Node) nodeView {
 		SSHHost:      n.SSHHost,
 		ControlAddr:  n.ControlAddr,
 		AgentVersion: n.AgentVersion,
+		EndpointIPs:  n.EndpointIPs,
 		Forwarding:   n.Forwarding,
 		Masquerade:   n.Masquerade,
 		Isolation:    n.Isolation,
@@ -86,11 +88,12 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 // version yields 409.
 func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Version    int    `json:"version"`
-		Name       string `json:"name"`
-		Forwarding bool   `json:"forwarding"`
-		Masquerade bool   `json:"masquerade"`
-		Isolation  bool   `json:"isolation"`
+		Version     int      `json:"version"`
+		Name        string   `json:"name"`
+		Forwarding  bool     `json:"forwarding"`
+		Masquerade  bool     `json:"masquerade"`
+		Isolation   bool     `json:"isolation"`
+		EndpointIPs []string `json:"endpoint_ips"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -98,6 +101,11 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	endpoints, err := fleet.CleanEndpointIPs(req.EndpointIPs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid endpoint IP: "+err.Error())
 		return
 	}
 	policy := netpolicy.Policy{
@@ -124,6 +132,7 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	node.Forwarding = req.Forwarding
 	node.Masquerade = req.Masquerade
 	node.Isolation = req.Isolation
+	node.EndpointIPs = endpoints
 	node.Version = req.Version // the version the admin loaded
 	updated, err := fleet.UpdateNode(r.Context(), s.db, node)
 	if errors.Is(err, fleet.ErrStaleVersion) {

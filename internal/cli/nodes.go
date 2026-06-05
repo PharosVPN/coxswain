@@ -47,6 +47,7 @@ func newNodesCmd() *cobra.Command {
 		newNodesStatusCmd(),
 		newNodesPushCmd(),
 		newNodesPushPolicyCmd(),
+		newNodesEndpointsCmd(),
 		newNodesUpdateCmd(),
 		newNodesStartCmd(),
 		newNodesStopCmd(),
@@ -422,6 +423,56 @@ func newNodesPushPolicyCmd() *cobra.Command {
 			fmt.Printf("  forwarding %t  masquerade %t  isolation %t\n",
 				node.Forwarding, node.Masquerade, node.Isolation)
 			fmt.Printf("  applied    %t\n", resp.GetApplied())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	return cmd
+}
+
+func newNodesEndpointsCmd() *cobra.Command {
+	var cfgPath string
+	cmd := &cobra.Command{
+		Use:   "endpoints <node-id> [ip,ip,...]",
+		Short: "Show or set a node's entry IP pool (decision 17)",
+		Long: "Show a node's AmneziaWG endpoint IP pool, or set it to a comma-separated\n" +
+			"IP list. Clients pick a RANDOM IP from the pool on each connect, so the\n" +
+			"entry point varies — nothing fixed to fingerprint or block. The IPs must\n" +
+			"already reach the node (its primary IP plus any reserved/floating IPs you\n" +
+			"have attached). Pass \"\" to clear the pool (falls back to the public IP).\n" +
+			"New profiles carry the pool; re-provision a device to pick up a change.",
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			_, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			node, err := fleet.GetNode(ctx, conn, args[0])
+			if err != nil {
+				return err
+			}
+			if len(args) == 2 {
+				var ips []string
+				if strings.TrimSpace(args[1]) != "" {
+					ips = strings.Split(args[1], ",")
+				}
+				if err := fleet.SetNodeEndpoints(ctx, conn, node.ID, ips); err != nil {
+					return err
+				}
+				if node, err = fleet.GetNode(ctx, conn, node.ID); err != nil {
+					return err
+				}
+				fmt.Printf("node %s — entry pool set\n", node.Name)
+			}
+			fmt.Printf("node %s (%s)\n", node.Name, node.Region)
+			fmt.Printf("  public ip   %s\n", node.PublicIP)
+			fmt.Printf("  entry pool  %s\n", strings.Join(node.EndpointAddrs(), ", "))
+			if len(node.EndpointIPs) == 0 {
+				fmt.Println("              (default: public IP only — set a pool to randomize entry)")
+			}
 			return nil
 		},
 	}

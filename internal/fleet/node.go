@@ -9,12 +9,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/idgen"
 	"github.com/PharosVPN/coxswain/internal/wg"
 )
+
+// CleanEndpointIPs validates and de-duplicates a node endpoint pool (decision
+// 17): each entry must be a parseable IP, order is preserved, blanks/dupes drop.
+func CleanEndpointIPs(ips []string) ([]string, error) {
+	out := make([]string, 0, len(ips))
+	seen := map[string]bool{}
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip == "" || seen[ip] {
+			continue
+		}
+		if net.ParseIP(ip) == nil {
+			return nil, fmt.Errorf("%q is not a valid IP", ip)
+		}
+		seen[ip] = true
+		out = append(out, ip)
+	}
+	return out, nil
+}
 
 // Node lifecycle states.
 const (
@@ -290,6 +310,31 @@ func SetNodeAmneziaWG(ctx context.Context, db *sql.DB, nodeID, publicKey string,
 		publicKey, marshalObfuscation(obf), now, nodeID)
 	if err != nil {
 		return fmt.Errorf("set node amneziawg: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetNodeEndpoints sets a node's AmneziaWG endpoint IP pool (decision 17) — the
+// set of public IPs a client may randomly enter on. An empty list clears the
+// pool, falling the node back to its PublicIP. IPs are validated + de-duplicated.
+func SetNodeEndpoints(ctx context.Context, db *sql.DB, nodeID string, ips []string) error {
+	clean, err := CleanEndpointIPs(ips)
+	if err != nil {
+		return fmt.Errorf("set node endpoints: %w", err)
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE nodes SET endpoint_ips = ?, version = version + 1, updated_at = ?
+		 WHERE id = ?`,
+		joinIPs(clean), time.Now().UTC(), nodeID)
+	if err != nil {
+		return fmt.Errorf("set node endpoints: %w", err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
