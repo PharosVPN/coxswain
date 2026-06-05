@@ -50,10 +50,29 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 	if err != nil {
 		return Result{}, err
 	}
-	tunnelIP, err := fleet.AllocateDeviceIP(ctx, db, opts.VPNSubnet)
+
+	// Idempotent per device: re-provisioning keeps the device's existing tunnel
+	// IP (a fresh one would orphan its cascade fwmark and leave the entry routing
+	// a stale source into the inner link) and clears the old peer set first, so
+	// peers don't accumulate across re-provisions. New WG keys are fine — the
+	// device re-fetches the profile.
+	existing, err := fleet.ListPeersByDevice(ctx, db, device.ID)
 	if err != nil {
 		return Result{}, err
 	}
+	var tunnelIP string
+	if len(existing) > 0 {
+		tunnelIP = existing[0].AllowedIP
+		if _, err := fleet.DeletePeersByDevice(ctx, db, device.ID); err != nil {
+			return Result{}, fmt.Errorf("provision: clear old peers: %w", err)
+		}
+	} else {
+		tunnelIP, err = fleet.AllocateDeviceIP(ctx, db, opts.VPNSubnet)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+
 	nodes, err := fleet.ListNodes(ctx, db)
 	if err != nil {
 		return Result{}, err
