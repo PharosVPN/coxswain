@@ -6,6 +6,7 @@ package fleet_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
@@ -132,6 +133,49 @@ func TestSetNodeAmneziaWG(t *testing.T) {
 	bad.H4 = bad.H1 // colliding magic headers
 	if err := fleet.SetNodeAmneziaWG(ctx, conn, created.ID, "k", bad); err == nil {
 		t.Fatal("SetNodeAmneziaWG accepted an invalid obfuscation set")
+	}
+}
+
+func TestSetNodeEndpoints(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	created, err := fleet.CreateNode(ctx, conn, fleet.Node{Name: "nyc-1", Region: "us", PublicIP: "203.0.113.1"})
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	// No pool → EndpointAddrs falls back to the public IP.
+	if got := created.EndpointAddrs(); len(got) != 1 || got[0] != "203.0.113.1" {
+		t.Fatalf("default endpoint addrs = %v, want [203.0.113.1]", got)
+	}
+
+	// Trim, de-dupe, preserve order.
+	if err := fleet.SetNodeEndpoints(ctx, conn, created.ID,
+		[]string{"203.0.113.1", " 198.51.100.2 ", "203.0.113.1", ""}); err != nil {
+		t.Fatalf("SetNodeEndpoints: %v", err)
+	}
+	got, err := fleet.GetNode(ctx, conn, created.ID)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if pool := strings.Join(got.EndpointIPs, ","); pool != "203.0.113.1,198.51.100.2" {
+		t.Errorf("endpoint pool = %q, want 203.0.113.1,198.51.100.2", pool)
+	}
+	if got.Version != created.Version+1 {
+		t.Errorf("version not bumped: got %d", got.Version)
+	}
+
+	if err := fleet.SetNodeEndpoints(ctx, conn, created.ID, []string{"not-an-ip"}); err == nil {
+		t.Fatal("SetNodeEndpoints accepted an invalid IP")
+	}
+	if err := fleet.SetNodeEndpoints(ctx, conn, "nod-missing", []string{"203.0.113.9"}); !errors.Is(err, fleet.ErrNotFound) {
+		t.Fatalf("SetNodeEndpoints on missing node: got %v want ErrNotFound", err)
+	}
+	// Empty clears the pool (falls back to PublicIP).
+	if err := fleet.SetNodeEndpoints(ctx, conn, created.ID, nil); err != nil {
+		t.Fatalf("clear pool: %v", err)
+	}
+	if cleared, _ := fleet.GetNode(ctx, conn, created.ID); len(cleared.EndpointIPs) != 0 {
+		t.Errorf("pool not cleared: %v", cleared.EndpointIPs)
 	}
 }
 

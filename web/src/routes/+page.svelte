@@ -27,6 +27,7 @@
 	// Node settings modal — name + network policy.
 	let editing = $state<Node | null>(null);
 	let editName = $state('');
+	let editEndpoints = $state('');
 	let fwd = $state(true);
 	let masq = $state(true);
 	let iso = $state(false);
@@ -132,6 +133,7 @@
 	function openEdit(n: Node) {
 		editing = n;
 		editName = n.name;
+		editEndpoints = (n.endpoint_ips ?? []).join(', ');
 		fwd = n.forwarding;
 		masq = n.masquerade;
 		iso = n.isolation;
@@ -165,6 +167,7 @@
 			const updated = await api.patch<Node>(`/api/nodes/${editing.id}`, {
 				version: editing.version,
 				name: editName,
+				endpoint_ips: editEndpoints.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
 				forwarding: fwd,
 				masquerade: masq,
 				isolation: iso
@@ -297,6 +300,19 @@
 	<Modal title="Node settings" onclose={() => (editing = null)}>
 		<label class="label" for="node-name">Node name</label>
 		<input id="node-name" class="input" bind:value={editName} />
+
+		<label class="label mt-4" for="node-endpoints">Entry IP pool</label>
+		<input
+			id="node-endpoints"
+			class="input"
+			bind:value={editEndpoints}
+			placeholder={editing.public_ip}
+		/>
+		<p class="mt-1 text-xs text-ink-3">
+			Public IPs a client randomly picks to connect (decision 17) — comma-separated. Each must
+			already reach this node (its primary IP plus any reserved/floating IPs). Empty = the public
+			IP only. New profiles carry the pool; re-provision a device to apply a change.
+		</p>
 
 		<p class="overline mt-6">Network policy</p>
 		<div class="mt-2 flex flex-col">
