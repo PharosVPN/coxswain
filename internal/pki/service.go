@@ -45,8 +45,10 @@ type ServiceCert struct {
 }
 
 // EnsureServiceCert returns coxswain's service certificate for the given role,
-// issuing it off the Fleet CA on first call.
-func EnsureServiceCert(ctx context.Context, db *sql.DB, fleet Authority, role string) (ServiceCert, error) {
+// issuing it off the Fleet CA on first call. Any sans are added to the leaf (for
+// the relay role, the controller's public host/IP so remote caravel devices can
+// verify it); a stored cert that predates a required SAN is re-minted.
+func EnsureServiceCert(ctx context.Context, db *sql.DB, fleet Authority, role string, sans ...string) (ServiceCert, error) {
 	var certPEM, keyPEM string
 	err := db.QueryRowContext(ctx,
 		`SELECT cert_pem, key_pem FROM service_certs WHERE role = ?`, role,
@@ -56,19 +58,25 @@ func EnsureServiceCert(ctx context.Context, db *sql.DB, fleet Authority, role st
 		if derr != nil {
 			return ServiceCert{}, fmt.Errorf("decode %s service cert: %w", role, derr)
 		}
-		return ServiceCert{Role: role, Cert: cert, CertPEM: []byte(certPEM), KeyPEM: []byte(keyPEM)}, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+		if certCoversSANs(cert, sans) {
+			return ServiceCert{Role: role, Cert: cert, CertPEM: []byte(certPEM), KeyPEM: []byte(keyPEM)}, nil
+		}
+		// Stored cert lacks a now-required SAN (e.g. a public endpoint was set
+		// after first run) — fall through and re-issue so devices can verify it.
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		return ServiceCert{}, err
 	}
 
-	sc, err := issueServiceCert(fleet, role)
+	sc, err := issueServiceCert(fleet, role, sans)
 	if err != nil {
 		return ServiceCert{}, err
 	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO service_certs (role, cert_pem, key_pem, serial, not_after)
-		 VALUES (?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(role) DO UPDATE SET
+		   cert_pem = excluded.cert_pem, key_pem = excluded.key_pem,
+		   serial = excluded.serial, not_after = excluded.not_after`,
 		sc.Role, string(sc.CertPEM), string(sc.KeyPEM), sc.Cert.SerialNumber.String(), sc.Cert.NotAfter,
 	); err != nil {
 		return ServiceCert{}, fmt.Errorf("store %s service cert: %w", role, err)
@@ -76,7 +84,41 @@ func EnsureServiceCert(ctx context.Context, db *sql.DB, fleet Authority, role st
 	return sc, nil
 }
 
-func issueServiceCert(fleet Authority, role string) (ServiceCert, error) {
+// certCoversSANs reports whether cert already carries every requested SAN (IPs
+// matched against IP SANs, names against DNS SANs).
+func certCoversSANs(cert *x509.Certificate, sans []string) bool {
+	for _, s := range sans {
+		if s == "" {
+			continue
+		}
+		if ip := net.ParseIP(s); ip != nil {
+			found := false
+			for _, cip := range cert.IPAddresses {
+				if cip.Equal(ip) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+			continue
+		}
+		found := false
+		for _, d := range cert.DNSNames {
+			if d == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func issueServiceCert(fleet Authority, role string, sans []string) (ServiceCert, error) {
 	if fleet.Role != RoleFleet {
 		return ServiceCert{}, fmt.Errorf("issueServiceCert: expected fleet CA, got %q", fleet.Role)
 	}
@@ -107,6 +149,18 @@ func issueServiceCert(fleet Authority, role string) (ServiceCert, error) {
 		tmpl.Subject = pkix.Name{CommonName: relayOrg, Organization: []string{relayOrg}}
 		tmpl.DNSNames = []string{"localhost"}
 		tmpl.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1)}
+		// Add the controller's public host/IP so remote caravel devices that dial
+		// the public endpoint can verify the embedded relay's leaf.
+		for _, s := range sans {
+			if s == "" {
+				continue
+			}
+			if ip := net.ParseIP(s); ip != nil {
+				tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+			} else {
+				tmpl.DNSNames = append(tmpl.DNSNames, s)
+			}
+		}
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
 	default:
 		return ServiceCert{}, fmt.Errorf("issueServiceCert: unknown role %q", role)
