@@ -190,7 +190,14 @@ func startRelayRelay(ctx context.Context, cfg config.Config, conn *sql.DB, remot
 		fmt.Printf("  warning: relay disabled — gRPC cert: %v\n", err)
 		return nil
 	}
-	relayCert, err := pki.EnsureServiceCert(ctx, conn, bundle.Fleet, pki.ServiceRelay)
+	// The embedded relay's leaf must carry the controller's public host/IP so a
+	// remote caravel device that dials the public endpoint can verify it. Prefer
+	// the configured public endpoint; fall back to the autodetected public IP.
+	relaySAN := hostOnly(cfg.Relay.PublicEndpoint)
+	if relaySAN == "" {
+		relaySAN = detectPublicIP(ctx)
+	}
+	relayCert, err := pki.EnsureServiceCert(ctx, conn, bundle.Fleet, pki.ServiceRelay, relaySAN)
 	if err != nil {
 		fmt.Printf("  warning: relay disabled — relay cert: %v\n", err)
 		return nil
