@@ -113,20 +113,7 @@ func newDevicesIssueCmd() *cobra.Command {
 
 			// Provision: the device's own WG keypair + tunnel IP + per-node peers,
 			// sealed into its own profile.
-			res, err := provision.ProvisionDevice(ctx, conn, device.ID, provision.Options{
-				VPNSubnet: cfg.Fleet.VPNSubnet,
-				PortMin:   cfg.Fleet.EndpointPortMin,
-				PortMax:   cfg.Fleet.EndpointPortMax,
-				Rotation: profile.RotationPolicy{
-					Enabled:         cfg.Fleet.Rotation.Enabled,
-					IntervalSeconds: cfg.Fleet.Rotation.IntervalSeconds,
-					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
-				},
-				XRay: provision.XRayOptions{
-					Enabled:    cfg.Protocols.XRay,
-					ServerName: cfg.Reality.DecoySite,
-				},
-			})
+			res, err := provision.ProvisionDevice(ctx, conn, device.ID, provisionOptions(cfg))
 			if errors.Is(err, profile.ErrNoEncryptionKey) {
 				return fmt.Errorf("user %s has not enrolled an encryption key yet — set up a first device and sync once to enroll, then re-issue", user.Email)
 			}

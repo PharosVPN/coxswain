@@ -103,6 +103,11 @@ func GetProfileSpec(ctx context.Context, db *sql.DB, id string) (ProfileSpec, er
 	return s, err
 }
 
+// ListProfileSpecs returns every profile spec, oldest first.
+func ListProfileSpecs(ctx context.Context, db *sql.DB) ([]ProfileSpec, error) {
+	return queryProfileSpecs(ctx, db, `ORDER BY created_at`)
+}
+
 // ListProfileSpecsByDevice returns a device's profile specs, oldest first.
 func ListProfileSpecsByDevice(ctx context.Context, db *sql.DB, deviceID string) ([]ProfileSpec, error) {
 	return queryProfileSpecs(ctx, db, `WHERE device_id = ? ORDER BY created_at`, deviceID)

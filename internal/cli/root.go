@@ -36,6 +36,7 @@ func newRootCmd() *cobra.Command {
 		newPathsCmd(),
 		newRelaysCmd(),
 		newProfileCmd(),
+		newProfilesCmd(),
 		newEnrollCmd(),
 		newDevicesCmd(),
 		newServeCmd(),
