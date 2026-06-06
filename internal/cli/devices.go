@@ -122,6 +122,10 @@ func newDevicesIssueCmd() *cobra.Command {
 					IntervalSeconds: cfg.Fleet.Rotation.IntervalSeconds,
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
+				XRay: provision.XRayOptions{
+					Enabled:    cfg.Protocols.XRay,
+					ServerName: cfg.Reality.DecoySite,
+				},
 			})
 			if errors.Is(err, profile.ErrNoEncryptionKey) {
 				return fmt.Errorf("user %s has not enrolled an encryption key yet — set up a first device and sync once to enroll, then re-issue", user.Email)

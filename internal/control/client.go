@@ -67,6 +67,12 @@ func AmneziaWGToProto(o wg.Obfuscation) *nodev1.AmneziaWGObfuscation {
 	}
 }
 
+// XRayFromStatus extracts the XRay/REALITY server public key a node reported in
+// a GetStatus response. It returns "" when the node has not reported one.
+func XRayFromStatus(s *nodev1.GetStatusResponse) string {
+	return s.GetXray().GetPublicKey()
+}
+
 // Metrics reports the node's counters for a metrics sample.
 func (c *Client) Metrics(ctx context.Context) (*nodev1.GetMetricsResponse, error) {
 	return c.rpc.GetMetrics(ctx, &nodev1.GetMetricsRequest{})
@@ -84,8 +90,26 @@ func (c *Client) PushAmneziaWGConfig(ctx context.Context, revision int64, peers 
 	return c.PushConfig(ctx, nodev1.Protocol_PROTOCOL_AMNEZIAWG, revision, cfg)
 }
 
+// PushXRayRealityConfig encodes a full XRay/REALITY config and replaces the
+// node's data-plane config in one call: the VLESS client set plus the REALITY
+// camouflage policy (decoy dest, accepted SNIs, shortIds, listen port). The
+// node's REALITY keypair is its own identity and is not part of the payload.
+func (c *Client) PushXRayRealityConfig(ctx context.Context, revision int64, peers []*nodev1.Peer, dest string, serverNames, shortIDs []string, port uint32) (*nodev1.PushConfigResponse, error) {
+	cfg, err := proto.Marshal(&nodev1.XRayRealityConfig{
+		Peers:       peers,
+		Dest:        dest,
+		ServerNames: serverNames,
+		ShortIds:    shortIDs,
+		Port:        port,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("control: marshal xray reality config: %w", err)
+	}
+	return c.PushConfig(ctx, nodev1.Protocol_PROTOCOL_XRAY_REALITY, revision, cfg)
+}
+
 // PushConfig replaces the data-plane config for one protocol. Callers usually
-// want PushAmneziaWGConfig (or the future XRay equivalent), which handles the
+// want PushAmneziaWGConfig or PushXRayRealityConfig, which handle the
 // encoding — this is the raw path for forwarders and tests.
 func (c *Client) PushConfig(ctx context.Context, protocol nodev1.Protocol, revision int64, config []byte) (*nodev1.PushConfigResponse, error) {
 	return c.rpc.PushConfig(ctx, &nodev1.PushConfigRequest{
