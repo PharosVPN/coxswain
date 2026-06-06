@@ -26,6 +26,10 @@ type Config struct {
 	// a server's location from its IP (so the admin never types a region).
 	// Empty falls back to GeoLite2-City.mmdb in the state dir, then the cwd.
 	GeoIPDatabase string `koanf:"geoip_db" yaml:"geoip_db"`
+	// ControlLocation is the controller's map location for the client's
+	// control-plane pin, used when geoip can't resolve the relay endpoint (no
+	// mmdb). Optional — without it (and without geoip) the client omits the pin.
+	ControlLocation ControlLocationConfig `koanf:"control_location" yaml:"control_location"`
 
 	Log       LogConfig       `koanf:"log" yaml:"log"`
 	UI        UIConfig        `koanf:"ui" yaml:"ui"`
@@ -37,6 +41,14 @@ type Config struct {
 	Fleet     FleetConfig     `koanf:"fleet" yaml:"fleet"`
 	Node      NodeConfig      `koanf:"node" yaml:"node"`
 	Admin     AdminConfig     `koanf:"admin" yaml:"admin"`
+}
+
+// ControlLocationConfig is the controller's manual map location (when geoip is
+// unavailable). Zero lat/lon means "unset".
+type ControlLocationConfig struct {
+	City string  `koanf:"city" yaml:"city"`
+	Lat  float64 `koanf:"lat" yaml:"lat"`
+	Lon  float64 `koanf:"lon" yaml:"lon"`
 }
 
 // AdminConfig holds the fixed controller-admin account (DESIGN §8). The

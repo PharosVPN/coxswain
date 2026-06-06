@@ -28,6 +28,10 @@ type Options struct {
 	// XRay enables placing an XRay/REALITY client alongside AmneziaWG on every
 	// node that has reported a REALITY public key.
 	XRay XRayOptions
+	// Control is the geo-located control-plane endpoint (the relay the client
+	// syncs through), carried into the bundle for the client's map. Zero when
+	// the controller location is unknown.
+	Control profile.ControlEndpoint
 }
 
 // XRayOptions is the fleet-wide XRay/REALITY provisioning policy.
@@ -124,6 +128,10 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 	}
 
 	prof := profile.Profile{User: device.UserID, Profiles: clientProfiles}
+	if opts.Control != (profile.ControlEndpoint{}) {
+		ctrl := opts.Control
+		prof.Control = &ctrl
+	}
 	revision, err := profile.Issue(ctx, db, device.UserID, device.ID, prof)
 	if err != nil {
 		return Result{}, err

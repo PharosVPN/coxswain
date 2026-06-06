@@ -123,6 +123,7 @@ func newServeCmd() *cobra.Command {
 					Enabled:    cfg.Protocols.XRay,
 					ServerName: cfg.Reality.DecoySite,
 				},
+				Control: controlEndpoint(geo, hostOnly(cfg.Relay.PublicEndpoint), controllerHost, cfg.ControlLocation),
 			}
 			// The cascade coordinator drives data-plane path provisioning/binding
 			// over the node control plane; a nil interface (a missing CA) disables

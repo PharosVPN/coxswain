@@ -8,12 +8,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/PharosVPN/coxswain/internal/account"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/fleet"
+	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/provision"
 	"github.com/spf13/cobra"
@@ -254,6 +256,9 @@ func egressLabel(s fleet.ProfileSpec) string {
 
 // provisionOptions builds the provisioning settings from the fleet config.
 func provisionOptions(cfg config.Config) provision.Options {
+	geo := geoip.Open(cfg.GeoIPDatabase,
+		filepath.Join(cfg.StateDir, "GeoLite2-City.mmdb"), "GeoLite2-City.mmdb")
+	defer geo.Close()
 	return provision.Options{
 		VPNSubnet: cfg.Fleet.VPNSubnet,
 		PortMin:   cfg.Fleet.EndpointPortMin,
@@ -267,7 +272,35 @@ func provisionOptions(cfg config.Config) provision.Options {
 			Enabled:    cfg.Protocols.XRay,
 			ServerName: cfg.Reality.DecoySite,
 		},
+		Control: controlEndpoint(geo, hostOnly(cfg.Relay.PublicEndpoint), "", cfg.ControlLocation),
 	}
+}
+
+// controlEndpoint geo-locates the control-plane endpoint the client syncs
+// through (the relay clients reach, else the controller's own IP) for the
+// bundle's map pin: geoip first, then the manual control_location config. Zero
+// when neither resolves — the client then simply doesn't draw the controller.
+func controlEndpoint(geo *geoip.Resolver, relayHost, controllerHost string, manual config.ControlLocationConfig) profile.ControlEndpoint {
+	mk := func(city string, lat, lon float64) profile.ControlEndpoint {
+		label := "Controller"
+		if city != "" {
+			label = "Controller · " + city
+		}
+		return profile.ControlEndpoint{Label: label, City: city, Lat: lat, Lon: lon}
+	}
+	host := relayHost
+	if host == "" {
+		host = controllerHost
+	}
+	if geo != nil && host != "" {
+		if loc, ok := geo.Lookup(host); ok && (loc.Latitude != 0 || loc.Longitude != 0) {
+			return mk(loc.City, loc.Latitude, loc.Longitude)
+		}
+	}
+	if manual.Lat != 0 || manual.Lon != 0 {
+		return mk(manual.City, manual.Lat, manual.Lon)
+	}
+	return profile.ControlEndpoint{}
 }
 
 // userEmailIndex / deviceNameIndex map ids to display labels for listings.
