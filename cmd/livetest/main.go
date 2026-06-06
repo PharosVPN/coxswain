@@ -84,14 +84,16 @@ func main() {
 
 		var p awgParams
 		found := false
-		for _, n := range prof.Nodes {
-			if n.Name != nodeName {
-				continue
-			}
-			for _, pr := range n.Protocols {
-				if pr.Type == "amneziawg" {
-					must(json.Unmarshal(pr.Params, &p))
-					found = true
+		for _, cp := range prof.Profiles {
+			for _, n := range cp.Nodes {
+				if n.Name != nodeName {
+					continue
+				}
+				for _, pr := range n.Protocols {
+					if pr.Type == "amneziawg" {
+						must(json.Unmarshal(pr.Params, &p))
+						found = true
+					}
 				}
 			}
 		}
@@ -156,19 +158,21 @@ func main() {
 		var prof profile.Profile
 		must(json.Unmarshal(plain, &prof))
 
-		var nodes []profile.Node
-		for _, n := range prof.Nodes {
-			if nodeFilter != "" && n.Name != nodeFilter {
-				continue
-			}
-			for i := range n.Protocols {
-				if n.Protocols[i].Type == "amneziawg" {
-					n.Protocols[i].Params = pinPort443(n.Protocols[i].Params)
+		for pi := range prof.Profiles {
+			var nodes []profile.Node
+			for _, n := range prof.Profiles[pi].Nodes {
+				if nodeFilter != "" && n.Name != nodeFilter {
+					continue
 				}
+				for i := range n.Protocols {
+					if n.Protocols[i].Type == "amneziawg" {
+						n.Protocols[i].Params = pinPort443(n.Protocols[i].Params)
+					}
+				}
+				nodes = append(nodes, n)
 			}
-			nodes = append(nodes, n)
+			prof.Profiles[pi].Nodes = nodes
 		}
-		prof.Nodes = nodes
 		payload, err := json.Marshal(prof)
 		must(err)
 		fmt.Printf(`{"fmt":"pharos-profile","v":1,"enc":"none","payload":%s}`+"\n", payload)

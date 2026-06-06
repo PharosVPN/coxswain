@@ -165,10 +165,19 @@ func TestProvisionDevice(t *testing.T) {
 	if err := json.Unmarshal(plaintext, &prof); err != nil {
 		t.Fatalf("unmarshal profile: %v", err)
 	}
-	if len(prof.Nodes) != 2 {
-		t.Fatalf("profile nodes: got %d want 2", len(prof.Nodes))
+	// A device with no specs gets a single auto-profile (AmneziaWG, XRay off)
+	// spanning both ready nodes.
+	if len(prof.Profiles) != 1 {
+		t.Fatalf("profiles: got %d want 1 (auto-amneziawg)", len(prof.Profiles))
 	}
-	proto := prof.Nodes[0].Protocols[0]
+	auto := prof.Profiles[0]
+	if auto.Protocol != profile.ProtocolAmneziaWG {
+		t.Errorf("auto-profile protocol: got %q want amneziawg", auto.Protocol)
+	}
+	if len(auto.Nodes) != 2 {
+		t.Fatalf("auto-profile nodes: got %d want 2", len(auto.Nodes))
+	}
+	proto := auto.Nodes[0].Protocols[0]
 	if proto.Type != profile.ProtocolAmneziaWG {
 		t.Errorf("protocol type: got %q", proto.Type)
 	}
@@ -314,18 +323,120 @@ func TestProvisionDeviceXRay(t *testing.T) {
 		t.Fatalf("xray peers should share one device UUID, got %d distinct", len(xrayUUIDs))
 	}
 
-	// The sealed profile carries an xray-reality entry on a REALITY-ready node.
+	// With XRay enabled the device gets two auto-profiles: one AmneziaWG (all
+	// nodes) and one XRay/REALITY (the REALITY-ready nodes).
 	prof := decryptProfile(t, ctx, conn, userID, device.ID, kp)
-	foundXRay := false
-	for _, n := range prof.Nodes {
-		for _, pr := range n.Protocols {
-			if pr.Type == profile.ProtocolXRayReality {
-				foundXRay = true
-			}
+	if len(prof.Profiles) != 2 {
+		t.Fatalf("profiles: got %d want 2 (auto amneziawg + xray)", len(prof.Profiles))
+	}
+	byProto := map[string]profile.ClientProfile{}
+	for _, cp := range prof.Profiles {
+		byProto[cp.Protocol] = cp
+	}
+	awgAuto, ok := byProto[profile.ProtocolAmneziaWG]
+	if !ok || len(awgAuto.Nodes) != 3 {
+		t.Fatalf("amneziawg auto-profile = %+v, want all 3 nodes", awgAuto.Nodes)
+	}
+	xrayAuto, ok := byProto[profile.ProtocolXRayReality]
+	if !ok || len(xrayAuto.Nodes) != 2 {
+		t.Fatalf("xray auto-profile = %+v, want the 2 REALITY-ready nodes", xrayAuto.Nodes)
+	}
+	for _, n := range xrayAuto.Nodes {
+		if len(n.Protocols) != 1 || n.Protocols[0].Type != profile.ProtocolXRayReality {
+			t.Errorf("xray auto-profile node %s carries %+v, want xray-reality only", n.ID, n.Protocols)
 		}
 	}
-	if !foundXRay {
-		t.Fatal("profile carries no xray-reality protocol entry")
+}
+
+// TestProvisionDeviceSpecs checks per-profile provisioning: a device with two
+// profile specs (a direct AmneziaWG and a direct XRay/REALITY, on different
+// nodes) gets one client profile per spec — each with its own tunnel IP and a
+// single entry peer tagged with the spec id — instead of the auto-profiles.
+func TestProvisionDeviceSpecs(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, kp := enrolledUser(t, conn)
+
+	device, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "phone"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	ny, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "ny", Region: "us", PublicIP: "203.0.113.7",
+		WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation, XRayPublicKey: "reality-ny",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode ny: %v", err)
+	}
+	ams, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "ams", Region: "eu", PublicIP: "203.0.113.8",
+		WGPublicKey: "bm9kZS1mcmEtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation, XRayPublicKey: "reality-ams",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode ams: %v", err)
+	}
+
+	direct, err := fleet.CreateProfileSpec(ctx, conn, fleet.ProfileSpec{
+		UserID: userID, DeviceID: device.ID, Name: "US Direct", NodeID: ny.ID, Protocol: fleet.ProtoAmneziaWG,
+	})
+	if err != nil {
+		t.Fatalf("CreateProfileSpec direct: %v", err)
+	}
+	stealth, err := fleet.CreateProfileSpec(ctx, conn, fleet.ProfileSpec{
+		UserID: userID, DeviceID: device.ID, Name: "EU Stealth", NodeID: ams.ID, Protocol: fleet.ProtoXRayReality,
+	})
+	if err != nil {
+		t.Fatalf("CreateProfileSpec stealth: %v", err)
+	}
+
+	xrayOpts := opts
+	xrayOpts.XRay = provision.XRayOptions{Enabled: true, ServerName: "www.microsoft.com"}
+
+	res, err := provision.ProvisionDevice(ctx, conn, device.ID, xrayOpts)
+	if err != nil {
+		t.Fatalf("ProvisionDevice: %v", err)
+	}
+	if res.ProfileCount != 2 || res.PeerCount != 2 {
+		t.Fatalf("provisioned %d profiles / %d peers, want 2 / 2", res.ProfileCount, res.PeerCount)
+	}
+
+	// One peer per spec, on the spec's node, tagged with the spec id, with
+	// distinct tunnel IPs.
+	peers, err := fleet.ListPeersByDevice(ctx, conn, device.ID)
+	if err != nil {
+		t.Fatalf("ListPeersByDevice: %v", err)
+	}
+	if len(peers) != 2 {
+		t.Fatalf("peers: got %d want 2", len(peers))
+	}
+	bySpec := map[string]fleet.Peer{}
+	for _, p := range peers {
+		bySpec[p.ProfileSpecID] = p
+	}
+	if p := bySpec[direct.ID]; p.NodeID != ny.ID || p.Protocol != profile.ProtocolAmneziaWG || p.PresharedKey == "" {
+		t.Errorf("direct peer = %+v, want amneziawg on ny with a PSK", p)
+	}
+	if p := bySpec[stealth.ID]; p.NodeID != ams.ID || p.Protocol != profile.ProtocolXRayReality || p.Flow != profile.DefaultXRayFlow {
+		t.Errorf("stealth peer = %+v, want xray on ams with the default flow", p)
+	}
+	if bySpec[direct.ID].AllowedIP == bySpec[stealth.ID].AllowedIP {
+		t.Errorf("profiles share a tunnel IP %q — each should get its own", bySpec[direct.ID].AllowedIP)
+	}
+
+	// The bundle carries one client profile per spec, by name + protocol.
+	prof := decryptProfile(t, ctx, conn, userID, device.ID, kp)
+	if len(prof.Profiles) != 2 {
+		t.Fatalf("bundle profiles: got %d want 2", len(prof.Profiles))
+	}
+	byName := map[string]profile.ClientProfile{}
+	for _, cp := range prof.Profiles {
+		byName[cp.Name] = cp
+	}
+	if cp := byName["US Direct"]; cp.ID != direct.ID || cp.Protocol != profile.ProtocolAmneziaWG || len(cp.Nodes) != 1 || cp.Nodes[0].ID != ny.ID {
+		t.Errorf("US Direct profile = %+v, want amneziawg with sole node ny", cp)
+	}
+	if cp := byName["EU Stealth"]; cp.ID != stealth.ID || cp.Protocol != profile.ProtocolXRayReality || len(cp.Nodes) != 1 || cp.Nodes[0].ID != ams.ID {
+		t.Errorf("EU Stealth profile = %+v, want xray with sole node ams", cp)
 	}
 }
 

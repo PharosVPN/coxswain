@@ -18,8 +18,10 @@ func sampleProfile() profile.Profile {
 		FleetID:  "fleet-1",
 		User:     "usr_abc",
 		Revision: 3,
-		Nodes: []profile.Node{
-			{ID: "nod_a", Name: "ams-1", Region: "eu", Endpoints: []string{"203.0.113.7:443"}},
+		Profiles: []profile.ClientProfile{
+			{ID: "pspec_a", Name: "Direct", Protocol: profile.ProtocolAmneziaWG, Nodes: []profile.Node{
+				{ID: "nod_a", Name: "ams-1", Region: "eu", Endpoints: []string{"203.0.113.7:443"}},
+			}},
 		},
 	}
 }
@@ -36,7 +38,7 @@ func TestPlainRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPlain: %v", err)
 	}
-	if got.FleetID != "fleet-1" || got.Revision != 3 || len(got.Nodes) != 1 {
+	if got.FleetID != "fleet-1" || got.Revision != 3 || len(got.Profiles) != 1 {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 }
@@ -57,7 +59,7 @@ func TestPasswordRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPassword: %v", err)
 	}
-	if got.User != "usr_abc" || len(got.Nodes) != 1 {
+	if got.User != "usr_abc" || len(got.Profiles) != 1 {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 

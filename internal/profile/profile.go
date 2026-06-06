@@ -19,20 +19,34 @@ const (
 	ProtocolXRayReality = "xray-reality"
 )
 
-// Profile is a user's VPN configuration: the set of nodes and per-node
-// protocols they may connect with. It is JSON-encoded, then sealed to the
-// user (see Issue).
+// Profile is a device's VPN configuration: the set of named profiles it may
+// connect with. It is JSON-encoded, then sealed to the user (see Issue). One
+// device holds several profiles (the rendered form of its profile_specs); a
+// device with no specs gets auto-profiles spanning every ready node.
 type Profile struct {
-	FleetID   string    `json:"fleet_id"`
-	User      string    `json:"user"`
-	Revision  int64     `json:"revision"`
-	IssuedAt  time.Time `json:"issued_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Nodes     []Node    `json:"nodes"`
-	// Path is the multi-hop egress chain this device's traffic takes, present
-	// only when the device is bound to a path (device_exits, decision 18). It is
-	// display metadata: the client dials the entry hop (also in Nodes) and the
-	// controller routes entry → [mid] → exit. Nil for a single-node egress.
+	FleetID   string          `json:"fleet_id"`
+	User      string          `json:"user"`
+	Revision  int64           `json:"revision"`
+	IssuedAt  time.Time       `json:"issued_at"`
+	ExpiresAt time.Time       `json:"expires_at"`
+	Profiles  []ClientProfile `json:"profiles"`
+}
+
+// ClientProfile is one named connection config in a device's bundle — the
+// rendered form of one admin profile (a profile_spec, or an auto-profile when a
+// device has none). The client lists these and connects with exactly one. Each
+// carries a single data-plane protocol; its nodes hold exactly that protocol's
+// material (one entry node for a direct or cascade profile, every ready node for
+// an auto-profile).
+type ClientProfile struct {
+	ID       string `json:"id"`       // profile_spec id, or "auto-<protocol>"
+	Name     string `json:"name"`     // admin-given display name
+	Protocol string `json:"protocol"` // ProtocolAmneziaWG | ProtocolXRayReality
+	Nodes    []Node `json:"nodes"`    // entry node(s) the client may dial
+	// Path is the multi-hop egress chain a cascade profile's traffic takes
+	// (decision 18). Display metadata: the client dials the entry hop (also in
+	// Nodes) and the controller routes entry → [mid] → exit. Nil for a direct
+	// single-node egress.
 	Path *PathView `json:"path,omitempty"`
 }
 

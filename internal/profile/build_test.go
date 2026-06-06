@@ -10,12 +10,15 @@ import (
 	"github.com/PharosVPN/coxswain/internal/profile"
 )
 
-// TestBuildEmitsPath checks that a path-bound device's profile carries the
-// ordered egress chain (entry → mid → exit) and that a single-node device omits
-// it entirely (the `path` key is absent, not null).
+// TestBuildEmitsPath checks that a cascade profile carries the ordered egress
+// chain (entry → mid → exit), that only the entry hop is emitted as a dialable
+// node, and that a direct profile omits the chain entirely (the `path` key is
+// absent, not null).
 func TestBuildEmitsPath(t *testing.T) {
 	in := profile.BuildInput{
-		User:        "usr_1",
+		SpecID:      "pspec_1",
+		Name:        "EU Cascade",
+		Protocol:    profile.ProtocolAmneziaWG,
 		DeviceWGKey: "priv",
 		TunnelIP:    "10.8.0.2",
 		Nodes: []profile.BuildNode{
@@ -31,72 +34,64 @@ func TestBuildEmitsPath(t *testing.T) {
 		},
 	}
 
-	p := profile.Build(in)
-	if p.Path == nil {
-		t.Fatal("Build dropped the path")
+	cp := profile.BuildClientProfile(in)
+	if cp.ID != "pspec_1" || cp.Name != "EU Cascade" || cp.Protocol != profile.ProtocolAmneziaWG {
+		t.Fatalf("client profile metadata = %+v", cp)
 	}
-	if p.Path.Name != "fast-eu" || len(p.Path.Hops) != 3 {
-		t.Fatalf("path = %+v, want fast-eu with 3 hops", p.Path)
+	if cp.Path == nil {
+		t.Fatal("BuildClientProfile dropped the path")
 	}
-	if p.Path.Hops[0].Role != "entry" || p.Path.Hops[2].Role != "exit" {
-		t.Fatalf("roles = %s..%s, want entry..exit", p.Path.Hops[0].Role, p.Path.Hops[2].Role)
+	if cp.Path.Name != "fast-eu" || len(cp.Path.Hops) != 3 {
+		t.Fatalf("path = %+v, want fast-eu with 3 hops", cp.Path)
 	}
-	// The entry hop's node id must be a Node the client can dial.
-	if p.Path.Hops[0].ID != p.Nodes[0].ID {
-		t.Fatalf("entry id %s not in Nodes", p.Path.Hops[0].ID)
+	if cp.Path.Hops[0].Role != "entry" || cp.Path.Hops[2].Role != "exit" {
+		t.Fatalf("roles = %s..%s, want entry..exit", cp.Path.Hops[0].Role, cp.Path.Hops[2].Role)
+	}
+	// The entry hop's node id must be the one dialable Node.
+	if len(cp.Nodes) != 1 || cp.Path.Hops[0].ID != cp.Nodes[0].ID {
+		t.Fatalf("entry id %s not the sole dialable node %+v", cp.Path.Hops[0].ID, cp.Nodes)
 	}
 
-	// A single-node device omits the key (so old clients see no `path`).
+	// A direct profile omits the key (so clients see no `path`).
 	in.Path = nil
-	out, err := json.Marshal(profile.Build(in))
+	out, err := json.Marshal(profile.BuildClientProfile(in))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	if got := string(out); contains(got, `"path"`) {
-		t.Fatalf("single-node profile should omit path, got %s", got)
+		t.Fatalf("direct profile should omit path, got %s", got)
 	}
 }
 
-// TestBuildEmitsBothProtocols checks that a node reporting both data-plane
-// identities yields a Node with two protocol entries (AmneziaWG + XRay/REALITY),
-// each carrying the right server key, port, and the device's per-protocol
-// identity; and that a node missing the XRay key emits only AmneziaWG.
-func TestBuildEmitsBothProtocols(t *testing.T) {
-	in := profile.BuildInput{
-		User:           "usr_1",
-		DeviceWGKey:    "wg-priv",
+// TestBuildEmitsRequestedProtocol checks that BuildClientProfile emits only the
+// profile's single protocol: an XRay profile carries XRay entries (with the
+// right key/port/identity) and drops nodes missing a REALITY key; an AmneziaWG
+// profile over the same nodes keeps both.
+func TestBuildEmitsRequestedProtocol(t *testing.T) {
+	nodes := []profile.BuildNode{
+		{ID: "nod_a", Name: "nyc", Region: "nyc1", EndpointIPs: []string{"1.1.1.1"},
+			WGPublicKey: "wg-pub", XRayPublicKey: "reality-pub", AllowedIPs: []string{"0.0.0.0/0"}},
+		{ID: "nod_b", Name: "lon", Region: "lon1", EndpointIPs: []string{"2.2.2.2"},
+			WGPublicKey: "wg-pub-2"}, // no REALITY key reported
+	}
+
+	// XRay profile: only nod_a qualifies (nod_b has no REALITY key).
+	xrayCP := profile.BuildClientProfile(profile.BuildInput{
+		SpecID:         "pspec_xray",
+		Name:           "Stealth",
+		Protocol:       profile.ProtocolXRayReality,
 		DeviceXRayUUID: "uuid-1234",
 		TunnelIP:       "10.8.0.7",
-		Nodes: []profile.BuildNode{
-			{ID: "nod_a", Name: "nyc", Region: "nyc1", EndpointIPs: []string{"1.1.1.1"},
-				WGPublicKey: "wg-pub", XRayPublicKey: "reality-pub", AllowedIPs: []string{"0.0.0.0/0"}},
-			{ID: "nod_b", Name: "lon", Region: "lon1", EndpointIPs: []string{"2.2.2.2"},
-				WGPublicKey: "wg-pub-2"}, // no REALITY key reported
-		},
+		Nodes:          nodes,
 		XRay: profile.XRayClientPolicy{
-			ServerName: "www.microsoft.com", ShortID: "", Fingerprint: "chrome", Flow: "xtls-rprx-vision",
+			ServerName: "www.microsoft.com", Fingerprint: "chrome", Flow: "xtls-rprx-vision",
 		},
+	})
+	if len(xrayCP.Nodes) != 1 || xrayCP.Nodes[0].ID != "nod_a" {
+		t.Fatalf("xray profile nodes = %+v, want only nod_a", xrayCP.Nodes)
 	}
-
-	p := profile.Build(in)
-	if len(p.Nodes) != 2 {
-		t.Fatalf("nodes = %d, want 2", len(p.Nodes))
-	}
-
-	// nod_a offers both protocols.
-	if got := len(p.Nodes[0].Protocols); got != 2 {
-		t.Fatalf("nod_a protocols = %d, want 2", got)
-	}
-	byType := map[string]profile.Protocol{}
-	for _, pr := range p.Nodes[0].Protocols {
-		byType[pr.Type] = pr
-	}
-	if _, ok := byType[profile.ProtocolAmneziaWG]; !ok {
-		t.Fatal("nod_a missing amneziawg entry")
-	}
-	xray, ok := byType[profile.ProtocolXRayReality]
-	if !ok {
-		t.Fatal("nod_a missing xray-reality entry")
+	if got := len(xrayCP.Nodes[0].Protocols); got != 1 || xrayCP.Nodes[0].Protocols[0].Type != profile.ProtocolXRayReality {
+		t.Fatalf("nod_a protocols = %+v, want xray-reality only", xrayCP.Nodes[0].Protocols)
 	}
 	var xp struct {
 		UUID       string `json:"uuid"`
@@ -108,7 +103,7 @@ func TestBuildEmitsBothProtocols(t *testing.T) {
 			PortMin int    `json:"port_min"`
 		} `json:"endpoints"`
 	}
-	if err := json.Unmarshal(xray.Params, &xp); err != nil {
+	if err := json.Unmarshal(xrayCP.Nodes[0].Protocols[0].Params, &xp); err != nil {
 		t.Fatalf("decode xray params: %v", err)
 	}
 	if xp.UUID != "uuid-1234" || xp.Flow != "xtls-rprx-vision" || xp.PublicKey != "reality-pub" {
@@ -121,9 +116,22 @@ func TestBuildEmitsBothProtocols(t *testing.T) {
 		t.Fatalf("xray endpoints = %+v, want one on port %d", xp.Endpoints, profile.XRayListenPort)
 	}
 
-	// nod_b reported no REALITY key → AmneziaWG only.
-	if got := len(p.Nodes[1].Protocols); got != 1 || p.Nodes[1].Protocols[0].Type != profile.ProtocolAmneziaWG {
-		t.Fatalf("nod_b protocols = %+v, want amneziawg only", p.Nodes[1].Protocols)
+	// AmneziaWG profile over the same nodes: both qualify, one entry each.
+	awgCP := profile.BuildClientProfile(profile.BuildInput{
+		SpecID:      "pspec_awg",
+		Name:        "Direct",
+		Protocol:    profile.ProtocolAmneziaWG,
+		DeviceWGKey: "wg-priv",
+		TunnelIP:    "10.8.0.7",
+		Nodes:       nodes,
+	})
+	if len(awgCP.Nodes) != 2 {
+		t.Fatalf("amneziawg profile nodes = %d, want 2", len(awgCP.Nodes))
+	}
+	for _, n := range awgCP.Nodes {
+		if len(n.Protocols) != 1 || n.Protocols[0].Type != profile.ProtocolAmneziaWG {
+			t.Fatalf("node %s protocols = %+v, want amneziawg only", n.ID, n.Protocols)
+		}
 	}
 }
 

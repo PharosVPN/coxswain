@@ -61,8 +61,10 @@ func TestIssueAndOpenRoundTrip(t *testing.T) {
 
 	rev, err := profile.Issue(ctx, conn, userID, "", profile.Profile{
 		FleetID: "fleet-1",
-		Nodes: []profile.Node{
-			{ID: "nod_a", Name: "ams-1", Region: "eu", Endpoints: []string{"203.0.113.7:443"}},
+		Profiles: []profile.ClientProfile{
+			{ID: "pspec_a", Name: "Direct", Protocol: profile.ProtocolAmneziaWG, Nodes: []profile.Node{
+				{ID: "nod_a", Name: "ams-1", Region: "eu", Endpoints: []string{"203.0.113.7:443"}},
+			}},
 		},
 	})
 	if err != nil {
@@ -103,7 +105,7 @@ func TestIssueAndOpenRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(plaintext, &got); err != nil {
 		t.Fatalf("unmarshal profile: %v", err)
 	}
-	if got.User != userID || got.Revision != 1 || len(got.Nodes) != 1 {
+	if got.User != userID || got.Revision != 1 || len(got.Profiles) != 1 || len(got.Profiles[0].Nodes) != 1 {
 		t.Errorf("decrypted profile mismatch: %+v", got)
 	}
 }

@@ -82,20 +82,25 @@ type XRayClientPolicy struct {
 	Flow        string // VLESS flow, e.g. "xtls-rprx-vision"
 }
 
-// BuildInput is everything needed to assemble a device's profile.
+// BuildInput is everything needed to render one client profile from a profile
+// spec (or an auto-profile).
 type BuildInput struct {
-	User           string
-	FleetID        string
-	DeviceWGKey    string // the device's AmneziaWG private key
-	DeviceXRayUUID string // the device's XRay/REALITY VLESS UUID
-	TunnelIP       string // the device's allocated VPN address
+	SpecID string // the profile_spec id, or "auto-<protocol>"
+	Name   string // the profile's display name
+	// Protocol is the single data-plane protocol this profile carries
+	// (ProtocolAmneziaWG or ProtocolXRayReality); only that protocol's entry is
+	// emitted for each node.
+	Protocol       string
+	DeviceWGKey    string // the profile's AmneziaWG private key
+	DeviceXRayUUID string // the profile's XRay/REALITY VLESS UUID
+	TunnelIP       string // the profile's allocated VPN address
 	Rotation       RotationPolicy
 	Nodes          []BuildNode
 	// XRay is the fleet-wide REALITY client policy, applied to every node that
 	// offers an XRay/REALITY entry. Zero when XRay is disabled.
 	XRay XRayClientPolicy
-	// Path is the device's egress chain (entry → [mid] → exit) for display, or
-	// nil when the device egresses at a single node.
+	// Path is the profile's egress chain (entry → [mid] → exit) for display, or
+	// nil when the profile egresses at a single node.
 	Path *PathView
 }
 
@@ -129,14 +134,17 @@ type xrayRealityParams struct {
 	AllowedIPs  []string       `json:"allowed_ips"`
 }
 
-// Build assembles a populated Profile from a device's peers. Revision and
-// timestamps are filled in by Issue when the profile is sealed.
-func Build(in BuildInput) Profile {
-	p := Profile{FleetID: in.FleetID, User: in.User, Path: in.Path}
-	// For a path-bound device the client dials only the entry node; the rest of
+// BuildClientProfile renders one client profile from a spec's resolved nodes and
+// the profile's own credentials. Only in.Protocol's entry is emitted on each
+// node — a profile carries a single data-plane protocol. A node that does not
+// offer that protocol is dropped. For a cascade profile (Path set) only the
+// entry hop is carried; the rest of the chain is routed server-side.
+func BuildClientProfile(in BuildInput) ClientProfile {
+	cp := ClientProfile{ID: in.SpecID, Name: in.Name, Protocol: in.Protocol, Path: in.Path}
+	// For a path-bound profile the client dials only the entry node; the rest of
 	// the chain (mids → exit) is routed server-side. Carry just the entry, so the
-	// profile is what the client actually uses — one entry node plus the egress
-	// path — not the whole fleet. (A single-node device carries all its nodes.)
+	// profile is what the client actually uses. (A direct profile carries its
+	// single node; an auto-profile carries every ready node.)
 	entryID := ""
 	if in.Path != nil && len(in.Path.Hops) > 0 {
 		entryID = in.Path.Hops[0].ID
@@ -148,51 +156,55 @@ func Build(in BuildInput) Profile {
 		flat := append([]string(nil), n.EndpointIPs...)
 
 		var protocols []Protocol
-		// AmneziaWG entry (UDP). The pool pins the real listen port.
-		if n.WGPublicKey != "" {
-			pool := endpointPool(n.EndpointIPs, ClientListenPort)
-			params, _ := json.Marshal(amneziaWGParams{
-				PrivateKey:   in.DeviceWGKey,
-				Address:      in.TunnelIP + "/32",
-				PublicKey:    n.WGPublicKey,
-				PresharedKey: n.PresharedKey,
-				Endpoints:    pool,
-				Rotation:     in.Rotation,
-				AllowedIPs:   n.AllowedIPs,
-				Obfuscation:  n.Obfuscation,
-			})
-			protocols = append(protocols, Protocol{
-				Type:   ProtocolAmneziaWG,
-				V:      ProtocolVersionAmneziaWG,
-				Params: params,
-			})
-		}
-		// XRay/REALITY entry (TCP). The client dials the same IP pool on the
-		// REALITY TCP port and presents the fleet-wide camouflage policy.
-		if n.XRayPublicKey != "" {
-			pool := endpointPool(n.EndpointIPs, XRayListenPort)
-			params, _ := json.Marshal(xrayRealityParams{
-				UUID:        in.DeviceXRayUUID,
-				Flow:        in.XRay.Flow,
-				Address:     in.TunnelIP + "/32",
-				PublicKey:   n.XRayPublicKey,
-				ServerName:  in.XRay.ServerName,
-				ShortID:     in.XRay.ShortID,
-				Fingerprint: in.XRay.Fingerprint,
-				Endpoints:   pool,
-				Rotation:    in.Rotation,
-				AllowedIPs:  n.AllowedIPs,
-			})
-			protocols = append(protocols, Protocol{
-				Type:   ProtocolXRayReality,
-				V:      ProtocolVersionXRayReality,
-				Params: params,
-			})
+		switch in.Protocol {
+		case ProtocolAmneziaWG:
+			// AmneziaWG entry (UDP). The pool pins the real listen port.
+			if n.WGPublicKey != "" {
+				pool := endpointPool(n.EndpointIPs, ClientListenPort)
+				params, _ := json.Marshal(amneziaWGParams{
+					PrivateKey:   in.DeviceWGKey,
+					Address:      in.TunnelIP + "/32",
+					PublicKey:    n.WGPublicKey,
+					PresharedKey: n.PresharedKey,
+					Endpoints:    pool,
+					Rotation:     in.Rotation,
+					AllowedIPs:   n.AllowedIPs,
+					Obfuscation:  n.Obfuscation,
+				})
+				protocols = append(protocols, Protocol{
+					Type:   ProtocolAmneziaWG,
+					V:      ProtocolVersionAmneziaWG,
+					Params: params,
+				})
+			}
+		case ProtocolXRayReality:
+			// XRay/REALITY entry (TCP). The client dials the same IP pool on the
+			// REALITY TCP port and presents the fleet-wide camouflage policy.
+			if n.XRayPublicKey != "" {
+				pool := endpointPool(n.EndpointIPs, XRayListenPort)
+				params, _ := json.Marshal(xrayRealityParams{
+					UUID:        in.DeviceXRayUUID,
+					Flow:        in.XRay.Flow,
+					Address:     in.TunnelIP + "/32",
+					PublicKey:   n.XRayPublicKey,
+					ServerName:  in.XRay.ServerName,
+					ShortID:     in.XRay.ShortID,
+					Fingerprint: in.XRay.Fingerprint,
+					Endpoints:   pool,
+					Rotation:    in.Rotation,
+					AllowedIPs:  n.AllowedIPs,
+				})
+				protocols = append(protocols, Protocol{
+					Type:   ProtocolXRayReality,
+					V:      ProtocolVersionXRayReality,
+					Params: params,
+				})
+			}
 		}
 		if len(protocols) == 0 {
-			continue // node offers nothing this device can use
+			continue // node does not offer this profile's protocol
 		}
-		p.Nodes = append(p.Nodes, Node{
+		cp.Nodes = append(cp.Nodes, Node{
 			ID:        n.ID,
 			Name:      n.Name,
 			Region:    n.Region,
@@ -200,7 +212,7 @@ func Build(in BuildInput) Profile {
 			Protocols: protocols,
 		})
 	}
-	return p
+	return cp
 }
 
 // RealityCamouflage turns a configured decoy site into the REALITY dest
