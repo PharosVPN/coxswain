@@ -411,9 +411,9 @@ func (c *Coordinator) pushEdgePeer(ctx context.Context, entryID, exitID string) 
 }
 
 // pushNodeTransits recomputes and pushes a node's full transit set — one route
-// per device, for every downstream hop the node has across all paths — alongside
-// its base forwarding/masquerade/isolation policy. The device CIDR is always the
-// device's address on the PATH ENTRY. Forwarding is forced on when any transit
+// per cascaded source, for every downstream hop the node has across all paths —
+// alongside its base forwarding/masquerade/isolation policy. The source CIDR is
+// always the address on the PATH ENTRY. Forwarding is forced on when any transit
 // exists, since transit requires it.
 func (c *Coordinator) pushNodeTransits(ctx context.Context, node fleet.Node) error {
 	pids, err := fleet.ListPathIDsContainingNode(ctx, c.db, node.ID)
@@ -438,16 +438,11 @@ func (c *Coordinator) pushNodeTransits(ctx context.Context, node fleet.Node) err
 		if err != nil {
 			return err
 		}
-		devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pid)
+		cidrs, err := c.pathEntryCIDRs(ctx, pid, hops)
 		if err != nil {
 			return err
 		}
-		for _, d := range devices {
-			ip, err := c.deviceIPOnNode(ctx, d, hops[0].NodeID)
-			if err != nil {
-				return err
-			}
-			cidr := cidr32(ip)
+		for _, cidr := range cidrs {
 			key := cidr + "@" + link.InnerInterface
 			if seen[key] {
 				continue
@@ -468,8 +463,9 @@ func (c *Coordinator) pushNodeTransits(ctx context.Context, node fleet.Node) err
 	})
 }
 
-// devicesOnEdge returns the deduplicated path-entry tunnel CIDRs of every device
-// on any path that traverses the entry→exit edge as a consecutive hop pair.
+// devicesOnEdge returns the deduplicated path-entry tunnel CIDRs of every
+// cascaded source on any path that traverses the entry→exit edge as a
+// consecutive hop pair.
 func (c *Coordinator) devicesOnEdge(ctx context.Context, entryID, exitID string) ([]string, error) {
 	pids, err := fleet.ListPathsByEdge(ctx, c.db, entryID, exitID)
 	if err != nil {
@@ -485,16 +481,11 @@ func (c *Coordinator) devicesOnEdge(ctx context.Context, entryID, exitID string)
 		if len(hops) == 0 {
 			continue
 		}
-		devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pid)
+		cidrs, err := c.pathEntryCIDRs(ctx, pid, hops)
 		if err != nil {
 			return nil, err
 		}
-		for _, d := range devices {
-			ip, err := c.deviceIPOnNode(ctx, d, hops[0].NodeID)
-			if err != nil {
-				return nil, err
-			}
-			cidr := cidr32(ip)
+		for _, cidr := range cidrs {
 			if !seen[cidr] {
 				seen[cidr] = true
 				out = append(out, cidr)
@@ -502,6 +493,69 @@ func (c *Coordinator) devicesOnEdge(ctx context.Context, entryID, exitID string)
 		}
 	}
 	return out, nil
+}
+
+// pathEntryCIDRs returns the deduplicated path-entry tunnel CIDRs of every source
+// routed through a path: the legacy device_exits bindings (auto-profile devices)
+// and the per-profile bindings (profile_specs whose path_id is this path). Each
+// source's CIDR is its address on the PATH ENTRY (hops[0]) — the one invariant
+// that makes multi-hop correct, since a client only ever holds credentials for
+// its entry.
+func (c *Coordinator) pathEntryCIDRs(ctx context.Context, pid string, hops []fleet.PathHop) ([]string, error) {
+	if len(hops) == 0 {
+		return nil, nil
+	}
+	entryNode := hops[0].NodeID
+	seen := map[string]bool{}
+	var out []string
+	add := func(ip string) {
+		cidr := cidr32(ip)
+		if !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+
+	devices, err := fleet.ListDeviceIDsByPath(ctx, c.db, pid)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range devices {
+		ip, err := c.deviceIPOnNode(ctx, d, entryNode)
+		if err != nil {
+			return nil, err
+		}
+		add(ip)
+	}
+
+	specs, err := fleet.ListProfileSpecsByPath(ctx, c.db, pid)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range specs {
+		ip, err := c.specIPOnNode(ctx, s, entryNode)
+		if err != nil {
+			return nil, err
+		}
+		add(ip)
+	}
+	return out, nil
+}
+
+// specIPOnNode returns a profile's tunnel address on a node — the AllowedIP of
+// the peer tagged with the spec id — or an error if the profile has no peer
+// there (not yet provisioned).
+func (c *Coordinator) specIPOnNode(ctx context.Context, spec fleet.ProfileSpec, nodeID string) (string, error) {
+	peers, err := fleet.ListPeersByDevice(ctx, c.db, spec.DeviceID)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range peers {
+		if p.NodeID == nodeID && p.ProfileSpecID == spec.ID && p.AllowedIP != "" {
+			return p.AllowedIP, nil
+		}
+	}
+	return "", fmt.Errorf("cascade: profile %s has no tunnel on path entry node %s", spec.ID, nodeID)
 }
 
 // edgeNodes fetches an edge's entry and exit nodes.

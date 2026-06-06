@@ -131,6 +131,36 @@ func mkDeviceOn(t *testing.T, conn *sql.DB, nodeID, email, devPub, allowedIP str
 	return dev.ID
 }
 
+// mkSpecOn creates a user+device and a cascade profile spec bound to pathID,
+// with the profile's entry peer (tagged with the spec id) on entryNode — the
+// per-profile equivalent of mkDeviceOn + a device_exits binding. Returns the
+// spec.
+func mkSpecOn(t *testing.T, conn *sql.DB, entryNodeID, pathID, email, devPub, allowedIP string) fleet.ProfileSpec {
+	t.Helper()
+	ctx := context.Background()
+	user, err := account.CreateUser(ctx, conn, account.User{Email: email})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	dev, err := account.CreateDevice(ctx, conn, account.Device{UserID: user.ID, Name: "dev"})
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	spec, err := fleet.CreateProfileSpec(ctx, conn, fleet.ProfileSpec{
+		UserID: user.ID, DeviceID: dev.ID, Name: "cascade", PathID: pathID, Protocol: fleet.ProtoAmneziaWG,
+	})
+	if err != nil {
+		t.Fatalf("create spec: %v", err)
+	}
+	if _, err := fleet.CreatePeer(ctx, conn, fleet.Peer{
+		NodeID: entryNodeID, DeviceID: dev.ID, Protocol: "amneziawg",
+		PublicKey: devPub, AllowedIP: allowedIP, ProfileSpecID: spec.ID,
+	}); err != nil {
+		t.Fatalf("create spec peer: %v", err)
+	}
+	return spec
+}
+
 func mkPath(t *testing.T, conn *sql.DB, name string, nodeIDs ...string) fleet.Path {
 	t.Helper()
 	p, err := fleet.CreatePath(context.Background(), conn, name, "", nodeIDs)
@@ -238,6 +268,46 @@ func TestBindDeviceThreadsPathEntryCIDR(t *testing.T) {
 	if got := ff.nodes["exit:8444"].lastNet(); got != nil && len(got.GetTransits()) != 0 {
 		t.Errorf("exit should carry no transits, got %+v", got.GetTransits())
 	}
+}
+
+// TestProfileSpecThreadsPathEntryCIDR proves the per-profile binding: a profile
+// spec whose path_id is the path routes its OWN entry tunnel IP (the peer tagged
+// with the spec id) through every hop — no device_exits row involved. The
+// post-push ReconcileNode is what wires it, exactly as for a device.
+func TestProfileSpecThreadsPathEntryCIDR(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	entry := mkNode(t, conn, "entry", "entry:8444", "1.1.1.1", "ENTRYPUB=")
+	mid := mkNode(t, conn, "mid", "mid:8444", "2.2.2.2", "MIDPUB=")
+	exit := mkNode(t, conn, "exit", "exit:8444", "3.3.3.3", "EXITPUB=")
+	ff := newFleet()
+	coord := cascade.New(conn, ff.dial)
+
+	p := mkPath(t, conn, "p", entry.ID, mid.ID, exit.ID)
+	if _, err := coord.ProvisionPath(ctx, p.ID); err != nil {
+		t.Fatalf("ProvisionPath: %v", err)
+	}
+	// The spec's path_id is the binding; provisioning placed its entry peer.
+	mkSpecOn(t, conn, entry.ID, p.ID, "u@x.test", "DEVPUB=", "10.86.0.7")
+	// The post-push reconcile of any path node wires the whole path.
+	if err := coord.ReconcileNode(ctx, entry.ID); err != nil {
+		t.Fatalf("ReconcileNode: %v", err)
+	}
+
+	linkEM, _ := fleet.GetNodeLinkByEdge(ctx, conn, entry.ID, mid.ID)
+	linkME, _ := fleet.GetNodeLinkByEdge(ctx, conn, mid.ID, exit.ID)
+	const wantCIDR = "10.86.0.7/32"
+
+	if got := ff.nodes["mid:8444"].lastPeer(); got == nil || got.GetPublicKey() != "ENTRYPUB=" ||
+		len(got.GetAllowedIps()) != 1 || got.GetAllowedIps()[0] != wantCIDR {
+		t.Errorf("mid entry-peer = %+v, want pubkey ENTRYPUB= allowed [%s]", got, wantCIDR)
+	}
+	if got := ff.nodes["exit:8444"].lastPeer(); got == nil || got.GetPublicKey() != "MIDPUB=" ||
+		len(got.GetAllowedIps()) != 1 || got.GetAllowedIps()[0] != wantCIDR {
+		t.Errorf("exit mid-peer = %+v, want pubkey MIDPUB= allowed [%s]", got, wantCIDR)
+	}
+	assertSingleTransit(t, "entry", ff.nodes["entry:8444"].lastNet(), wantCIDR, linkEM)
+	assertSingleTransit(t, "mid", ff.nodes["mid:8444"].lastNet(), wantCIDR, linkME)
 }
 
 func assertSingleTransit(t *testing.T, who string, net *nodev1.NetworkConfig, cidr string, link fleet.NodeLink) {

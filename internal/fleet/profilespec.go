@@ -113,6 +113,16 @@ func ListProfileSpecsByUser(ctx context.Context, db *sql.DB, userID string) ([]P
 	return queryProfileSpecs(ctx, db, `WHERE user_id = ? ORDER BY created_at`, userID)
 }
 
+// ListProfileSpecsByPath returns the cascade profile specs bound to a path
+// (path_id set), oldest first — the per-profile equivalent of device_exits. The
+// cascade coordinator routes each one's entry tunnel IP through the path.
+func ListProfileSpecsByPath(ctx context.Context, db *sql.DB, pathID string) ([]ProfileSpec, error) {
+	if pathID == "" {
+		return nil, nil
+	}
+	return queryProfileSpecs(ctx, db, `WHERE path_id = ? ORDER BY created_at`, pathID)
+}
+
 // DeleteProfileSpec removes a spec. A missing row yields ErrNotFound. (Its peers
 // are cleared by the caller/provisioning, like device peers.)
 func DeleteProfileSpec(ctx context.Context, db *sql.DB, id string) error {
