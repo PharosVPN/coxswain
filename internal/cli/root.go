@@ -15,7 +15,8 @@ import (
 
 // version is the coxswain build version, injected at link time by
 // scripts/build.sh from the VERSION file:
-//   -ldflags "-X github.com/PharosVPN/coxswain/internal/cli.version=$(cat VERSION)"
+//
+//	-ldflags "-X github.com/PharosVPN/coxswain/internal/cli.version=$(cat VERSION)"
 var version = "0.0.0-dev"
 
 func newRootCmd() *cobra.Command {

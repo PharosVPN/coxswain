@@ -75,6 +75,9 @@ type Node struct {
 	// Obfuscation is the node's per-node AmneziaWG obfuscation parameter set,
 	// reported by node alongside WGPublicKey (DESIGN §3). Zero until reported.
 	Obfuscation wg.Obfuscation
+	// XRayPublicKey is the node's XRay/REALITY server public key (base64url),
+	// reported by node. Empty until reported (DESIGN §3, §12).
+	XRayPublicKey string
 	// Forwarding, Masquerade, Isolation are the node's network policy
 	// (DESIGN §3, decision 16), set per node from the admin UI.
 	Forwarding bool
@@ -91,7 +94,7 @@ type Node struct {
 
 const nodeColumns = `id, name, region, public_ip, endpoint_ips, control_addr, cloud_id,
 	ssh_host, ssh_user, ssh_port, ssh_host_key, agent_version, wg_public_key,
-	wg_obfuscation, forwarding, masquerade, isolation, config_revision,
+	wg_obfuscation, xray_public_key, forwarding, masquerade, isolation, config_revision,
 	status, version, created_at, updated_at, server_id`
 
 // marshalObfuscation encodes an obfuscation set for the wg_obfuscation column.
@@ -158,10 +161,10 @@ func CreateNode(ctx context.Context, db *sql.DB, n Node) (Node, error) {
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO nodes (`+nodeColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, n.Name, n.Region, n.PublicIP, joinIPs(n.EndpointIPs), n.ControlAddr, n.CloudID,
 		n.SSHHost, n.SSHUser, n.SSHPort, n.SSHHostKey, n.AgentVersion, n.WGPublicKey,
-		marshalObfuscation(n.Obfuscation), n.Forwarding, n.Masquerade, n.Isolation,
+		marshalObfuscation(n.Obfuscation), n.XRayPublicKey, n.Forwarding, n.Masquerade, n.Isolation,
 		n.ConfigRevision, n.Status, n.Version, n.CreatedAt, n.UpdatedAt, n.ServerID)
 	if err != nil {
 		return Node{}, fmt.Errorf("create node: %w", err)
@@ -208,12 +211,12 @@ func UpdateNode(ctx context.Context, db *sql.DB, n Node) (Node, error) {
 		`UPDATE nodes SET name = ?, region = ?, public_ip = ?, endpoint_ips = ?,
 		        control_addr = ?, cloud_id = ?, ssh_host = ?, ssh_user = ?,
 		        ssh_port = ?, ssh_host_key = ?, agent_version = ?, wg_public_key = ?,
-		        wg_obfuscation = ?, forwarding = ?, masquerade = ?, isolation = ?,
+		        wg_obfuscation = ?, xray_public_key = ?, forwarding = ?, masquerade = ?, isolation = ?,
 		        status = ?, server_id = ?, version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
 		n.Name, n.Region, n.PublicIP, joinIPs(n.EndpointIPs), n.ControlAddr, n.CloudID,
 		n.SSHHost, n.SSHUser, n.SSHPort, n.SSHHostKey, n.AgentVersion, n.WGPublicKey,
-		marshalObfuscation(n.Obfuscation), n.Forwarding, n.Masquerade, n.Isolation,
+		marshalObfuscation(n.Obfuscation), n.XRayPublicKey, n.Forwarding, n.Masquerade, n.Isolation,
 		n.Status, n.ServerID, now, n.ID, n.Version)
 	// NOTE: ConfigRevision is updated only via NextNodeConfigRevision; an
 	// UpdateNode caller is reconciling node metadata, not pushing config.
@@ -321,6 +324,29 @@ func SetNodeAmneziaWG(ctx context.Context, db *sql.DB, nodeID, publicKey string,
 	return nil
 }
 
+// SetNodeXRayReality records the XRay/REALITY server public key node reported
+// for a node. Like SetNodeAmneziaWG, node is the source of truth, so the write
+// is unconditional (no optimistic-version check) but still bumps version and
+// updated_at. A missing row yields ErrNotFound.
+func SetNodeXRayReality(ctx context.Context, db *sql.DB, nodeID, publicKey string) error {
+	now := time.Now().UTC()
+	res, err := db.ExecContext(ctx,
+		`UPDATE nodes SET xray_public_key = ?, version = version + 1, updated_at = ?
+		 WHERE id = ?`,
+		publicKey, now, nodeID)
+	if err != nil {
+		return fmt.Errorf("set node xray reality: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetNodeEndpoints sets a node's AmneziaWG endpoint IP pool (decision 17) — the
 // set of public IPs a client may randomly enter on. An empty list clears the
 // pool, falling the node back to its PublicIP. IPs are validated + de-duplicated.
@@ -354,7 +380,7 @@ func scanNode(s rowScanner) (Node, error) {
 	)
 	err := s.Scan(&n.ID, &n.Name, &n.Region, &n.PublicIP, &endpointIPs, &n.ControlAddr,
 		&n.CloudID, &n.SSHHost, &n.SSHUser, &n.SSHPort, &n.SSHHostKey,
-		&n.AgentVersion, &n.WGPublicKey, &obfuscation, &n.Forwarding, &n.Masquerade, &n.Isolation,
+		&n.AgentVersion, &n.WGPublicKey, &obfuscation, &n.XRayPublicKey, &n.Forwarding, &n.Masquerade, &n.Isolation,
 		&n.ConfigRevision, &n.Status, &n.Version, &n.CreatedAt, &n.UpdatedAt, &n.ServerID)
 	if err != nil {
 		return Node{}, err

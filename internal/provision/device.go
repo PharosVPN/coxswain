@@ -16,6 +16,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/wg"
+	"github.com/google/uuid"
 )
 
 // Options carries the fleet settings provisioning needs (from the config).
@@ -24,6 +25,16 @@ type Options struct {
 	PortMin   int
 	PortMax   int
 	Rotation  profile.RotationPolicy
+	// XRay enables placing an XRay/REALITY client alongside AmneziaWG on every
+	// node that has reported a REALITY public key.
+	XRay XRayOptions
+}
+
+// XRayOptions is the fleet-wide XRay/REALITY provisioning policy.
+type XRayOptions struct {
+	Enabled    bool
+	ServerName string // the REALITY decoy SNI the client presents (Reality.DecoySite)
+	ShortID    string // the REALITY shortId (may be empty)
 }
 
 // Result reports what ProvisionDevice produced.
@@ -34,10 +45,11 @@ type Result struct {
 	ProfileVersion int64
 }
 
-// ProvisionDevice gives a device a tunnel address and an AmneziaWG peer on
-// every ready node, records the peers, and issues a freshly sealed profile to
-// the device's owner. A node is "ready" once it has reported its WG public
-// key and has a public address.
+// ProvisionDevice gives a device a tunnel address and a peer on every ready
+// node — an AmneziaWG peer (keypair + PSK) and, when XRay is enabled, an
+// XRay/REALITY peer (a VLESS UUID) — records the peers, and issues a freshly
+// sealed profile to the device's owner. A node is "ready" for a protocol once
+// it has reported that protocol's server identity and has a public address.
 //
 // The peer records are coxswain's desired state; pushing them to node over the
 // control channel is the control loop's job.
@@ -51,6 +63,10 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 	if err != nil {
 		return Result{}, err
 	}
+	// The device's VLESS identity for XRay/REALITY — one UUID reused across
+	// every node, like the single AmneziaWG keypair. A fresh one each
+	// (re)provision is fine: the device re-fetches the profile.
+	xrayUUID := uuid.NewString()
 
 	// Idempotent per device: re-provisioning keeps the device's existing tunnel
 	// IP (a fresh one would orphan its cascade fwmark and leave the entry routing
@@ -81,30 +97,51 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 
 	var buildNodes []profile.BuildNode
 	for _, n := range nodes {
-		if n.WGPublicKey == "" || n.Obfuscation.IsZero() || len(n.EndpointAddrs()) == 0 {
-			continue // node has not reported its data-plane config yet
+		if len(n.EndpointAddrs()) == 0 {
+			continue // node has no public address yet
 		}
-		psk := profile.GeneratePresharedKey()
-		if _, err := fleet.CreatePeer(ctx, db, fleet.Peer{
-			NodeID:       n.ID,
-			DeviceID:     device.ID,
-			Protocol:     profile.ProtocolAmneziaWG,
-			PublicKey:    keys.PublicKey,
-			AllowedIP:    tunnelIP,
-			PresharedKey: psk,
-		}); err != nil {
-			return Result{}, fmt.Errorf("provision: peer on %s: %w", n.ID, err)
+		awgReady := n.WGPublicKey != "" && !n.Obfuscation.IsZero()
+		xrayReady := opts.XRay.Enabled && n.XRayPublicKey != ""
+		if !awgReady && !xrayReady {
+			continue // node has not reported any usable data-plane identity yet
 		}
-		buildNodes = append(buildNodes, profile.BuildNode{
-			ID:           n.ID,
-			Name:         n.Name,
-			Region:       n.Region,
-			EndpointIPs:  n.EndpointAddrs(),
-			WGPublicKey:  n.WGPublicKey,
-			PresharedKey: psk,
-			AllowedIPs:   []string{"0.0.0.0/0", "::/0"},
-			Obfuscation:  n.Obfuscation,
-		})
+		bn := profile.BuildNode{
+			ID:          n.ID,
+			Name:        n.Name,
+			Region:      n.Region,
+			EndpointIPs: n.EndpointAddrs(),
+			AllowedIPs:  []string{"0.0.0.0/0", "::/0"},
+		}
+		if awgReady {
+			psk := profile.GeneratePresharedKey()
+			if _, err := fleet.CreatePeer(ctx, db, fleet.Peer{
+				NodeID:       n.ID,
+				DeviceID:     device.ID,
+				Protocol:     profile.ProtocolAmneziaWG,
+				PublicKey:    keys.PublicKey,
+				AllowedIP:    tunnelIP,
+				PresharedKey: psk,
+			}); err != nil {
+				return Result{}, fmt.Errorf("provision: amneziawg peer on %s: %w", n.ID, err)
+			}
+			bn.WGPublicKey = n.WGPublicKey
+			bn.PresharedKey = psk
+			bn.Obfuscation = n.Obfuscation
+		}
+		if xrayReady {
+			if _, err := fleet.CreatePeer(ctx, db, fleet.Peer{
+				NodeID:    n.ID,
+				DeviceID:  device.ID,
+				Protocol:  profile.ProtocolXRayReality,
+				PublicKey: xrayUUID,
+				AllowedIP: tunnelIP,
+				Flow:      profile.DefaultXRayFlow,
+			}); err != nil {
+				return Result{}, fmt.Errorf("provision: xray peer on %s: %w", n.ID, err)
+			}
+			bn.XRayPublicKey = n.XRayPublicKey
+		}
+		buildNodes = append(buildNodes, bn)
 	}
 
 	pathView, err := buildPathView(ctx, db, device.ID, nodes)
@@ -113,12 +150,19 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 	}
 
 	prof := profile.Build(profile.BuildInput{
-		User:        device.UserID,
-		DeviceWGKey: keys.PrivateKey,
-		TunnelIP:    tunnelIP,
-		Rotation:    opts.Rotation,
-		Nodes:       buildNodes,
-		Path:        pathView,
+		User:           device.UserID,
+		DeviceWGKey:    keys.PrivateKey,
+		DeviceXRayUUID: xrayUUID,
+		TunnelIP:       tunnelIP,
+		Rotation:       opts.Rotation,
+		Nodes:          buildNodes,
+		XRay: profile.XRayClientPolicy{
+			ServerName:  xrayServerName(opts.XRay.ServerName),
+			ShortID:     opts.XRay.ShortID,
+			Fingerprint: profile.DefaultXRayFingerprint,
+			Flow:        profile.DefaultXRayFlow,
+		},
+		Path: pathView,
 	})
 	revision, err := profile.Issue(ctx, db, device.UserID, device.ID, prof)
 	if err != nil {
@@ -131,6 +175,17 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		PeerCount:      len(buildNodes),
 		ProfileVersion: revision,
 	}, nil
+}
+
+// xrayServerName normalises the configured decoy to the bare SNI host the
+// REALITY client must present (the node's accepted serverName), stripping any
+// port so it agrees with the node's pushed config.
+func xrayServerName(decoy string) string {
+	_, serverNames := profile.RealityCamouflage(decoy)
+	if len(serverNames) > 0 {
+		return serverNames[0]
+	}
+	return decoy
 }
 
 // buildPathView assembles the device's egress chain for the profile's display

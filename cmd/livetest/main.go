@@ -127,14 +127,19 @@ func main() {
 		fmt.Print(b.String())
 
 	case "pharos":
-		// pharos <db> <userID> <pass> [nodeName] → a plaintext (none-mode) .pharos
-		// the Mac app can import directly. Endpoint ports are pinned to 443 (the
-		// node's real awg0 listen port) since the decision-17 range isn't dialable.
+		// pharos <db> <userID> <pass> <deviceID|-> [nodeName] → a plaintext
+		// (none-mode) .pharos the Mac app can import directly. deviceID selects a
+		// per-device sealed profile; "-" means the legacy device-less profile.
+		// Endpoint ports are pinned to 443 (the node's real awg0 listen port)
+		// since the decision-17 range isn't dialable.
 		conn := open(os.Args[2])
-		userID, pass := os.Args[3], os.Args[4]
+		userID, pass, deviceID := os.Args[3], os.Args[4], os.Args[5]
+		if deviceID == "-" {
+			deviceID = ""
+		}
 		nodeFilter := ""
-		if len(os.Args) > 5 {
-			nodeFilter = os.Args[5]
+		if len(os.Args) > 6 {
+			nodeFilter = os.Args[6]
 		}
 		_, wrapped, err := account.GetEncryptionKey(ctx, conn, userID)
 		must(err)
@@ -142,7 +147,7 @@ func main() {
 		must(err)
 		signer, _, err := profile.EnsureSigningKey(ctx, conn)
 		must(err)
-		ct, _, err := profile.LatestCiphertext(ctx, conn, userID, "")
+		ct, _, err := profile.LatestCiphertext(ctx, conn, userID, deviceID)
 		must(err)
 		var bundle e2e.SealedBundle
 		must(json.Unmarshal(ct, &bundle))

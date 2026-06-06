@@ -119,6 +119,10 @@ func newServeCmd() *cobra.Command {
 					IntervalSeconds: cfg.Fleet.Rotation.IntervalSeconds,
 					JitterSeconds:   cfg.Fleet.Rotation.JitterSeconds,
 				},
+				XRay: provision.XRayOptions{
+					Enabled:    cfg.Protocols.XRay,
+					ServerName: cfg.Reality.DecoySite,
+				},
 			}
 			// The cascade coordinator drives data-plane path provisioning/binding
 			// over the node control plane; a nil interface (a missing CA) disables

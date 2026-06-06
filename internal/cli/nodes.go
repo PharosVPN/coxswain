@@ -118,6 +118,14 @@ func newNodesStatusCmd() *cobra.Command {
 				}
 				fmt.Printf("  amneziawg     public key recorded%s\n", obfNote(obf))
 			}
+			// Persist the XRay/REALITY public key node reports, so provisioning can
+			// place a REALITY client on the node (DESIGN §3, §12).
+			if xpk := control.XRayFromStatus(status); xpk != "" {
+				if err := fleet.SetNodeXRayReality(ctx, conn, node.ID, xpk); err != nil {
+					return fmt.Errorf("record xray reality identity: %w", err)
+				}
+				fmt.Println("  xray-reality  public key recorded")
+			}
 			return nil
 		},
 	}
@@ -282,7 +290,7 @@ func newNodesListCmd() *cobra.Command {
 
 // toNodeAmneziaWGPeers converts coxswain's fleet.Peer rows for one node into the
 // proto Peer messages PushAmneziaWGConfig expects. Non-AmneziaWG peers are
-// skipped — XRay lands in B3 with its own encoder.
+// skipped — XRay has its own encoder (toNodeXRayPeers).
 func toNodeAmneziaWGPeers(peers []fleet.Peer) []*nodev1.Peer {
 	out := make([]*nodev1.Peer, 0, len(peers))
 	for _, p := range peers {
@@ -300,19 +308,40 @@ func toNodeAmneziaWGPeers(peers []fleet.Peer) []*nodev1.Peer {
 	return out
 }
 
+// toNodeXRayPeers converts coxswain's fleet.Peer rows for one node into the
+// proto Peer messages PushXRayRealityConfig expects. For XRay the peer's
+// PublicKey carries the VLESS UUID (the node uses it as the client id).
+func toNodeXRayPeers(peers []fleet.Peer) []*nodev1.Peer {
+	out := make([]*nodev1.Peer, 0, len(peers))
+	for _, p := range peers {
+		if p.Protocol != profile.ProtocolXRayReality {
+			continue
+		}
+		out = append(out, &nodev1.Peer{
+			Id:        p.ID,
+			Protocol:  nodev1.Protocol_PROTOCOL_XRAY_REALITY,
+			PublicKey: p.PublicKey, // the VLESS UUID
+			Flow:      p.Flow,
+		})
+	}
+	return out
+}
+
 func newNodesPushCmd() *cobra.Command {
 	var cfgPath string
 	cmd := &cobra.Command{
 		Use:   "push <node-id>",
-		Short: "Push the current peer set to a node's AmneziaWG data plane",
-		Long: "Reconcile a node by pushing coxswain's current AmneziaWG peer set\n" +
-			"over the control channel (PushConfig — full-replace). node bumps\n" +
-			"awg0 in place, no tunnel drops. coxswain assigns a monotonic revision\n" +
-			"per node; node rejects stale revisions with FailedPrecondition.",
+		Short: "Push the current peer set to a node's data plane",
+		Long: "Reconcile a node by pushing coxswain's current peer set over the\n" +
+			"control channel (PushConfig — full-replace). The AmneziaWG peer set\n" +
+			"always pushes; the XRay/REALITY set + camouflage policy also push when\n" +
+			"protocols.xray is enabled. node bumps each data plane in place, no\n" +
+			"tunnel drops. coxswain assigns a monotonic revision per push; node\n" +
+			"rejects stale revisions with FailedPrecondition.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			_, conn, err := openState(cfgPath)
+			cfg, conn, err := openState(cfgPath)
 			if err != nil {
 				return err
 			}
@@ -357,6 +386,25 @@ func newNodesPushCmd() *cobra.Command {
 			fmt.Printf("node %s — pushed %d AmneziaWG peer(s)\n", node.Name, len(amneziaPeers))
 			fmt.Printf("  revision  %d (applied %d)\n", revision, resp.GetAppliedRevision())
 			fmt.Printf("  reloaded  %t\n", resp.GetReloaded())
+
+			// XRay/REALITY: push the VLESS client set + the fleet's camouflage
+			// policy (decoy dest, accepted SNI, shortIds, port) so the node brings
+			// its REALITY server up. Skipped when XRay is disabled fleet-wide.
+			if cfg.Protocols.XRay {
+				xrayPeers := toNodeXRayPeers(peers)
+				dest, serverNames := profile.RealityCamouflage(cfg.Reality.DecoySite)
+				xrayRev, rErr := fleet.NextNodeConfigRevision(ctx, conn, node.ID)
+				if rErr != nil {
+					return rErr
+				}
+				xResp, xErr := client.PushXRayRealityConfig(rpcCtx, xrayRev, xrayPeers,
+					dest, serverNames, []string{""}, uint32(profile.XRayListenPort))
+				if xErr != nil {
+					return fmt.Errorf("control %s (xray): %w", node.ControlAddr, xErr)
+				}
+				fmt.Printf("  xray      pushed %d REALITY client(s), revision %d (applied %d), reloaded %t\n",
+					len(xrayPeers), xrayRev, xResp.GetAppliedRevision(), xResp.GetReloaded())
+			}
 
 			// A device-peer push full-replaces awg0, wiping any cascade edge peer
 			// this node carries as an exit/mid hop. Re-apply the cascade state so

@@ -71,6 +71,33 @@ func enrolledUser(t *testing.T, conn *sql.DB) (string, e2e.KeyPair) {
 	return u.ID, kp
 }
 
+// decryptProfile opens the latest sealed profile for a device and returns the
+// decoded Profile.
+func decryptProfile(t *testing.T, ctx context.Context, conn *sql.DB, userID, deviceID string, kp e2e.KeyPair) profile.Profile {
+	t.Helper()
+	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID, deviceID)
+	if err != nil {
+		t.Fatalf("LatestCiphertext: %v", err)
+	}
+	signing, _, err := profile.EnsureSigningKey(ctx, conn)
+	if err != nil {
+		t.Fatalf("EnsureSigningKey: %v", err)
+	}
+	var bundle e2e.SealedBundle
+	if err := json.Unmarshal(ciphertext, &bundle); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+	plaintext, err := e2e.Open(bundle, kp.Private, signing.Public)
+	if err != nil {
+		t.Fatalf("e2e.Open: %v", err)
+	}
+	var prof profile.Profile
+	if err := json.Unmarshal(plaintext, &prof); err != nil {
+		t.Fatalf("unmarshal profile: %v", err)
+	}
+	return prof
+}
+
 func TestProvisionDevice(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()
@@ -220,6 +247,85 @@ func TestProvisionDeviceIdempotent(t *testing.T) {
 		if p.AllowedIP != first.TunnelIP {
 			t.Errorf("peer IP drifted from the device's allocation: got %q want %q", p.AllowedIP, first.TunnelIP)
 		}
+	}
+}
+
+// TestProvisionDeviceXRay checks that with XRay enabled, a device gets both an
+// AmneziaWG peer and an XRay/REALITY peer on a node that reported both
+// identities — the XRay peer carrying a VLESS UUID (shared with the node's
+// other XRay peers), the flow, and no PSK — and that the sealed profile carries
+// an xray-reality protocol entry.
+func TestProvisionDeviceXRay(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, kp := enrolledUser(t, conn)
+
+	device, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "phone"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+
+	// Two nodes report both data planes; one reports AmneziaWG only.
+	for _, n := range []fleet.Node{
+		{Name: "ams-1", Region: "eu", PublicIP: "203.0.113.7", WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation, XRayPublicKey: "reality-pub-ams"},
+		{Name: "fra-1", Region: "eu", PublicIP: "203.0.113.8", WGPublicKey: "bm9kZS1mcmEtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation, XRayPublicKey: "reality-pub-fra"},
+		{Name: "wg-only", Region: "us", PublicIP: "203.0.113.9", WGPublicKey: "d2ctb25seS1ub2RlLWtleS1iYXNlNjQteA==", Obfuscation: testObfuscation},
+	} {
+		if _, err := fleet.CreateNode(ctx, conn, n); err != nil {
+			t.Fatalf("CreateNode %s: %v", n.Name, err)
+		}
+	}
+
+	xrayOpts := opts
+	xrayOpts.XRay = provision.XRayOptions{Enabled: true, ServerName: "www.microsoft.com"}
+
+	if _, err := provision.ProvisionDevice(ctx, conn, device.ID, xrayOpts); err != nil {
+		t.Fatalf("ProvisionDevice: %v", err)
+	}
+
+	peers, err := fleet.ListPeersByDevice(ctx, conn, device.ID)
+	if err != nil {
+		t.Fatalf("ListPeersByDevice: %v", err)
+	}
+	// 3 AmneziaWG (all nodes) + 2 XRay (the two REALITY-ready nodes).
+	var awg, xray int
+	var xrayUUIDs = map[string]bool{}
+	for _, p := range peers {
+		switch p.Protocol {
+		case profile.ProtocolAmneziaWG:
+			awg++
+		case profile.ProtocolXRayReality:
+			xray++
+			if p.PresharedKey != "" {
+				t.Errorf("xray peer should have no PSK: %+v", p)
+			}
+			if p.Flow != profile.DefaultXRayFlow || p.PublicKey == "" {
+				t.Errorf("xray peer missing flow/uuid: %+v", p)
+			}
+			xrayUUIDs[p.PublicKey] = true
+		default:
+			t.Errorf("unexpected peer protocol %q", p.Protocol)
+		}
+	}
+	if awg != 3 || xray != 2 {
+		t.Fatalf("peers: amneziawg=%d xray=%d, want 3 and 2", awg, xray)
+	}
+	if len(xrayUUIDs) != 1 {
+		t.Fatalf("xray peers should share one device UUID, got %d distinct", len(xrayUUIDs))
+	}
+
+	// The sealed profile carries an xray-reality entry on a REALITY-ready node.
+	prof := decryptProfile(t, ctx, conn, userID, device.ID, kp)
+	foundXRay := false
+	for _, n := range prof.Nodes {
+		for _, pr := range n.Protocols {
+			if pr.Type == profile.ProtocolXRayReality {
+				foundXRay = true
+			}
+		}
+	}
+	if !foundXRay {
+		t.Fatal("profile carries no xray-reality protocol entry")
 	}
 }
 

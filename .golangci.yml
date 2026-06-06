@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# golangci-lint config. errcheck flags unchecked errors; deliberately discarding
+# a Close() on a cleanup path (conn/rows/session/tunnel) and a Fprint* to stdout
+# or a tabwriter are both idiomatic and intentional here, so exempt them.
+version: "2"
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    rules:
+      - linters:
+          - errcheck
+        source: "\\.Close\\(\\)"

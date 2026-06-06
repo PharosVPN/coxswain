@@ -57,6 +57,89 @@ func TestBuildEmitsPath(t *testing.T) {
 	}
 }
 
+// TestBuildEmitsBothProtocols checks that a node reporting both data-plane
+// identities yields a Node with two protocol entries (AmneziaWG + XRay/REALITY),
+// each carrying the right server key, port, and the device's per-protocol
+// identity; and that a node missing the XRay key emits only AmneziaWG.
+func TestBuildEmitsBothProtocols(t *testing.T) {
+	in := profile.BuildInput{
+		User:           "usr_1",
+		DeviceWGKey:    "wg-priv",
+		DeviceXRayUUID: "uuid-1234",
+		TunnelIP:       "10.8.0.7",
+		Nodes: []profile.BuildNode{
+			{ID: "nod_a", Name: "nyc", Region: "nyc1", EndpointIPs: []string{"1.1.1.1"},
+				WGPublicKey: "wg-pub", XRayPublicKey: "reality-pub", AllowedIPs: []string{"0.0.0.0/0"}},
+			{ID: "nod_b", Name: "lon", Region: "lon1", EndpointIPs: []string{"2.2.2.2"},
+				WGPublicKey: "wg-pub-2"}, // no REALITY key reported
+		},
+		XRay: profile.XRayClientPolicy{
+			ServerName: "www.microsoft.com", ShortID: "", Fingerprint: "chrome", Flow: "xtls-rprx-vision",
+		},
+	}
+
+	p := profile.Build(in)
+	if len(p.Nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2", len(p.Nodes))
+	}
+
+	// nod_a offers both protocols.
+	if got := len(p.Nodes[0].Protocols); got != 2 {
+		t.Fatalf("nod_a protocols = %d, want 2", got)
+	}
+	byType := map[string]profile.Protocol{}
+	for _, pr := range p.Nodes[0].Protocols {
+		byType[pr.Type] = pr
+	}
+	if _, ok := byType[profile.ProtocolAmneziaWG]; !ok {
+		t.Fatal("nod_a missing amneziawg entry")
+	}
+	xray, ok := byType[profile.ProtocolXRayReality]
+	if !ok {
+		t.Fatal("nod_a missing xray-reality entry")
+	}
+	var xp struct {
+		UUID       string `json:"uuid"`
+		Flow       string `json:"flow"`
+		PublicKey  string `json:"public_key"`
+		ServerName string `json:"server_name"`
+		Endpoints  []struct {
+			IP      string `json:"ip"`
+			PortMin int    `json:"port_min"`
+		} `json:"endpoints"`
+	}
+	if err := json.Unmarshal(xray.Params, &xp); err != nil {
+		t.Fatalf("decode xray params: %v", err)
+	}
+	if xp.UUID != "uuid-1234" || xp.Flow != "xtls-rprx-vision" || xp.PublicKey != "reality-pub" {
+		t.Fatalf("xray params = %+v, want uuid-1234 / vision / reality-pub", xp)
+	}
+	if xp.ServerName != "www.microsoft.com" {
+		t.Fatalf("xray server_name = %q, want www.microsoft.com", xp.ServerName)
+	}
+	if len(xp.Endpoints) != 1 || xp.Endpoints[0].PortMin != profile.XRayListenPort {
+		t.Fatalf("xray endpoints = %+v, want one on port %d", xp.Endpoints, profile.XRayListenPort)
+	}
+
+	// nod_b reported no REALITY key → AmneziaWG only.
+	if got := len(p.Nodes[1].Protocols); got != 1 || p.Nodes[1].Protocols[0].Type != profile.ProtocolAmneziaWG {
+		t.Fatalf("nod_b protocols = %+v, want amneziawg only", p.Nodes[1].Protocols)
+	}
+}
+
+// TestRealityCamouflage covers the decoy → dest/serverNames derivation that
+// both the node config and the client profile rely on.
+func TestRealityCamouflage(t *testing.T) {
+	dest, names := profile.RealityCamouflage("www.microsoft.com")
+	if dest != "www.microsoft.com:443" || len(names) != 1 || names[0] != "www.microsoft.com" {
+		t.Fatalf("bare host: dest=%q names=%v", dest, names)
+	}
+	dest, names = profile.RealityCamouflage("example.com:8443")
+	if dest != "example.com:8443" || names[0] != "example.com" {
+		t.Fatalf("host:port: dest=%q names=%v", dest, names)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
