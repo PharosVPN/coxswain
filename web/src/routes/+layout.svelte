@@ -19,6 +19,7 @@
 	const nav = [
 		{ href: '/', label: 'Fleet' },
 		{ href: '/paths', label: 'Paths' },
+		{ href: '/profiles', label: 'Profiles' },
 		{ href: '/servers', label: 'Servers' },
 		{ href: '/users', label: 'Users' },
 		{ href: '/admins', label: 'Admins' }

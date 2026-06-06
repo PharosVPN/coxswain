@@ -141,6 +141,21 @@ export interface ProvisionResult {
 	profile_revision: number;
 }
 
+// ProfileSpec is an admin-created profile: a named connection config for a
+// (user, device) — an egress (a node or a path), an optional entry-IP subset,
+// and one data-plane protocol. A device may hold several.
+export interface ProfileSpec {
+	id: string;
+	user_id: string;
+	device_id: string;
+	name: string;
+	path_id?: string;
+	node_id?: string;
+	entry_ips?: string[];
+	protocol: string;
+	version: number;
+}
+
 export interface ApiError {
 	status: number;
 	message: string;
