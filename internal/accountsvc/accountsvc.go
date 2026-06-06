@@ -43,29 +43,44 @@ func New(db *sql.DB) *Service {
 }
 
 // Authenticate verifies an account passphrase and opens a session.
+// Authenticate opens a session. With no email it is cert-auth: the device proves
+// who it is via its relay-verified leaf (the account passphrase never leaves the
+// device — it is only used locally to unwrap the e2e key). With an email it is
+// the legacy passphrase check. Either way it returns the user and whether the
+// account has enrolled an encryption key.
 func (s *Service) Authenticate(ctx context.Context, req *accountv1.AuthenticateRequest) (*accountv1.AuthenticateResponse, error) {
-	user, err := account.GetUserByEmail(ctx, s.db, req.GetEmail())
-	if errors.Is(err, account.ErrNotFound) {
-		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
-	}
-	if err != nil {
-		return nil, status.Error(codes.Internal, "authentication failed")
-	}
-	if user.Status != account.StatusActive || !auth.VerifyPassword(user.PasswordHash, req.GetPassword()) {
-		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+	var userID string
+	if req.GetEmail() == "" {
+		dev, ok := s.deviceFromFingerprint(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "no credentials — present an enrolled device or an email")
+		}
+		userID = dev.UserID
+	} else {
+		user, err := account.GetUserByEmail(ctx, s.db, req.GetEmail())
+		if errors.Is(err, account.ErrNotFound) {
+			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+		}
+		if err != nil {
+			return nil, status.Error(codes.Internal, "authentication failed")
+		}
+		if user.Status != account.StatusActive || !auth.VerifyPassword(user.PasswordHash, req.GetPassword()) {
+			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+		}
+		userID = user.ID
 	}
 
-	token, err := auth.CreateSession(ctx, s.db, user.ID)
+	token, err := auth.CreateSession(ctx, s.db, userID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "authentication failed")
 	}
-	pub, _, err := account.GetEncryptionKey(ctx, s.db, user.ID)
+	pub, _, err := account.GetEncryptionKey(ctx, s.db, userID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "authentication failed")
 	}
 	return &accountv1.AuthenticateResponse{
 		SessionToken: token,
-		UserId:       user.ID,
+		UserId:       userID,
 		KeysEnrolled: len(pub) > 0,
 	}, nil
 }
@@ -126,20 +141,33 @@ func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest
 // back to the session token, yielding the user with an empty device id (the
 // legacy per-user profile).
 func (s *Service) caller(ctx context.Context) (userID, deviceID string, err error) {
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if fps := md.Get(deviceFPMetadataKey); len(fps) > 0 && fps[0] != "" {
-			if dev, derr := account.GetDeviceByFingerprint(ctx, s.db, fps[0]); derr == nil {
-				return dev.UserID, dev.ID, nil
-			}
-			// Unknown fingerprint — the device may not be enrolled. Fall through
-			// to the session rather than hard-failing.
-		}
+	if dev, ok := s.deviceFromFingerprint(ctx); ok {
+		return dev.UserID, dev.ID, nil
 	}
 	uid, serr := s.authenticated(ctx)
 	if serr != nil {
 		return "", "", serr
 	}
 	return uid, "", nil
+}
+
+// deviceFromFingerprint resolves the calling device from the relay-forwarded,
+// trusted x-pharos-device-fp metadata. ok is false when there is no fingerprint
+// (a direct/legacy caller) or it names no enrolled device.
+func (s *Service) deviceFromFingerprint(ctx context.Context) (account.Device, bool) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return account.Device{}, false
+	}
+	fps := md.Get(deviceFPMetadataKey)
+	if len(fps) == 0 || fps[0] == "" {
+		return account.Device{}, false
+	}
+	dev, err := account.GetDeviceByFingerprint(ctx, s.db, fps[0])
+	if err != nil {
+		return account.Device{}, false
+	}
+	return dev, true
 }
 
 // authenticated resolves the session token from request metadata to a user ID.

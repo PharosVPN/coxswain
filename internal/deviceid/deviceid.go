@@ -31,6 +31,9 @@ type Bundle struct {
 	V   int    `json:"v"`
 	// User pre-fills the account login on the device (convenience, not a secret).
 	User string `json:"user,omitempty"`
+	// Alias is the device's friendly name (devices.name) — the client names the
+	// synced profile after it.
+	Alias string `json:"alias,omitempty"`
 	// RelayAddr is the host:port caravel dials.
 	RelayAddr string `json:"relay_addr"`
 	// RelayServerName is the SAN to verify the relay's leaf against (its
