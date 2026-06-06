@@ -104,6 +104,11 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("POST /api/devices/{id}/bind", s.requireAuth(s.handleBindDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}/bind", s.requireAuth(s.handleClearDevice))
 
+	// Profiles — a device's named connection configs (egress + entry IPs + protocol).
+	mux.HandleFunc("GET /api/profiles", s.requireAuth(s.handleListProfileSpecs))
+	mux.HandleFunc("POST /api/profiles", s.requireAuth(s.handleCreateProfileSpec))
+	mux.HandleFunc("DELETE /api/profiles/{id}", s.requireAuth(s.handleDeleteProfileSpec))
+
 	// Live events — auth-gated (closes the M4 gap).
 	mux.HandleFunc("GET /ws/events", s.requireAuth(s.handleEvents))
 
