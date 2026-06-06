@@ -75,7 +75,18 @@ type amneziaWGParams struct {
 // timestamps are filled in by Issue when the profile is sealed.
 func Build(in BuildInput) Profile {
 	p := Profile{FleetID: in.FleetID, User: in.User, Path: in.Path}
+	// For a path-bound device the client dials only the entry node; the rest of
+	// the chain (mids → exit) is routed server-side. Carry just the entry, so the
+	// profile is what the client actually uses — one entry node plus the egress
+	// path — not the whole fleet. (A single-node device carries all its nodes.)
+	entryID := ""
+	if in.Path != nil && len(in.Path.Hops) > 0 {
+		entryID = in.Path.Hops[0].ID
+	}
 	for _, n := range in.Nodes {
+		if entryID != "" && n.ID != entryID {
+			continue
+		}
 		pool := make([]EndpointPool, 0, len(n.EndpointIPs))
 		flat := make([]string, 0, len(n.EndpointIPs))
 		for _, ip := range n.EndpointIPs {
