@@ -11,7 +11,9 @@
 	let loadError = $state('');
 
 	let adding = $state(false);
+	let addName = $state('');
 	let addEmail = $state('');
+	let addPhone = $state('');
 	let addPassword = $state('');
 	let addError = $state('');
 	let addBusy = $state(false);
@@ -45,7 +47,9 @@
 
 	function openAdd() {
 		adding = true;
+		addName = '';
 		addEmail = '';
+		addPhone = '';
 		addPassword = '';
 		addError = '';
 	}
@@ -55,7 +59,9 @@
 		addError = '';
 		try {
 			const created = await api.post<User>('/api/users', {
+				name: addName,
 				email: addEmail,
+				phone: addPhone,
 				password: addPassword
 			});
 			users = [...users, created];
@@ -161,12 +167,17 @@
 	{:else}
 		<table class="dtable">
 			<thead>
-				<tr><th>Email</th><th>Status</th><th class="text-right">Actions</th></tr>
+				<tr><th>Name</th><th>Contact</th><th>Status</th><th class="text-right">Actions</th></tr>
 			</thead>
 			<tbody>
 				{#each users as u (u.id)}
 					<tr>
-						<td class="font-medium">{u.email}</td>
+						<td class="font-medium">{u.name || u.email || u.phone || u.id}</td>
+						<td class="text-ink-2 text-sm">
+							{#if u.email}<div dir="auto">{u.email}</div>{/if}
+							{#if u.phone}<div dir="auto">{u.phone}</div>{/if}
+							{#if !u.email && !u.phone}<span class="text-ink-3">—</span>{/if}
+						</td>
 						<td>
 							<span class="badge {u.status === 'active' ? 'badge-success' : 'badge-gray'}">
 								<span class="dot"></span>{u.status}
@@ -192,9 +203,13 @@
 
 {#if adding}
 	<Modal title="Add user" onclose={() => (adding = false)}>
-		<label class="label" for="email">Email</label>
+		<label class="label" for="name">Name</label>
+		<input id="name" class="input" bind:value={addName} dir="auto" placeholder="Jane Doe" />
+		<label class="label mt-4" for="email">Email <span class="text-ink-3">(optional)</span></label>
 		<input id="email" class="input" type="email" bind:value={addEmail} dir="auto" />
-		<label class="label mt-4" for="password">Initial password</label>
+		<label class="label mt-4" for="phone">Phone <span class="text-ink-3">(optional)</span></label>
+		<input id="phone" class="input" type="tel" bind:value={addPhone} dir="auto" />
+		<label class="label mt-4" for="password">Password <span class="text-ink-3">(optional)</span></label>
 		<input
 			id="password"
 			class="input"
@@ -202,7 +217,10 @@
 			bind:value={addPassword}
 			autocomplete="new-password"
 		/>
-		<p class="mt-1.5 text-xs text-ink-3">At least 8 characters.</p>
+		<p class="mt-1.5 text-xs text-ink-3">
+			Devices sign in with their own key — a password is only needed for the legacy
+			email login. If set, at least 8 characters.
+		</p>
 		{#if addError}<p class="field-error" role="alert">{addError}</p>{/if}
 		<div class="mt-6 flex justify-end gap-3">
 			<button class="btn btn-secondary" onclick={() => (adding = false)}>Cancel</button>
@@ -216,7 +234,7 @@
 {#if deleting}
 	<Modal title="Remove user" onclose={() => (deleting = null)}>
 		<p class="text-sm text-ink-2">
-			Remove <span class="font-medium text-ink">{deleting.email}</span>? Their profiles and
+			Remove <span class="font-medium text-ink">{deleting.name || deleting.email || deleting.id}</span>? Their profiles and
 			devices are removed with the account.
 		</p>
 		{#if deleteError}<p class="field-error" role="alert">{deleteError}</p>{/if}
@@ -230,7 +248,7 @@
 {/if}
 
 {#if devicesFor}
-	<Modal title="Devices — {devicesFor.email}" onclose={() => (devicesFor = null)}>
+	<Modal title="Devices — {devicesFor.name || devicesFor.email}" onclose={() => (devicesFor = null)}>
 		{#if deviceLoading}
 			<p class="text-sm text-ink-3">Loading devices…</p>
 		{:else}

@@ -30,34 +30,44 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 // encryption key later, from their passphrase (DESIGN §8).
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Name     string `json:"name"`
 		Email    string `json:"email"`
+		Phone    string `json:"phone"`
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Email == "" {
-		writeError(w, http.StatusBadRequest, "email is required")
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if len(req.Password) < minPasswordLen {
-		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
-		return
-	}
-
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create user")
-		return
+	// A password is optional — a sync-only user authenticates by their device's
+	// leaf (cert-auth), not a passphrase. If one is set (for the legacy email
+	// login or the admin web), it must be long enough.
+	var hash string
+	if req.Password != "" {
+		if len(req.Password) < minPasswordLen {
+			writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			return
+		}
+		h, err := auth.HashPassword(req.Password)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create user")
+			return
+		}
+		hash = h
 	}
 	user, err := account.CreateUser(r.Context(), s.db, account.User{
+		Name:         req.Name,
 		Email:        req.Email,
+		Phone:        req.Phone,
 		Role:         account.RoleUser,
 		PasswordHash: hash,
 	})
 	if errors.Is(err, account.ErrEmailTaken) {
-		writeError(w, http.StatusConflict, "email already in use")
+		writeError(w, http.StatusConflict, "email or phone already in use")
 		return
 	}
 	if err != nil {

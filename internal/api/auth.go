@@ -15,14 +15,16 @@ import (
 // userView is the API representation of a user — never includes the hash.
 type userView struct {
 	ID      string `json:"id"`
+	Name    string `json:"name"`
 	Email   string `json:"email"`
+	Phone   string `json:"phone"`
 	Role    string `json:"role"`
 	Status  string `json:"status"`
 	Version int    `json:"version"`
 }
 
 func toUserView(u account.User) userView {
-	return userView{ID: u.ID, Email: u.Email, Role: u.Role, Status: u.Status, Version: u.Version}
+	return userView{ID: u.ID, Name: u.Name, Email: u.Email, Phone: u.Phone, Role: u.Role, Status: u.Status, Version: u.Version}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
