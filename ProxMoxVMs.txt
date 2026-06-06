@@ -1,3 +1,95 @@
-VM	OS	IP	SSH	Vault
-114	OpenWrt 24.10.0	192.168.0.217	key auth	OpenWRT Dev VM (114)
-113	OPNsense 25.7 (FreeBSD 14.3)	192.168.0.224	key auth	OPNsense Dev VM (113)
+PharosVPN dev VMs on Proxmox  —  pve.bodaay.org (192.168.0.91)
+================================================================
+
+All three VMs run on the same Proxmox host. SSH from the Mac is direct
+(no proxy-jump needed).  Bootstrap recipes for the OPNsense + OpenWRT
+ones are documented in docs/DEV-VMS.md (this same repo).
+
+----------------------------------------------------------------
+VM 112 — ubuntu-builder
+----------------------------------------------------------------
+  Purpose:     Linux/amd64 cross-compile + general "I need a Linux box
+               with cores/RAM" workhorse.
+  OS:          Ubuntu 24.04.4 LTS (cloud-init image)
+  IP:          192.168.0.205   (DHCP)
+  Hardware:    4 vCPU / 16 GB RAM / 120 GB disk
+  Bridge:      vmbr0 (default LAN)
+  User:        ubuntu          (cloud-init default; passwordless sudo)
+  SSH:         ssh ubuntu@192.168.0.205
+  Vault:       — (none; SSH key from ~/.ssh/id_ed25519 is authorized)
+  Bootstrap:   cloud-init via the Ubuntu 24.04 noble cloud image —
+               user-data injects the SSH key + sets hostname.
+
+----------------------------------------------------------------
+VM 113 — opnsense-dev
+----------------------------------------------------------------
+  Purpose:     Developing the PharosVPN OPNsense plugin (configd
+               commands + MVC pages).  Throwaway — rebuildable in
+               ~5 min via the documented bootstrap.
+  OS:          OPNsense 25.7 (FreeBSD 14.3-RELEASE-p1)
+  IP:          192.168.0.224   (LAN = vtnet0 = DHCP)
+  Web GUI:     https://192.168.0.224
+  Hardware:    4 vCPU / 4 GB RAM / 32 GB disk
+  Bridge:      vmbr0 (q35 machine type, serial0 = unix socket)
+  User:        root            (key auth enabled, password also set)
+  SSH:         ssh root@192.168.0.224
+               ⚠ root shell is tcsh — always wrap in: sh -c '...'
+  Vault:       op://Agent/"OPNsense Dev VM (113)"  (password + URL)
+  Bootstrap:   serial-preinstalled image + Python expect driver on
+               Proxmox over /var/run/qemu-server/113.serial0 — sends
+               first-boot script as 70-char base64 chunks, decodes,
+               execs.  Sets root pw, installs SSH keys, patches
+               /conf/config.xml so LAN=DHCP + SSH enabled + permit
+               root login, then configctl interface reload all.
+  Gotchas:     - "Auto" trunk on uplink works.
+               - sshd is configd-managed, NOT /etc/rc.d (so
+                 `service sshd onestart` fails — use configctl).
+               - Long pasted lines wrap + interleave on the serial
+                 console; chunk under 80 chars.
+
+----------------------------------------------------------------
+VM 114 — openwrt-dev
+----------------------------------------------------------------
+  Purpose:     Developing the PharosVPN OpenWRT package (server +
+               client modes, UCI/luci entry).  Throwaway — rebuildable
+               in <1 min from the same image.
+  OS:          OpenWrt 24.10.0 (x86-64-generic-ext4-combined)
+  IP:          192.168.0.217   (br-lan = DHCP)
+  Web GUI:     http://192.168.0.217   (LuCI)
+  Hardware:    1 vCPU / 512 MB RAM / 2 GB disk
+  Bridge:      vmbr0
+  User:        root            (key auth; password set, login locked)
+  SSH:         ssh root@192.168.0.217   (dropbear)
+  Vault:       op://Agent/"OpenWRT Dev VM (114)"  (password + URL)
+  Bootstrap:   uci-defaults — /etc/uci-defaults/99-pharos-firstboot
+               injected into the ext4 partition BEFORE first boot
+               via losetup -P + mount.  Script runs once, deletes
+               itself, sets root pw, switches br-lan from static
+               192.168.1.1 to DHCP client, disables LAN DHCP server,
+               installs SSH keys to /etc/dropbear/authorized_keys,
+               disables password auth, sets hostname.
+  Gotchas:     - BusyBox ash — no `hostname` binary, use
+                 `uci get system.@system[0].hostname`.
+               - `gunzip` prints "trailing garbage ignored" on the
+                 raw image — harmless.
+
+----------------------------------------------------------------
+Proxmox-side cheatsheet
+----------------------------------------------------------------
+  SSH host:    ssh root@pve.bodaay.org
+  List VMs:    qm list | grep -E '^\s*11[234]'
+  Console:     ssh root@pve.bodaay.org 'qm terminal <vmid>'
+  Serial:      ssh root@pve.bodaay.org 'socat - UNIX-CONNECT:/var/run/qemu-server/<vmid>.serial0'
+  Stop/Start:  qm stop <vmid>  ;  qm start <vmid>
+  Snapshot:    qm snapshot <vmid> <name> --description '...'
+  Rollback:    qm rollback <vmid> <name>
+
+Backups: explicitly EXCLUDED from the key-services vzdump set
+(see /Users/khalefa/Projects/MyHouse/proxmox/BACKUPS.md) —
+they're disposable and re-bootstrappable from the recipes above.
+Take a snapshot before a risky change if you want a quick
+rollback point.
+
+Reachability matrix (from the Mac):
+  Mac → vmbr0 LAN (192.168.0.0/24) → all three VMs directly.
+  No proxy-jump needed for any of them.
