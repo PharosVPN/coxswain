@@ -29,7 +29,7 @@ func TestOpenAndMigrate(t *testing.T) {
 		"admins", "audit_log", "bootstrap_tokens", "ca", "controller_cert",
 		"device_certs", "device_exits", "devices", "enrollment_tickets", "metrics_samples",
 		"node_certs", "node_links", "nodes", "path_hops", "paths", "peers",
-		"profile_signing_key", "profiles", "relays", "servers", "service_certs",
+		"profile_signing_key", "profile_specs", "profiles", "relays", "servers", "service_certs",
 		"sessions", "ssh_identity", "users",
 	}
 	rows, err := conn.Query(

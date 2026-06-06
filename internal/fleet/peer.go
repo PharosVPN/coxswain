@@ -29,14 +29,18 @@ type Peer struct {
 	PresharedKey string // AmneziaWG only
 	// Flow is the VLESS flow for an XRay/REALITY peer (e.g. "xtls-rprx-vision");
 	// empty for AmneziaWG.
-	Flow      string
-	Version   int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Flow string
+	// ProfileSpecID ties this peer to the profile spec that minted it, so a
+	// device can have distinct peers per profile on the same node. Empty for
+	// legacy device-level peers (pre-profiles).
+	ProfileSpecID string
+	Version       int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 const peerColumns = `id, node_id, device_id, protocol, public_key, allowed_ip,
-	preshared_key, flow, version, created_at, updated_at`
+	preshared_key, flow, profile_spec_id, version, created_at, updated_at`
 
 // CreatePeer inserts a new peer.
 func CreatePeer(ctx context.Context, db *sql.DB, p Peer) (Peer, error) {
@@ -48,9 +52,9 @@ func CreatePeer(ctx context.Context, db *sql.DB, p Peer) (Peer, error) {
 	p.CreatedAt, p.UpdatedAt = now, now
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO peers (`+peerColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO peers (`+peerColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.NodeID, p.DeviceID, p.Protocol, p.PublicKey, p.AllowedIP,
-		p.PresharedKey, p.Flow, p.Version, p.CreatedAt, p.UpdatedAt)
+		p.PresharedKey, p.Flow, p.ProfileSpecID, p.Version, p.CreatedAt, p.UpdatedAt)
 	if err != nil {
 		return Peer{}, fmt.Errorf("create peer: %w", err)
 	}
@@ -124,7 +128,7 @@ func queryPeers(ctx context.Context, db *sql.DB, where string, args ...any) ([]P
 	for rows.Next() {
 		var p Peer
 		if err := rows.Scan(&p.ID, &p.NodeID, &p.DeviceID, &p.Protocol, &p.PublicKey,
-			&p.AllowedIP, &p.PresharedKey, &p.Flow, &p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.AllowedIP, &p.PresharedKey, &p.Flow, &p.ProfileSpecID, &p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
