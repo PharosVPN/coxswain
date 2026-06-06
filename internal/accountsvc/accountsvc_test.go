@@ -104,8 +104,9 @@ func TestAuthenticateAndProfileRoundTrip(t *testing.T) {
 		t.Fatalf("EnrollKeys: %v", err)
 	}
 
-	// coxswain issues a profile for the user.
-	if _, err := profile.Issue(ctx, conn, userID, profile.Profile{FleetID: "fleet-1"}); err != nil {
+	// coxswain issues a legacy per-user profile (the test connects directly, with
+	// no relay fingerprint, so GetProfile falls back to the per-user profile).
+	if _, err := profile.Issue(ctx, conn, userID, "", profile.Profile{FleetID: "fleet-1"}); err != nil {
 		t.Fatalf("profile.Issue: %v", err)
 	}
 

@@ -59,7 +59,7 @@ func TestIssueAndOpenRoundTrip(t *testing.T) {
 	const passphrase = "a-strong-account-passphrase"
 	userID, _ := enrolledUser(t, conn, passphrase)
 
-	rev, err := profile.Issue(ctx, conn, userID, profile.Profile{
+	rev, err := profile.Issue(ctx, conn, userID, "", profile.Profile{
 		FleetID: "fleet-1",
 		Nodes: []profile.Node{
 			{ID: "nod_a", Name: "ams-1", Region: "eu", Endpoints: []string{"203.0.113.7:443"}},
@@ -72,7 +72,7 @@ func TestIssueAndOpenRoundTrip(t *testing.T) {
 		t.Errorf("first revision: got %d want 1", rev)
 	}
 
-	ciphertext, gotRev, err := profile.LatestCiphertext(ctx, conn, userID)
+	ciphertext, gotRev, err := profile.LatestCiphertext(ctx, conn, userID, "")
 	if err != nil {
 		t.Fatalf("LatestCiphertext: %v", err)
 	}
@@ -114,13 +114,58 @@ func TestIssueRevisionIncrements(t *testing.T) {
 	userID, _ := enrolledUser(t, conn, "pw")
 
 	for want := int64(1); want <= 3; want++ {
-		rev, err := profile.Issue(ctx, conn, userID, profile.Profile{FleetID: "f"})
+		rev, err := profile.Issue(ctx, conn, userID, "", profile.Profile{FleetID: "f"})
 		if err != nil {
 			t.Fatalf("Issue: %v", err)
 		}
 		if rev != want {
 			t.Errorf("revision: got %d want %d", rev, want)
 		}
+	}
+}
+
+// TestIssuePerDevice guards device-aware profiles: a user's devices each get
+// their own profile and their own revision sequence, and LatestCiphertext
+// returns the right device's latest — so account sync hands a device its own
+// profile, not another device's.
+func TestIssuePerDevice(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, _ := enrolledUser(t, conn, "pw")
+	devA, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "a"})
+	if err != nil {
+		t.Fatalf("CreateDevice a: %v", err)
+	}
+	devB, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "b"})
+	if err != nil {
+		t.Fatalf("CreateDevice b: %v", err)
+	}
+
+	// Device A advances to revision 2; device B's sequence is independent.
+	mustIssue := func(devID, fleet string, want int64) {
+		rev, err := profile.Issue(ctx, conn, userID, devID, profile.Profile{FleetID: fleet})
+		if err != nil {
+			t.Fatalf("Issue %s: %v", fleet, err)
+		}
+		if rev != want {
+			t.Errorf("Issue %s revision: got %d want %d", fleet, rev, want)
+		}
+	}
+	mustIssue(devA.ID, "a1", 1)
+	mustIssue(devA.ID, "a2", 2)
+	mustIssue(devB.ID, "b1", 1) // independent of A
+
+	_, revA, err := profile.LatestCiphertext(ctx, conn, userID, devA.ID)
+	if err != nil || revA != 2 {
+		t.Fatalf("device A latest: rev %d err %v (want rev 2)", revA, err)
+	}
+	_, revB, err := profile.LatestCiphertext(ctx, conn, userID, devB.ID)
+	if err != nil || revB != 1 {
+		t.Fatalf("device B latest: rev %d err %v (want rev 1)", revB, err)
+	}
+	// A user with per-device profiles has no legacy per-user profile.
+	if _, _, err := profile.LatestCiphertext(ctx, conn, userID, ""); !errors.Is(err, profile.ErrNoProfile) {
+		t.Errorf("legacy per-user lookup: got %v want ErrNoProfile", err)
 	}
 }
 
@@ -131,14 +176,14 @@ func TestIssueWithoutEncryptionKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if _, err := profile.Issue(ctx, conn, u.ID, profile.Profile{}); !errors.Is(err, profile.ErrNoEncryptionKey) {
+	if _, err := profile.Issue(ctx, conn, u.ID, "", profile.Profile{}); !errors.Is(err, profile.ErrNoEncryptionKey) {
 		t.Fatalf("got %v want ErrNoEncryptionKey", err)
 	}
 }
 
 func TestLatestCiphertextNoProfile(t *testing.T) {
 	conn := newDB(t)
-	if _, _, err := profile.LatestCiphertext(context.Background(), conn, "usr_missing"); !errors.Is(err, profile.ErrNoProfile) {
+	if _, _, err := profile.LatestCiphertext(context.Background(), conn, "usr_missing", ""); !errors.Is(err, profile.ErrNoProfile) {
 		t.Fatalf("got %v want ErrNoProfile", err)
 	}
 }

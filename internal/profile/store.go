@@ -25,9 +25,12 @@ var (
 )
 
 // Issue seals profile p to the user end-to-end and stores the ciphertext as a
-// new revision. coxswain keeps only ciphertext — the plaintext is discarded once
-// sealed. It returns the new revision number.
-func Issue(ctx context.Context, db *sql.DB, userID string, p Profile) (int64, error) {
+// new revision for the given device. coxswain keeps only ciphertext — the
+// plaintext is discarded once sealed. Each device has its own revision sequence
+// (so a device's profile is independent of the user's other devices). A blank
+// deviceID stores a legacy per-user profile (device_id NULL). Returns the new
+// revision number.
+func Issue(ctx context.Context, db *sql.DB, userID, deviceID string, p Profile) (int64, error) {
 	recipient, _, err := account.GetEncryptionKey(ctx, db, userID)
 	if err != nil {
 		return 0, err
@@ -42,7 +45,8 @@ func Issue(ctx context.Context, db *sql.DB, userID string, p Profile) (int64, er
 
 	var prev int64
 	if err := db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(revision), 0) FROM profiles WHERE user_id = ?`, userID,
+		`SELECT COALESCE(MAX(revision), 0) FROM profiles WHERE user_id = ? AND `+deviceFilter(deviceID),
+		deviceArgs(userID, deviceID)...,
 	).Scan(&prev); err != nil {
 		return 0, fmt.Errorf("profile: read revision: %w", err)
 	}
@@ -66,23 +70,29 @@ func Issue(ctx context.Context, db *sql.DB, userID string, p Profile) (int64, er
 		return 0, fmt.Errorf("profile: marshal bundle: %w", err)
 	}
 
+	var dev any
+	if deviceID != "" {
+		dev = deviceID
+	}
 	now := time.Now().UTC()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO profiles (id, user_id, revision, ciphertext, version, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 1, ?, ?)`,
-		idgen.New("prof"), userID, p.Revision, ciphertext, now, now,
+		`INSERT INTO profiles (id, user_id, device_id, revision, ciphertext, version, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+		idgen.New("prof"), userID, dev, p.Revision, ciphertext, now, now,
 	); err != nil {
 		return 0, fmt.Errorf("profile: store: %w", err)
 	}
 	return p.Revision, nil
 }
 
-// LatestCiphertext returns the most recent sealed profile bundle for a user,
-// as the JSON-encoded e2e.SealedBundle coxswain stores.
-func LatestCiphertext(ctx context.Context, db *sql.DB, userID string) (ciphertext []byte, revision int64, err error) {
+// LatestCiphertext returns the most recent sealed profile bundle for a user's
+// device, as the JSON-encoded e2e.SealedBundle coxswain stores. A blank deviceID
+// reads the legacy per-user profile (device_id NULL).
+func LatestCiphertext(ctx context.Context, db *sql.DB, userID, deviceID string) (ciphertext []byte, revision int64, err error) {
 	err = db.QueryRowContext(ctx,
 		`SELECT ciphertext, revision FROM profiles
-		 WHERE user_id = ? ORDER BY revision DESC LIMIT 1`, userID,
+		 WHERE user_id = ? AND `+deviceFilter(deviceID)+` ORDER BY revision DESC LIMIT 1`,
+		deviceArgs(userID, deviceID)...,
 	).Scan(&ciphertext, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, 0, ErrNoProfile
@@ -91,4 +101,20 @@ func LatestCiphertext(ctx context.Context, db *sql.DB, userID string) (ciphertex
 		return nil, 0, fmt.Errorf("profile: read: %w", err)
 	}
 	return ciphertext, revision, nil
+}
+
+// deviceFilter / deviceArgs build the device-scoped WHERE clause: `device_id = ?`
+// for a real device, `device_id IS NULL` for the legacy per-user row.
+func deviceFilter(deviceID string) string {
+	if deviceID == "" {
+		return "device_id IS NULL"
+	}
+	return "device_id = ?"
+}
+
+func deviceArgs(userID, deviceID string) []any {
+	if deviceID == "" {
+		return []any{userID}
+	}
+	return []any{userID, deviceID}
 }

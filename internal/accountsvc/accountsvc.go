@@ -24,6 +24,13 @@ import (
 // sessionMetadataKey carries the session token on authenticated RPCs.
 const sessionMetadataKey = "pharos-session"
 
+// deviceFPMetadataKey is the relay-verified device fingerprint (the device's
+// Device-CA leaf), forwarded by the relay after it terminates the device's mTLS.
+// A client cannot set it — the relay strips client-supplied x-pharos-* keys — so
+// coxswain trusts it to identify the calling device. Must match the relay
+// (relay/core.deviceFPMetadataKey) and the pki/relay fingerprint shape.
+const deviceFPMetadataKey = "x-pharos-device-fp"
+
 // Service implements accountv1.AccountSyncServer.
 type Service struct {
 	accountv1.UnimplementedAccountSyncServer
@@ -65,7 +72,7 @@ func (s *Service) Authenticate(ctx context.Context, req *accountv1.AuthenticateR
 
 // EnrollKeys registers a user's encryption keypair on first device setup.
 func (s *Service) EnrollKeys(ctx context.Context, req *accountv1.EnrollKeysRequest) (*accountv1.EnrollKeysResponse, error) {
-	userID, err := s.authenticated(ctx)
+	userID, _, err := s.caller(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -78,15 +85,20 @@ func (s *Service) EnrollKeys(ctx context.Context, req *accountv1.EnrollKeysReque
 	return &accountv1.EnrollKeysResponse{}, nil
 }
 
-// GetProfile returns the user's latest sealed profile bundle.
+// GetProfile returns the calling device's latest sealed profile bundle. When the
+// relay forwards the device fingerprint, this is the device's own profile (its
+// keys + path); otherwise it falls back to the legacy per-user profile.
 func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest) (*accountv1.GetProfileResponse, error) {
-	userID, err := s.authenticated(ctx)
+	userID, deviceID, err := s.caller(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	ciphertext, revision, err := profile.LatestCiphertext(ctx, s.db, userID)
+	ciphertext, revision, err := profile.LatestCiphertext(ctx, s.db, userID, deviceID)
 	if errors.Is(err, profile.ErrNoProfile) {
+		if deviceID != "" {
+			return nil, status.Error(codes.NotFound, "no profile provisioned for this device yet")
+		}
 		return nil, status.Error(codes.NotFound, "no profile issued for this account")
 	}
 	if err != nil {
@@ -106,6 +118,28 @@ func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest
 		SigningPublicKey:  signing.Public,
 		WrappedPrivateKey: wrapped,
 	}, nil
+}
+
+// caller resolves who is calling. The relay-verified device fingerprint
+// (x-pharos-device-fp) identifies the *device* (and thus its user), so sync
+// returns that device's own profile. Without it (direct/legacy callers) it falls
+// back to the session token, yielding the user with an empty device id (the
+// legacy per-user profile).
+func (s *Service) caller(ctx context.Context) (userID, deviceID string, err error) {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if fps := md.Get(deviceFPMetadataKey); len(fps) > 0 && fps[0] != "" {
+			if dev, derr := account.GetDeviceByFingerprint(ctx, s.db, fps[0]); derr == nil {
+				return dev.UserID, dev.ID, nil
+			}
+			// Unknown fingerprint — the device may not be enrolled. Fall through
+			// to the session rather than hard-failing.
+		}
+	}
+	uid, serr := s.authenticated(ctx)
+	if serr != nil {
+		return "", "", serr
+	}
+	return uid, "", nil
 }
 
 // authenticated resolves the session token from request metadata to a user ID.

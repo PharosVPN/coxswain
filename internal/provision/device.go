@@ -122,7 +122,7 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		Nodes:       buildNodes,
 		Path:        pathView,
 	})
-	revision, err := profile.Issue(ctx, db, device.UserID, prof)
+	revision, err := profile.Issue(ctx, db, device.UserID, device.ID, prof)
 	if err != nil {
 		return Result{}, err
 	}

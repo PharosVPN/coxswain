@@ -68,6 +68,27 @@ func GetDevice(ctx context.Context, db *sql.DB, id string) (Device, error) {
 	return d, nil
 }
 
+// GetDeviceByFingerprint returns the device whose Device-CA leaf has the given
+// fingerprint (the trusted `x-pharos-device-fp` the relay forwards after mTLS),
+// or ErrNotFound. This is how account sync identifies the *device* behind a call.
+func GetDeviceByFingerprint(ctx context.Context, db *sql.DB, fingerprint string) (Device, error) {
+	if fingerprint == "" {
+		return Device{}, ErrNotFound
+	}
+	var d Device
+	err := db.QueryRowContext(ctx,
+		`SELECT `+deviceColumns+` FROM devices WHERE fingerprint = ?`, fingerprint,
+	).Scan(&d.ID, &d.UserID, &d.Name, &d.Platform, &d.Fingerprint, &d.Status,
+		&d.Version, &d.CreatedAt, &d.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Device{}, ErrNotFound
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("get device by fingerprint: %w", err)
+	}
+	return d, nil
+}
+
 // ListDevicesByUser returns a user's devices, oldest first.
 func ListDevicesByUser(ctx context.Context, db *sql.DB, userID string) ([]Device, error) {
 	rows, err := db.QueryContext(ctx,

@@ -117,8 +117,8 @@ func TestProvisionDevice(t *testing.T) {
 		}
 	}
 
-	// The issued profile decrypts to a populated profile.
-	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID)
+	// The issued profile decrypts to a populated profile (now per-device).
+	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID, device.ID)
 	if err != nil {
 		t.Fatalf("LatestCiphertext: %v", err)
 	}
