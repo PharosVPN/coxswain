@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is the coxswain build version. Overridable at link time.
-var version = "0.1.0-dev"
+// version is the coxswain build version, injected at link time by
+// scripts/build.sh from the VERSION file:
+//   -ldflags "-X github.com/PharosVPN/coxswain/internal/cli.version=$(cat VERSION)"
+var version = "0.0.0-dev"
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -36,6 +38,7 @@ func newRootCmd() *cobra.Command {
 		newEnrollCmd(),
 		newDevicesCmd(),
 		newServeCmd(),
+		newVersionCmd(),
 	)
 	return root
 }

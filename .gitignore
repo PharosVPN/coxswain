@@ -16,3 +16,4 @@
 
 # Live test-fleet inventory (transient droplet IPs — never committed)
 /TEST-FLEET.md
+bin/

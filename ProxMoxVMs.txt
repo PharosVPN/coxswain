@@ -1,0 +1,3 @@
+VM	OS	IP	SSH	Vault
+114	OpenWrt 24.10.0	192.168.0.217	key auth	OpenWRT Dev VM (114)
+113	OPNsense 25.7 (FreeBSD 14.3)	192.168.0.224	key auth	OPNsense Dev VM (113)
