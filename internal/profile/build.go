@@ -12,6 +12,13 @@ import (
 // ProtocolVersionAmneziaWG is the version tag for amneziawg protocol blocks.
 const ProtocolVersionAmneziaWG = 2
 
+// ClientListenPort is the UDP port a node's client interface (awg0) is bound to
+// — the port a caravel client must dial. The endpoint pool advertises this (one
+// port, many IPs); the client picks a random IP and dials this port. (Decision
+// 17's per-port rotation is not dialable while awg0 binds a single port, so the
+// pool pins the real listen port instead of an aspirational range.)
+const ClientListenPort = 443
+
 // EndpointPool is one node IP and the UDP port range it accepts AmneziaWG on.
 // The client picks a random port in [PortMin, PortMax] (decision 17).
 type EndpointPool struct {
@@ -49,8 +56,6 @@ type BuildInput struct {
 	FleetID     string
 	DeviceWGKey string // the device's AmneziaWG private key
 	TunnelIP    string // the device's allocated VPN address
-	PortMin     int    // endpoint UDP port range
-	PortMax     int
 	Rotation    RotationPolicy
 	Nodes       []BuildNode
 	// Path is the device's egress chain (entry → [mid] → exit) for display, or
@@ -90,7 +95,7 @@ func Build(in BuildInput) Profile {
 		pool := make([]EndpointPool, 0, len(n.EndpointIPs))
 		flat := make([]string, 0, len(n.EndpointIPs))
 		for _, ip := range n.EndpointIPs {
-			pool = append(pool, EndpointPool{IP: ip, PortMin: in.PortMin, PortMax: in.PortMax})
+			pool = append(pool, EndpointPool{IP: ip, PortMin: ClientListenPort, PortMax: ClientListenPort})
 			flat = append(flat, ip)
 		}
 		params, _ := json.Marshal(amneziaWGParams{

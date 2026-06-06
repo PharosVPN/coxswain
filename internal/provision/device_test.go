@@ -165,8 +165,10 @@ func TestProvisionDevice(t *testing.T) {
 	if params.Obfuscation != testObfuscation {
 		t.Errorf("obfuscation not carried into params: got %+v want %+v", params.Obfuscation, testObfuscation)
 	}
-	if len(params.Endpoints) != 1 || params.Endpoints[0].PortMin != 2000 || params.Endpoints[0].PortMax != 60000 {
-		t.Errorf("endpoint pool: got %+v", params.Endpoints)
+	// The pool advertises the node's real client listen port (443), not a range —
+	// the client must dial a port the node is actually bound to.
+	if len(params.Endpoints) != 1 || params.Endpoints[0].PortMin != profile.ClientListenPort || params.Endpoints[0].PortMax != profile.ClientListenPort {
+		t.Errorf("endpoint pool: got %+v want port %d", params.Endpoints, profile.ClientListenPort)
 	}
 	if !params.Rotation.Enabled || params.Rotation.IntervalSeconds != 600 {
 		t.Errorf("rotation policy not carried: %+v", params.Rotation)

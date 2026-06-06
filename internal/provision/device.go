@@ -116,8 +116,6 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		User:        device.UserID,
 		DeviceWGKey: keys.PrivateKey,
 		TunnelIP:    tunnelIP,
-		PortMin:     opts.PortMin,
-		PortMax:     opts.PortMax,
 		Rotation:    opts.Rotation,
 		Nodes:       buildNodes,
 		Path:        pathView,
