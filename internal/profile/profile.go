@@ -17,6 +17,10 @@ import (
 const (
 	ProtocolAmneziaWG   = "amneziawg"
 	ProtocolXRayReality = "xray-reality"
+	// ProtocolBoth is a profile-level tag (not a per-node protocol entry): the
+	// profile offers AmneziaWG and XRay/REALITY on each node, and the client picks
+	// at connect (auto prefers AmneziaWG). A node carries one entry per protocol.
+	ProtocolBoth = "both"
 )
 
 // Profile is a device's VPN configuration: the set of named profiles it may

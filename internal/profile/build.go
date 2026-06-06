@@ -155,9 +155,13 @@ func BuildClientProfile(in BuildInput) ClientProfile {
 		}
 		flat := append([]string(nil), n.EndpointIPs...)
 
+		// A "both" profile carries both protocol entries on each node; the client
+		// chooses at connect. A single-protocol profile emits only its own.
+		emitAWG := in.Protocol == ProtocolAmneziaWG || in.Protocol == ProtocolBoth
+		emitXRay := in.Protocol == ProtocolXRayReality || in.Protocol == ProtocolBoth
+
 		var protocols []Protocol
-		switch in.Protocol {
-		case ProtocolAmneziaWG:
+		if emitAWG {
 			// AmneziaWG entry (UDP). The pool pins the real listen port.
 			if n.WGPublicKey != "" {
 				pool := endpointPool(n.EndpointIPs, ClientListenPort)
@@ -177,7 +181,8 @@ func BuildClientProfile(in BuildInput) ClientProfile {
 					Params: params,
 				})
 			}
-		case ProtocolXRayReality:
+		}
+		if emitXRay {
 			// XRay/REALITY entry (TCP). The client dials the same IP pool on the
 			// REALITY TCP port and presents the fleet-wide camouflage policy.
 			if n.XRayPublicKey != "" {

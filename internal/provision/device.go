@@ -176,9 +176,18 @@ func provisionSpec(ctx context.Context, db *sql.DB, device account.Device, spec 
 		EndpointIPs: entryIPs(entry, spec.EntryIPs),
 		AllowedIPs:  []string{"0.0.0.0/0", "::/0"},
 	}
-	var wgKey, xrayUUID string
-	switch spec.Protocol {
-	case fleet.ProtoAmneziaWG:
+	// A "both" profile mints both an AmneziaWG and an XRay/REALITY peer on the
+	// entry (sharing one tunnel IP), so the client can dial the entry with either;
+	// the cascade beyond the entry is always AmneziaWG regardless. The data-plane
+	// protocol only ever describes the client↔entry hop.
+	wantAWG := spec.Protocol == fleet.ProtoAmneziaWG || spec.Protocol == fleet.ProtoBoth
+	wantXRay := spec.Protocol == fleet.ProtoXRayReality || spec.Protocol == fleet.ProtoBoth
+	var (
+		wgKey, xrayUUID string
+		peerCount       int
+	)
+
+	if wantAWG {
 		if entry.WGPublicKey == "" || entry.Obfuscation.IsZero() {
 			return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s: entry node %s is not AmneziaWG-ready", spec.ID, entry.ID)
 		}
@@ -202,25 +211,36 @@ func provisionSpec(ctx context.Context, db *sql.DB, device account.Device, spec 
 		bn.WGPublicKey = entry.WGPublicKey
 		bn.PresharedKey = psk
 		bn.Obfuscation = entry.Obfuscation
-	case fleet.ProtoXRayReality:
-		if !opts.XRay.Enabled || entry.XRayPublicKey == "" {
+		peerCount++
+	}
+
+	if wantXRay {
+		xrayReady := opts.XRay.Enabled && entry.XRayPublicKey != ""
+		switch {
+		case xrayReady:
+			xrayUUID = uuid.NewString()
+			if _, err := fleet.CreatePeer(ctx, db, fleet.Peer{
+				NodeID:        entry.ID,
+				DeviceID:      device.ID,
+				Protocol:      profile.ProtocolXRayReality,
+				PublicKey:     xrayUUID,
+				AllowedIP:     tunnelIP,
+				Flow:          profile.DefaultXRayFlow,
+				ProfileSpecID: spec.ID,
+			}); err != nil {
+				return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s xray peer: %w", spec.ID, err)
+			}
+			bn.XRayPublicKey = entry.XRayPublicKey
+			peerCount++
+		case spec.Protocol == fleet.ProtoXRayReality:
+			// An XRay-only profile needs the entry to actually offer REALITY.
 			return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s: entry node %s is not XRay-ready", spec.ID, entry.ID)
+			// else: a "both" profile on an entry without REALITY → AmneziaWG only.
 		}
-		xrayUUID = uuid.NewString()
-		if _, err := fleet.CreatePeer(ctx, db, fleet.Peer{
-			NodeID:        entry.ID,
-			DeviceID:      device.ID,
-			Protocol:      profile.ProtocolXRayReality,
-			PublicKey:     xrayUUID,
-			AllowedIP:     tunnelIP,
-			Flow:          profile.DefaultXRayFlow,
-			ProfileSpecID: spec.ID,
-		}); err != nil {
-			return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s xray peer: %w", spec.ID, err)
-		}
-		bn.XRayPublicKey = entry.XRayPublicKey
-	default:
-		return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s: unknown protocol %q", spec.ID, spec.Protocol)
+	}
+
+	if peerCount == 0 {
+		return profile.ClientProfile{}, 0, "", fmt.Errorf("provision: spec %s: entry node %s offers neither protocol", spec.ID, entry.ID)
 	}
 
 	cp := profile.BuildClientProfile(profile.BuildInput{
@@ -235,7 +255,7 @@ func provisionSpec(ctx context.Context, db *sql.DB, device account.Device, spec 
 		XRay:           clientPolicy(opts),
 		Path:           pathView,
 	})
-	return cp, 1, tunnelIP, nil
+	return cp, peerCount, tunnelIP, nil
 }
 
 // provisionAuto renders the auto-profiles a device with no specs receives: one

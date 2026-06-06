@@ -122,7 +122,7 @@ func newProfilesCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&nodeID, "node", "", "egress: a single node id (direct exit)")
 	cmd.Flags().StringVar(&pathID, "path", "", "egress: a multi-hop path id (cascade)")
 	cmd.Flags().StringVar(&entryIPsCSV, "entry-ips", "", "subset of the entry node's IPs the client may enter on (comma-separated; default all)")
-	cmd.Flags().StringVar(&proto, "protocol", fleet.ProtoAmneziaWG, "data-plane protocol: amneziawg | xray-reality")
+	cmd.Flags().StringVar(&proto, "protocol", fleet.ProtoAmneziaWG, "data-plane protocol: amneziawg | xray-reality | both")
 	_ = cmd.MarkFlagRequired("user")
 	return cmd
 }

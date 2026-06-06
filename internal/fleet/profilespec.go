@@ -22,6 +22,8 @@ var ErrInvalidProfileSpec = errors.New("fleet: invalid profile spec")
 const (
 	ProtoAmneziaWG   = "amneziawg"
 	ProtoXRayReality = "xray-reality"
+	// ProtoBoth offers both protocols on the profile; the client picks at connect.
+	ProtoBoth = "both"
 )
 
 // ProfileSpec is the admin-created "profile" (the `profile_specs` table): a
@@ -63,7 +65,7 @@ func (s ProfileSpec) Validate() error {
 	if (s.PathID == "") == (s.NodeID == "") {
 		return fmt.Errorf("%w: set exactly one of path or node as the egress", ErrInvalidProfileSpec)
 	}
-	if s.Protocol != ProtoAmneziaWG && s.Protocol != ProtoXRayReality {
+	if s.Protocol != ProtoAmneziaWG && s.Protocol != ProtoXRayReality && s.Protocol != ProtoBoth {
 		return fmt.Errorf("%w: unknown protocol %q", ErrInvalidProfileSpec, s.Protocol)
 	}
 	return nil

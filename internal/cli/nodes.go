@@ -22,6 +22,8 @@ import (
 	"github.com/PharosVPN/coxswain/internal/ssh"
 	"github.com/PharosVPN/coxswain/internal/wg"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // obfNote describes whether a node also reported obfuscation parameters, for
@@ -399,11 +401,19 @@ func newNodesPushCmd() *cobra.Command {
 				}
 				xResp, xErr := client.PushXRayRealityConfig(rpcCtx, xrayRev, xrayPeers,
 					dest, serverNames, []string{""}, uint32(profile.XRayListenPort))
-				if xErr != nil {
+				switch {
+				case status.Code(xErr) == codes.Unimplemented:
+					// This node runs a build without REALITY (e.g. a cascade exit that
+					// only carries AmneziaWG). That's fine — skip xray and continue, so
+					// the cascade reconcile below still runs. Aborting here would leave
+					// the node's edge peer wiped by the awg full-replace above.
+					fmt.Println("  xray      skipped (node has no REALITY support)")
+				case xErr != nil:
 					return fmt.Errorf("control %s (xray): %w", node.ControlAddr, xErr)
+				default:
+					fmt.Printf("  xray      pushed %d REALITY client(s), revision %d (applied %d), reloaded %t\n",
+						len(xrayPeers), xrayRev, xResp.GetAppliedRevision(), xResp.GetReloaded())
 				}
-				fmt.Printf("  xray      pushed %d REALITY client(s), revision %d (applied %d), reloaded %t\n",
-					len(xrayPeers), xrayRev, xResp.GetAppliedRevision(), xResp.GetReloaded())
 			}
 
 			// A device-peer push full-replaces awg0, wiping any cascade edge peer

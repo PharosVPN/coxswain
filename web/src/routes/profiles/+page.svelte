@@ -272,6 +272,7 @@
 		<select id="pf-proto" class="input" bind:value={fProtocol}>
 			<option value="amneziawg">AmneziaWG</option>
 			<option value="xray-reality">XRay/REALITY</option>
+			<option value="both">Both (client chooses)</option>
 		</select>
 
 		{#if addError}<p class="field-error" role="alert">{addError}</p>{/if}
