@@ -132,6 +132,7 @@ func newDevicesIssueCmd() *cobra.Command {
 
 			data, err := deviceid.Bundle{
 				User:            user.Email,
+				Alias:           name,
 				RelayAddr:       relay,
 				RelayServerName: serverName,
 				CAFingerprint:   bundle.Root.Fingerprint(),
