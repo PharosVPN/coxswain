@@ -26,13 +26,15 @@ func newProfileCmd() *cobra.Command {
 }
 
 func newProfileExportCmd() *cobra.Command {
-	var cfgPath, out string
+	var cfgPath, out, deviceID string
 	cmd := &cobra.Command{
 		Use:   "export <user-id>",
 		Short: "Export a user's latest profile as an account-mode .pharos file",
 		Long: "Export a user's latest sealed profile as a `.pharos` file in\n" +
 			"account mode (DESIGN §9). coxswain stores only ciphertext, so the file\n" +
-			"is the sealed bundle — only the user's device can decrypt it.",
+			"is the sealed bundle — only the user's device can decrypt it.\n" +
+			"Profiles are per-device; pass --device to pick one (default: the\n" +
+			"legacy per-user profile, if any).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			userID := args[0]
@@ -42,7 +44,7 @@ func newProfileExportCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			ciphertext, revision, err := profile.LatestCiphertext(cmd.Context(), conn, userID)
+			ciphertext, revision, err := profile.LatestCiphertext(cmd.Context(), conn, userID, deviceID)
 			if errors.Is(err, profile.ErrNoProfile) {
 				return fmt.Errorf("no profile has been issued for %s", userID)
 			}
@@ -75,5 +77,6 @@ func newProfileExportCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	cmd.Flags().StringVar(&out, "out", "", "output path (default <user-id>.pharos)")
+	cmd.Flags().StringVar(&deviceID, "device", "", "export this device's profile (default: legacy per-user)")
 	return cmd
 }

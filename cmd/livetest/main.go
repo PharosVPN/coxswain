@@ -73,7 +73,7 @@ func main() {
 		must(err)
 		signer, _, err := profile.EnsureSigningKey(ctx, conn)
 		must(err)
-		ct, _, err := profile.LatestCiphertext(ctx, conn, userID)
+		ct, _, err := profile.LatestCiphertext(ctx, conn, userID, "")
 		must(err)
 		var bundle e2e.SealedBundle
 		must(json.Unmarshal(ct, &bundle))
@@ -142,7 +142,7 @@ func main() {
 		must(err)
 		signer, _, err := profile.EnsureSigningKey(ctx, conn)
 		must(err)
-		ct, _, err := profile.LatestCiphertext(ctx, conn, userID)
+		ct, _, err := profile.LatestCiphertext(ctx, conn, userID, "")
 		must(err)
 		var bundle e2e.SealedBundle
 		must(json.Unmarshal(ct, &bundle))
