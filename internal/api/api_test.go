@@ -175,7 +175,7 @@ func TestUsersLifecycle(t *testing.T) {
 	login(t, ts, client)
 
 	resp, err := client.Post(ts.URL+"/api/users", "application/json",
-		strings.NewReader(`{"email":"user@example.com","password":"longenough"}`))
+		strings.NewReader(`{"name":"Test User","email":"user@example.com","password":"longenough"}`))
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestDevicesAndProvision(t *testing.T) {
 	login(t, ts, client)
 
 	uResp, err := client.Post(ts.URL+"/api/users", "application/json",
-		strings.NewReader(`{"email":"u@example.com","password":"longenough"}`))
+		strings.NewReader(`{"name":"U","email":"u@example.com","password":"longenough"}`))
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

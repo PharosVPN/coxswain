@@ -46,9 +46,14 @@ const (
 )
 
 // User is an account record (the `users` table).
+// User is an account: a uuid (ID) and a name, with optional email and phone.
+// The e2e public_key / wrapped_privkey live in the same row but are read via
+// account.GetEncryptionKey, so they are not in userColumns.
 type User struct {
 	ID           string
-	Email        string
+	Name         string
+	Email        string // optional
+	Phone        string // optional
 	Role         string
 	Status       string
 	PasswordHash string
@@ -61,7 +66,16 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-const userColumns = `id, email, role, status, password_hash, version, created_at, updated_at`
+const userColumns = `id, name, email, phone, role, status, password_hash, version, created_at, updated_at`
+
+// nullable returns nil for an empty string so a UNIQUE optional column (email,
+// phone) stores NULL — and many users may have none — rather than a clashing "".
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
 
 // CreateUser inserts a new user. ID, Status, and Version are defaulted if
 // unset. A duplicate email yields ErrEmailTaken.
@@ -80,8 +94,8 @@ func CreateUser(ctx context.Context, db *sql.DB, u User) (User, error) {
 	u.CreatedAt, u.UpdatedAt = now, now
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO users (`+userColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.Email, u.Role, u.Status, u.PasswordHash, u.Version, u.CreatedAt, u.UpdatedAt)
+		`INSERT INTO users (`+userColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.Name, nullable(u.Email), nullable(u.Phone), u.Role, u.Status, u.PasswordHash, u.Version, u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return User{}, ErrEmailTaken
@@ -97,9 +111,23 @@ func GetUser(ctx context.Context, db *sql.DB, id string) (User, error) {
 	return scanUserResult(row)
 }
 
-// GetUserByEmail returns the user with the given email, or ErrNotFound.
+// GetUserByEmail returns the user with the given email, or ErrNotFound. A blank
+// email matches no one (optional emails are stored NULL).
 func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (User, error) {
+	if email == "" {
+		return User{}, ErrNotFound
+	}
 	row := db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE email = ?`, email)
+	return scanUserResult(row)
+}
+
+// GetUserByPhone returns the user with the given phone, or ErrNotFound. A blank
+// phone matches no one.
+func GetUserByPhone(ctx context.Context, db *sql.DB, phone string) (User, error) {
+	if phone == "" {
+		return User{}, ErrNotFound
+	}
+	row := db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE phone = ?`, phone)
 	return scanUserResult(row)
 }
 
@@ -129,10 +157,10 @@ func ListUsersByRole(ctx context.Context, db *sql.DB, role string) ([]User, erro
 func UpdateUser(ctx context.Context, db *sql.DB, u User) (User, error) {
 	now := time.Now().UTC()
 	res, err := db.ExecContext(ctx,
-		`UPDATE users SET email = ?, role = ?, status = ?, password_hash = ?,
+		`UPDATE users SET name = ?, email = ?, phone = ?, role = ?, status = ?, password_hash = ?,
 		        version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
-		u.Email, u.Role, u.Status, u.PasswordHash, now, u.ID, u.Version)
+		u.Name, nullable(u.Email), nullable(u.Phone), u.Role, u.Status, u.PasswordHash, now, u.ID, u.Version)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return User{}, ErrEmailTaken
@@ -180,10 +208,12 @@ func scanUserResult(row *sql.Row) (User, error) {
 
 func scanUser(s rowScanner) (User, error) {
 	var u User
-	err := s.Scan(&u.ID, &u.Email, &u.Role, &u.Status, &u.PasswordHash,
+	var email, phone sql.NullString
+	err := s.Scan(&u.ID, &u.Name, &email, &phone, &u.Role, &u.Status, &u.PasswordHash,
 		&u.Version, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return User{}, err
 	}
+	u.Email, u.Phone = email.String, phone.String
 	return u, nil
 }
