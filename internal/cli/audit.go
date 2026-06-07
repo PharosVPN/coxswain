@@ -185,5 +185,45 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&targetID, "target", "", "filter by target id")
 	cmd.Flags().DurationVar(&sinceDur, "since", 0, "only entries newer than this window (e.g. 24h)")
 	cmd.Flags().IntVar(&limit, "limit", audit.DefaultLimit, "max entries to show (capped at 1000)")
+	cmd.AddCommand(newAuditVerifyCmd())
+	return cmd
+}
+
+// newAuditVerifyCmd walks the audit hash chain and reports the first tamper
+// break (an edited or deleted row), or confirms the trail is intact. The chain
+// (migration 00032) makes the "append-only" claim detectable.
+func newAuditVerifyCmd() *cobra.Command {
+	var cfgPath string
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify the audit log's tamper-evident hash chain",
+		Long: "Walk the audit log oldest→newest, recomputing each row's hash and\n" +
+			"checking it chains from the previous row. Reports the first break — an\n" +
+			"edited row (hash mismatch) or a deleted/reordered row (link mismatch) —\n" +
+			"or confirms the chain is intact. Exits non-zero on a detected break.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			_, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			res, err := audit.Verify(ctx, conn)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if res.OK {
+				fmt.Fprintf(out, "audit chain intact — %d row(s) verified\n", res.Checked)
+				return nil
+			}
+			fmt.Fprintf(out, "AUDIT CHAIN BROKEN at row %s (after %d row(s))\n", res.BrokenID, res.Checked)
+			fmt.Fprintf(out, "  reason: %s\n", res.Reason)
+			return fmt.Errorf("audit chain verification failed")
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to cox.yaml")
 	return cmd
 }

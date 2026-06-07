@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"path/filepath"
 
+	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/cascade"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/control"
@@ -29,6 +30,13 @@ func openState(cfgPath string) (config.Config, *sql.DB, error) {
 		return config.Config{}, nil, err
 	}
 	if err := db.Migrate(conn); err != nil {
+		conn.Close()
+		return config.Config{}, nil, err
+	}
+	// Backfill the audit hash chain (migration 00032) over any rows written
+	// before tamper-evidence existed, so `cox audit verify` passes on an upgraded
+	// database. Idempotent — a no-op once every row is hashed (and on a fresh DB).
+	if err := audit.Backfill(context.Background(), conn); err != nil {
 		conn.Close()
 		return config.Config{}, nil, err
 	}
