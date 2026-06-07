@@ -33,6 +33,22 @@ type Event struct {
 	User           string    `json:"user,omitempty"`
 	SourceIP       string    `json:"source_ip,omitempty"`
 	SourceEndpoint string    `json:"source_endpoint,omitempty"`
+	// Alert carries an analytics alert when Type == "alert" (Phase C). It is the
+	// raw alert payload so a dashboard can render it without a second fetch. nil
+	// for ordinary node events.
+	Alert any `json:"alert,omitempty"`
+}
+
+// PublishAlert fans an analytics alert onto the live stream as an Event of
+// Type "alert", so dashboards subscribed to /ws/events see new alerts in real
+// time. payload is the alert (JSON-encodable); at is when it fired.
+func (h *Hub) PublishAlert(payload any, deviceID string, at time.Time) {
+	h.Publish(Event{
+		Type:     "alert",
+		At:       at,
+		DeviceID: deviceID,
+		Alert:    payload,
+	})
 }
 
 // eventFrom converts a node proto event from a node into a live.Event. The

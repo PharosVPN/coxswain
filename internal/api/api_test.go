@@ -58,6 +58,27 @@ func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
 	return ts, &http.Client{Jar: jar}, conn
 }
 
+// setupWithBackend is setup with an explicit state-store backend kind, for
+// exercising the analytics backend-suitability warning on a (mocked) Postgres
+// backend. The store is still SQLite under the hood — only the reported backend
+// label changes, which is all the warning logic keys off.
+func setupWithBackend(t *testing.T, backend string) (*httptest.Server, *http.Client, *sql.DB) {
+	t.Helper()
+	conn := newTestDB(t)
+	if err := auth.SyncConfigAdmin(context.Background(), conn, testAdminPassword); err != nil {
+		t.Fatalf("SyncConfigAdmin: %v", err)
+	}
+	srv := NewServer("", conn, live.NewHub(), provision.Options{
+		VPNSubnet: "10.86.0.0/16", PortMin: 2000, PortMax: 60000,
+	}, nil, nil, nil, "")
+	srv.SetBackend(backend)
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+
+	jar, _ := cookiejar.New(nil)
+	return ts, &http.Client{Jar: jar}, conn
+}
+
 // login authenticates the client as the fixed admin.
 func login(t *testing.T, ts *httptest.Server, client *http.Client) {
 	t.Helper()

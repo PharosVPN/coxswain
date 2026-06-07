@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/analytics"
 	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/monitor"
@@ -81,6 +82,35 @@ func runHistoryPurge(ctx context.Context, conn *sql.DB, days int) {
 			fmt.Printf("  history: purge failed (will retry): %v\n", err)
 		} else if n > 0 {
 			fmt.Printf("  history: purged %d connection event(s) older than %dd\n", n, days)
+		}
+	}
+	purge()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			purge()
+		}
+	}
+}
+
+// runAlertsPurge deletes analytics alerts older than days, on startup and once
+// a day after, until ctx is cancelled. days <= 0 disables alerts retention (a
+// no-op). Errors are non-fatal — a warning prints and the next tick retries. It
+// reuses retention.metrics_days (same time-series class as the history alerts
+// derive from).
+func runAlertsPurge(ctx context.Context, conn *sql.DB, days int) {
+	if days <= 0 {
+		return
+	}
+	purge := func() {
+		if n, err := analytics.Purge(ctx, conn, days); err != nil {
+			fmt.Printf("  alerts:  purge failed (will retry): %v\n", err)
+		} else if n > 0 {
+			fmt.Printf("  alerts:  purged %d alert(s) older than %dd\n", n, days)
 		}
 	}
 	purge()

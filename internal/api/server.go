@@ -42,8 +42,14 @@ type Server struct {
 	geo            *geoip.Resolver
 	controllerHost string
 	pusher         NodePusher
+	backend        string // state-store kind ("sqlite"|"postgres"); drives the analytics warning
 	http           *http.Server
 }
+
+// SetBackend records the state-store backend kind so the analytics alerts
+// endpoints can surface the backend-suitability warning. Call before Run;
+// unset defaults to SQLite (the historical backend).
+func (s *Server) SetBackend(kind string) { s.backend = kind }
 
 // SetNodePusher wires the node-push primitive used by the reconcile route and
 // push-on-provision. Call it before Run. A nil pusher leaves those best-effort
@@ -58,7 +64,7 @@ func (s *Server) SetNodePusher(p NodePusher) { s.pusher = p }
 // disables resolution); controllerHost is the controller's own public IP (for
 // plotting it on the map; empty when undetected).
 func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Options, deployer Deployer, paths PathCoordinator, geo *geoip.Resolver, controllerHost string) *Server {
-	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, paths: paths, geo: geo, controllerHost: controllerHost}
+	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, paths: paths, geo: geo, controllerHost: controllerHost, backend: "sqlite"}
 	mux := http.NewServeMux()
 
 	// Scope helpers: GET reads require readonly; the live/monitoring stream
@@ -147,6 +153,14 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	// Session history — the persisted, source-IP-aware connection log
 	// (Phase B monitoring). Monitor scope, the same as the live stream.
 	mux.HandleFunc("GET /api/sessions", monitor(s.handleListSessions))
+
+	// Analytics alerts (Phase C) — anomaly-detection findings over the session
+	// history. Reads are monitor-scoped (beside sessions); ack/resolve are admin
+	// mutations (audited). The status endpoint surfaces the backend warning.
+	mux.HandleFunc("GET /api/alerts", monitor(s.handleListAlerts))
+	mux.HandleFunc("GET /api/analytics/status", monitor(s.handleAnalyticsStatus))
+	mux.HandleFunc("POST /api/alerts/{id}/ack", admin(s.handleAckAlert))
+	mux.HandleFunc("POST /api/alerts/{id}/resolve", admin(s.handleResolveAlert))
 
 	// Everything else — the embedded admin SPA (least-specific pattern).
 	mux.Handle("GET /", spaHandler())

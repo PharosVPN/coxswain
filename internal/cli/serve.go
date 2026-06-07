@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/analytics"
 	"github.com/PharosVPN/coxswain/internal/api"
 	"github.com/PharosVPN/coxswain/internal/auth"
 	"github.com/PharosVPN/coxswain/internal/config"
@@ -148,6 +149,10 @@ func newServeCmd() *cobra.Command {
 				pathCoord = coord
 			}
 			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, pathCoord, geo, controllerHost)
+			// The state-store backend drives the analytics backend-suitability
+			// warning (surfaced on the alerts endpoints).
+			backend := cfg.BackendKind()
+			srv.SetBackend(backend)
 			// The node-push primitive backs the reconcile route + push-on-provision.
 			// cli owns the config + routed dialers, so it supplies the closure.
 			cfgCopy := cfg
@@ -187,6 +192,39 @@ func newServeCmd() *cobra.Command {
 				defer wg.Done()
 				runHistoryPurge(ctx, conn, cfg.Retention.MetricsDays)
 			}()
+
+			// Alerts retention: purge analytics alerts older than
+			// retention.metrics_days (same time-series class as the history they
+			// derive from). Skipped at 0.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runAlertsPurge(ctx, conn, cfg.Retention.MetricsDays)
+			}()
+
+			// The analytics engine (Phase C): an always-on goroutine that sweeps
+			// recent connection_events on a ticker, upserts anomaly alerts, and
+			// fans each NEW alert onto the live hub for real-time dashboards. It
+			// runs once on startup and emits the one-time backend-suitability
+			// warning. Disabled via analytics.disabled.
+			if !cfg.Analytics.Disabled {
+				engine := analytics.NewEngine(conn, analytics.Options{
+					GeoIP:    analytics.FromGeoIP(geo),
+					Interval: time.Duration(cfg.Analytics.IntervalSecondsOr()) * time.Second,
+					Window:   time.Duration(cfg.Analytics.WindowHoursOr()) * time.Hour,
+					Backend:  backend,
+					Publish: func(a analytics.Alert) {
+						hub.PublishAlert(a, a.DeviceID, a.At)
+					},
+				})
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					engine.Run(ctx)
+				}()
+				fmt.Printf("  analytics: sweep every %ds, %dh window (backend %s)\n",
+					cfg.Analytics.IntervalSecondsOr(), cfg.Analytics.WindowHoursOr(), backend)
+			}
 
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)

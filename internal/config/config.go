@@ -20,6 +20,11 @@ const (
 type Config struct {
 	// Posture records which preset this deployment was initialised from.
 	Posture Posture `koanf:"posture" yaml:"posture"`
+	// Backend is the state-store backend: "sqlite" (the default, single static
+	// binary) or "postgres" (recommended for production/enterprise scale —
+	// heavy analytical queries + write concurrency). Only SQLite is wired today;
+	// the value drives the analytics engine's backend-suitability warning.
+	Backend string `koanf:"backend" yaml:"backend"`
 	// StateDir holds the SQLite database, snapshots, and other on-disk state.
 	StateDir string `koanf:"state_dir" yaml:"state_dir"`
 	// GeoIPDatabase is the path to a MaxMind GeoLite2-City.mmdb used to resolve
@@ -33,6 +38,7 @@ type Config struct {
 
 	Log       LogConfig       `koanf:"log" yaml:"log"`
 	UI        UIConfig        `koanf:"ui" yaml:"ui"`
+	Analytics AnalyticsConfig `koanf:"analytics" yaml:"analytics"`
 	Protocols ProtocolsConfig `koanf:"protocols" yaml:"protocols"`
 	Relay     RelayConfig     `koanf:"relay" yaml:"relay"`
 	Accounts  AccountsConfig  `koanf:"accounts" yaml:"accounts"`
@@ -49,6 +55,72 @@ type ControlLocationConfig struct {
 	City string  `koanf:"city" yaml:"city"`
 	Lat  float64 `koanf:"lat" yaml:"lat"`
 	Lon  float64 `koanf:"lon" yaml:"lon"`
+}
+
+// Backend identifiers.
+const (
+	BackendSQLite   = "sqlite"
+	BackendPostgres = "postgres"
+)
+
+// BackendKind returns the configured state-store backend, defaulting to SQLite
+// when unset (the historical, always-SQLite behaviour). The value is
+// lower-cased so "Postgres"/"POSTGRES" all match.
+func (c Config) BackendKind() string {
+	switch b := normaliseBackend(c.Backend); b {
+	case BackendPostgres:
+		return BackendPostgres
+	default:
+		return BackendSQLite
+	}
+}
+
+func normaliseBackend(b string) string {
+	switch b {
+	case "postgres", "Postgres", "POSTGRES", "postgresql", "pg":
+		return BackendPostgres
+	default:
+		return BackendSQLite
+	}
+}
+
+// AnalyticsConfig controls the anomaly-detection engine (Phase C). Disabled is
+// a kill-switch; IntervalSeconds and WindowHours tune the sweep cadence and how
+// far back each sweep looks. Zero values fall back to the defaults below.
+type AnalyticsConfig struct {
+	// Disabled turns the analytics sweep off entirely (no ticker, no startup run).
+	Disabled bool `koanf:"disabled" yaml:"disabled"`
+	// IntervalSeconds is how often the sweep runs. Zero → DefaultAnalyticsSeconds.
+	IntervalSeconds int `koanf:"interval_seconds" yaml:"interval_seconds"`
+	// WindowHours is how far back each sweep scans connection_events. Zero →
+	// DefaultAnalyticsWindowHours.
+	WindowHours int `koanf:"window_hours" yaml:"window_hours"`
+}
+
+// Analytics-engine defaults.
+const (
+	// DefaultAnalyticsSeconds is the sweep interval when unset.
+	DefaultAnalyticsSeconds = 60
+	// DefaultAnalyticsWindowHours is the look-back window when unset.
+	DefaultAnalyticsWindowHours = 24
+)
+
+// IntervalSecondsOr returns the effective sweep interval, applying the default
+// when unset or non-positive.
+func (a AnalyticsConfig) IntervalSecondsOr() int {
+	if a.IntervalSeconds > 0 {
+		return a.IntervalSeconds
+	}
+	return DefaultAnalyticsSeconds
+}
+
+// WindowHoursOr returns the effective look-back window, applying the default
+// when unset or non-positive.
+func (a AnalyticsConfig) WindowHoursOr() int {
+	if a.WindowHours > 0 {
+		return a.WindowHours
+	}
+	return DefaultAnalyticsWindowHours
 }
 
 // AdminConfig holds the fixed controller-admin account (DESIGN §8). The
