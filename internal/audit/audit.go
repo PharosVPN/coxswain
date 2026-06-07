@@ -76,7 +76,11 @@ var chainMu sync.Mutex
 // always emitted. Each row is hash-chained to its predecessor (MED-9) so any
 // later edit/delete is detectable by Verify.
 func Log(ctx context.Context, db *sql.DB, entry Entry) error {
-	now := time.Now().UTC()
+	// Truncate to the cross-backend-stable precision (microseconds) so the value
+	// we STORE equals the value we hash and the value any backend reads back —
+	// Postgres's timestamp column is microsecond-precision, so a raw nanosecond
+	// value would break the hash chain on round-trip (see audit.StoreTime).
+	now := StoreTime(time.Now())
 
 	result := entry.Result
 	errMsg := ""

@@ -5,6 +5,11 @@
 // presets, and the koanf-based loader.
 package config
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // Posture is the deployment posture chosen at `cox init`.
 type Posture string
 
@@ -22,9 +27,14 @@ type Config struct {
 	Posture Posture `koanf:"posture" yaml:"posture"`
 	// Backend is the state-store backend: "sqlite" (the default, single static
 	// binary) or "postgres" (recommended for production/enterprise scale —
-	// heavy analytical queries + write concurrency). Only SQLite is wired today;
-	// the value drives the analytics engine's backend-suitability warning.
+	// heavy analytical queries + write concurrency). It drives the analytics
+	// engine's backend-suitability warning and selects the DB driver. Leaving it
+	// empty but setting database.dsn to a postgres:// URL also selects Postgres.
 	Backend string `koanf:"backend" yaml:"backend"`
+	// Database holds the backend connection settings. When Database.DSN is a
+	// postgres://-style URL the controller runs on Postgres; otherwise it falls
+	// back to the SQLite file at <state_dir>/app.db (the default, unchanged).
+	Database DatabaseConfig `koanf:"database" yaml:"database"`
 	// StateDir holds the SQLite database, snapshots, and other on-disk state.
 	StateDir string `koanf:"state_dir" yaml:"state_dir"`
 	// GeoIPDatabase is the path to a MaxMind GeoLite2-City.mmdb used to resolve
@@ -82,22 +92,52 @@ type ControlLocationConfig struct {
 	Lon  float64 `koanf:"lon" yaml:"lon"`
 }
 
+// DatabaseConfig holds the state-store connection. An empty DSN (the default)
+// uses the embedded SQLite file at <state_dir>/app.db. A postgres:// or
+// postgresql:// DSN switches the controller to Postgres (pgx, pure-Go).
+type DatabaseConfig struct {
+	// DSN is the database connection string. Empty → SQLite at <state_dir>/app.db.
+	// A postgres://user:pass@host:port/dbname URL selects the Postgres backend.
+	DSN string `koanf:"dsn" yaml:"dsn"`
+}
+
 // Backend identifiers.
 const (
 	BackendSQLite   = "sqlite"
 	BackendPostgres = "postgres"
 )
 
-// BackendKind returns the configured state-store backend, defaulting to SQLite
-// when unset (the historical, always-SQLite behaviour). The value is
-// lower-cased so "Postgres"/"POSTGRES" all match.
+// IsPostgresDSN reports whether dsn is a postgres://-style URL (the trigger for
+// the Postgres backend). Anything else is the SQLite file path.
+func IsPostgresDSN(dsn string) bool {
+	s := strings.ToLower(strings.TrimSpace(dsn))
+	return strings.HasPrefix(s, "postgres://") || strings.HasPrefix(s, "postgresql://")
+}
+
+// BackendKind returns the effective state-store backend. It is Postgres when
+// either database.dsn is a postgres:// URL OR the backend selector is set to
+// postgres; otherwise SQLite (the historical, always-SQLite default). The
+// selector is normalised so "Postgres"/"POSTGRES"/"pg" all match.
 func (c Config) BackendKind() string {
+	if IsPostgresDSN(c.Database.DSN) {
+		return BackendPostgres
+	}
 	switch b := normaliseBackend(c.Backend); b {
 	case BackendPostgres:
 		return BackendPostgres
 	default:
 		return BackendSQLite
 	}
+}
+
+// DataSource returns the DSN/path the db layer should open: the configured
+// Postgres DSN when set, else the SQLite file at <state_dir>/app.db. This is the
+// single resolver both `cox init` and `cox serve` use, so they always agree.
+func (c Config) DataSource() string {
+	if IsPostgresDSN(c.Database.DSN) {
+		return c.Database.DSN
+	}
+	return filepath.Join(c.StateDir, "app.db")
 }
 
 func normaliseBackend(b string) string {

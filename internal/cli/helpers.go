@@ -6,7 +6,6 @@ package cli
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 
 	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/cascade"
@@ -25,7 +24,9 @@ func openState(cfgPath string) (config.Config, *sql.DB, error) {
 	if err != nil {
 		return config.Config{}, nil, err
 	}
-	conn, err := db.Open(filepath.Join(cfg.StateDir, "app.db"))
+	// DataSource resolves to the configured Postgres DSN when set, else the
+	// SQLite file at <state_dir>/app.db (the default). db.Open picks the driver.
+	conn, err := db.Open(cfg.DataSource())
 	if err != nil {
 		return config.Config{}, nil, err
 	}

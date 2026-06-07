@@ -20,11 +20,12 @@ import (
 
 func newInitCmd() *cobra.Command {
 	var (
-		personal   bool
-		enterprise bool
-		cfgPath    string
-		stateDir   string
-		force      bool
+		personal    bool
+		enterprise  bool
+		cfgPath     string
+		stateDir    string
+		databaseDSN string
+		force       bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,10 +43,11 @@ func newInitCmd() *cobra.Command {
 				posture = config.PostureEnterprise
 			}
 			return runInit(cmd.Context(), initOptions{
-				posture:  posture,
-				cfgPath:  cfgPath,
-				stateDir: stateDir,
-				force:    force,
+				posture:     posture,
+				cfgPath:     cfgPath,
+				stateDir:    stateDir,
+				databaseDSN: databaseDSN,
+				force:       force,
 			})
 		},
 	}
@@ -54,6 +56,8 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "enterprise preset: many users, many regions")
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path of the config file to write")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "", "override the preset state directory")
+	cmd.Flags().StringVar(&databaseDSN, "database-dsn", "",
+		"Postgres DSN (postgres://...) to run on instead of the default SQLite at <state-dir>/app.db")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing config file")
 	cmd.MarkFlagsOneRequired("personal", "enterprise")
 	cmd.MarkFlagsMutuallyExclusive("personal", "enterprise")
@@ -62,10 +66,11 @@ func newInitCmd() *cobra.Command {
 }
 
 type initOptions struct {
-	posture  config.Posture
-	cfgPath  string
-	stateDir string
-	force    bool
+	posture     config.Posture
+	cfgPath     string
+	stateDir    string
+	databaseDSN string
+	force       bool
 }
 
 func runInit(ctx context.Context, opt initOptions) error {
@@ -89,6 +94,16 @@ func runInit(ctx context.Context, opt initOptions) error {
 	if opt.stateDir != "" {
 		cfg.StateDir = opt.stateDir
 	}
+	// A Postgres DSN switches the controller off the default SQLite file: it is
+	// recorded in the config (so `cox serve` opens the same backend) and the
+	// schema below is applied against Postgres.
+	if opt.databaseDSN != "" {
+		if !config.IsPostgresDSN(opt.databaseDSN) {
+			return fmt.Errorf("--database-dsn must be a postgres:// or postgresql:// URL")
+		}
+		cfg.Database.DSN = opt.databaseDSN
+		cfg.Backend = config.BackendPostgres
+	}
 
 	adminPassword, err := generatePassword()
 	if err != nil {
@@ -101,8 +116,9 @@ func runInit(ctx context.Context, opt initOptions) error {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 
-	dbPath := filepath.Join(cfg.StateDir, "app.db")
-	conn, err := db.Open(dbPath)
+	// DataSource is the configured Postgres DSN when set, else the SQLite file at
+	// <state_dir>/app.db. db.Open selects the driver and Migrate the dialect.
+	conn, err := db.Open(cfg.DataSource())
 	if err != nil {
 		return err
 	}
@@ -124,7 +140,7 @@ func runInit(ctx context.Context, opt initOptions) error {
 	fmt.Printf("coxswain initialised — %s posture\n", cfg.Posture)
 	fmt.Printf("  config       %s\n", opt.cfgPath)
 	fmt.Printf("  state        %s\n", cfg.StateDir)
-	fmt.Printf("  database     %s\n", dbPath)
+	fmt.Printf("  database     %s\n", cfg.DataSource())
 	if created {
 		fmt.Printf("  CA           generated (root + fleet + device)\n")
 	} else {

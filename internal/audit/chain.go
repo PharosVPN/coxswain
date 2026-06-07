@@ -26,9 +26,30 @@ import (
 	"time"
 )
 
+// auditTimePrecision is the precision the audit timestamp is truncated to before
+// it is both STORED and CANONICALIZED. It must be the coarsest precision any
+// supported backend persists, so a written-then-read-back timestamp is identical
+// on every backend and the hash chain round-trips. PostgreSQL's `timestamp` is
+// MICROSECOND precision (it silently drops sub-µs digits), so a nanosecond value
+// hashed at write time would never match the recomputed hash after a round-trip.
+// Truncating to microseconds on BOTH sides makes the chain verify on Postgres
+// AND SQLite (SQLite stores the full value, but truncated input round-trips
+// unchanged). Storing with this precision is the single source of truth — see
+// audit.StoreTime and canonical().
+const auditTimePrecision = time.Microsecond
+
+// StoreTime normalises a timestamp to the precision actually persisted across
+// backends (microseconds) and to UTC. Both the value written to audit_log.at and
+// the value fed into the hash MUST pass through here, so write-time and
+// read-back canonicalisations agree byte-for-byte regardless of backend.
+func StoreTime(t time.Time) time.Time {
+	return t.UTC().Truncate(auditTimePrecision)
+}
+
 // rowFields is the exact set of stored columns that participate in a row's hash,
-// in a fixed order. at is encoded as UnixNano so it is independent of the DB's
-// timestamp text rendering.
+// in a fixed order. at is encoded as UnixNano (truncated to microseconds, the
+// cross-backend-stable precision) so it is independent of the DB's timestamp
+// text rendering AND of Postgres's microsecond storage precision.
 type rowFields struct {
 	ID         string
 	At         time.Time
@@ -61,7 +82,10 @@ func (f rowFields) canonical() []byte {
 		buf = append(buf, n[:]...)
 	}
 	putStr(f.ID)
-	putInt(f.At.UTC().UnixNano())
+	// Truncate to the cross-backend-stable precision before hashing, so the
+	// canonical form is identical whether At came straight from time.Now (SQLite
+	// keeps full nanos) or was read back from a Postgres microsecond column.
+	putInt(StoreTime(f.At).UnixNano())
 	putStr(f.Actor)
 	putStr(f.ActorKind)
 	putStr(f.Action)

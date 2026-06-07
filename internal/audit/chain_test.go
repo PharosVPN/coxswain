@@ -6,6 +6,7 @@ package audit
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // TestChainVerifiesAndDetectsTamper writes a few rows, confirms the chain
@@ -134,5 +135,59 @@ func TestBackfillRepairsLegacyRows(t *testing.T) {
 	}
 	if !res.OK || res.Checked != 2 {
 		t.Fatalf("after backfill: %+v", res)
+	}
+}
+
+// TestStoreTimeTruncatesToMicros guards the cross-backend hash-chain fix: the
+// timestamp must be truncated to microseconds (the coarsest precision any
+// backend persists — Postgres's `timestamp` drops sub-µs digits) before it is
+// both stored and canonicalised. A nanosecond value that survived to the hash
+// but was lost on a Postgres round-trip would break Verify there.
+func TestStoreTimeTruncatesToMicros(t *testing.T) {
+	// A timestamp with a non-zero nanosecond-but-sub-microsecond component.
+	in := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.UTC)
+	got := StoreTime(in)
+	if got.Nanosecond()%1000 != 0 {
+		t.Fatalf("StoreTime left sub-µs digits: %d ns", got.Nanosecond())
+	}
+	if want := int64(123456000); got.UnixNano()%1_000_000_000 != want {
+		t.Fatalf("StoreTime truncation = %d ns, want %d", got.UnixNano()%1_000_000_000, want)
+	}
+	// StoreTime is idempotent and the canonical encoding agrees with it.
+	if StoreTime(got) != got {
+		t.Fatal("StoreTime is not idempotent")
+	}
+}
+
+// TestChainRoundTripsAtMicroPrecision proves the chain verifies even when the
+// timestamp that comes back from the store has been clamped to microsecond
+// precision (the Postgres behaviour, simulated here). Log truncates before
+// storing AND canonical() truncates before hashing, so the recomputed hash over
+// the (truncated) read-back value matches. Without the fix, a row whose `at`
+// lost sub-µs digits on round-trip would fail Verify.
+func TestChainRoundTripsAtMicroPrecision(t *testing.T) {
+	conn := testDB(t)
+	ctx := context.Background()
+
+	if err := Log(ctx, conn, Entry{Actor: "a", ActorKind: KindCLI, Action: "x.one"}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	// Simulate a Postgres-style µs clamp of the persisted timestamp: rewrite `at`
+	// to its microsecond truncation (a no-op for the value Log already stored,
+	// proving Log truncated up front — if it had stored full nanos, the row_hash
+	// computed at write time would now disagree with the truncated read-back).
+	var at time.Time
+	if err := conn.QueryRowContext(ctx, `SELECT at FROM audit_log LIMIT 1`).Scan(&at); err != nil {
+		t.Fatalf("read at: %v", err)
+	}
+	if at.Nanosecond()%1000 != 0 {
+		t.Fatalf("Log stored sub-µs timestamp %d ns — would break Postgres round-trip", at.Nanosecond())
+	}
+	res, err := Verify(ctx, conn)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !res.OK {
+		t.Fatalf("chain should verify at µs precision: %+v", res)
 	}
 }
