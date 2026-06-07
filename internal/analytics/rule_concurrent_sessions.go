@@ -16,10 +16,17 @@ import (
 // node at a time; two live sessions on different nodes means the profile is in
 // use from two places.
 //
-// It reconstructs per-node session intervals from connect→disconnect pairs (a
-// connect still open at the window's end is treated as ongoing), then checks for
-// any instant where intervals on 2+ distinct nodes overlap. The first overlap is
-// the finding; evidence carries the nodes and the overlap window.
+// It reconstructs per-node session intervals from connect→disconnect pairs, then
+// checks for any instant where intervals on 2+ distinct nodes overlap. The first
+// overlap is the finding; evidence carries the nodes and the overlap window.
+//
+// Two robustness guards keep a dropped disconnect from fabricating overlap. An
+// unmatched (still-open) connect is NOT believed to run to `now` — its
+// disconnect may simply have been lost (node restart, dropped stream), which
+// would make one stale connect overlap every later session forever. Instead it
+// is capped at connect+maxOpenSessionAge. And because event timestamps are
+// per-node wall-clock (see clockSkewTolerance), an overlap must exceed that
+// tolerance to count — a sub-skew overlap is noise, not a real second session.
 func ruleConcurrentSessions(_ context.Context, _ *sql.DB, dev deviceWindow, _ GeoResolver, now time.Time) []Finding {
 	type interval struct {
 		node       string
@@ -52,9 +59,17 @@ func ruleConcurrentSessions(_ context.Context, _ *sql.DB, dev deviceWindow, _ Ge
 			}
 		}
 	}
-	// Any still-open connect runs to now (an active session).
+	// A still-open connect is capped at start+maxOpenSessionAge, not `now`: its
+	// disconnect may have been dropped, and believing it active to `now` would
+	// let one stale connect manufacture overlap with every later session. A
+	// genuinely active recent session (within maxOpenSessionAge of now) is still
+	// covered, since its cap reaches at least up to now.
 	for node, start := range openOn {
-		intervals = append(intervals, interval{node: node, start: start, end: now})
+		end := start.Add(maxOpenSessionAge)
+		if end.After(now) {
+			end = now
+		}
+		intervals = append(intervals, interval{node: node, start: start, end: end})
 	}
 	if len(intervals) < concurrentMinNodes {
 		return nil
@@ -71,7 +86,10 @@ func ruleConcurrentSessions(_ context.Context, _ *sql.DB, dev deviceWindow, _ Ge
 			// Overlap = a.start < b's overlap window and b starts before a ends.
 			overlapStart := maxTime(a.start, b.start)
 			overlapEnd := minTime(a.end, b.end)
-			if overlapStart.Before(overlapEnd) {
+			// Require the overlap to exceed inter-node clock skew: a sub-skew
+			// overlap is indistinguishable from two nodes' clocks disagreeing,
+			// not a real second concurrent session.
+			if overlapEnd.Sub(overlapStart) > clockSkewTolerance {
 				nodes := []string{a.node, b.node}
 				sort.Strings(nodes)
 				f := Finding{

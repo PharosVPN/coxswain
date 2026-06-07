@@ -42,10 +42,22 @@ type Server struct {
 	geo            *geoip.Resolver
 	controllerHost string
 	pusher         NodePusher
-	backend        string // state-store kind ("sqlite"|"postgres"); drives the analytics warning
-	behindTLSProxy bool   // trust X-Forwarded-Proto for the cookie Secure attribute
+	backend        string     // state-store kind ("sqlite"|"postgres"); drives the analytics warning
+	drops          DropCounter // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
+	behindTLSProxy bool        // trust X-Forwarded-Proto for the cookie Secure attribute
 	http           *http.Server
 }
+
+// DropCounter reports how many connection events were shed because the history
+// ingest queue fell behind. *monitor.Store satisfies it. The analytics status
+// endpoint surfaces this so silent ingest loss is observable from the UI.
+type DropCounter interface {
+	Dropped() uint64
+}
+
+// SetDropCounter wires the history store's ingest-loss counter into the
+// analytics status endpoint. Call before Run; nil leaves the count absent.
+func (s *Server) SetDropCounter(d DropCounter) { s.drops = d }
 
 // SetBehindTLSProxy declares that a trusted TLS-terminating reverse proxy fronts
 // the UI, so the session cookie's Secure attribute may be derived from the

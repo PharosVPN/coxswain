@@ -71,6 +71,13 @@ func WatchNode(ctx context.Context, dialer *control.Dialer, node fleet.Node, hub
 // streamNode runs one connection: dial the node, consume its event stream
 // until it ends or errors. Each event is resolved + persisted (best-effort,
 // non-blocking) before it fans to the hub.
+//
+// When the stream drops (node restart, network blip, ctx cancel), any peers
+// that connected over this stream but never disconnected would otherwise dangle
+// as open sessions forever — the node emits no disconnect on a crash, and on
+// reconnect it re-reports current peers as fresh connects. So before returning
+// we close out those open sessions with a synthetic, attributed disconnect, so
+// the persisted history does not leave a session open indefinitely.
 func streamNode(ctx context.Context, dialer *control.Dialer, node fleet.Node, hub *Hub, sink Sink) error {
 	client, err := dialer.Dial(node.ControlAddr)
 	if err != nil {
@@ -82,12 +89,52 @@ func streamNode(ctx context.Context, dialer *control.Dialer, node fleet.Node, hu
 	if err != nil {
 		return err
 	}
+
+	// Peers seen connect (and not yet disconnect) over THIS stream, keyed by
+	// peer public key, carrying the last enriched event so the synthetic
+	// disconnect keeps the device/user/source attribution.
+	open := map[string]Event{}
+	defer closeOpenSessions(node.ID, open, sink)
+
 	for {
 		ev, err := stream.Recv()
 		if err != nil {
 			return err
 		}
-		hub.Publish(ingest(ctx, node.ID, ev, sink))
+		enriched := ingest(ctx, node.ID, ev, sink)
+		switch ev.GetType() {
+		case nodev1.EventType_EVENT_TYPE_PEER_CONNECTED:
+			if enriched.PeerID != "" {
+				open[enriched.PeerID] = enriched
+			}
+		case nodev1.EventType_EVENT_TYPE_PEER_DISCONNECTED:
+			delete(open, enriched.PeerID)
+		}
+		hub.Publish(enriched)
+	}
+}
+
+// closeOpenSessions persists a synthetic disconnect for every peer left open
+// when a node's stream drops, so a lost stream / node restart does not dangle
+// sessions in the history forever. It is best-effort and idempotent: the node
+// will re-report live peers as fresh connects on reconnect, and a real
+// disconnect that arrived first already removed the peer from `open`. The
+// synthetic event is attributed (reason: "stream-lost") so it is distinguishable
+// in the history from a node-reported disconnect. A nil sink (persistence
+// disabled) is a no-op.
+func closeOpenSessions(nodeID string, open map[string]Event, sink Sink) {
+	if sink == nil || len(open) == 0 {
+		return
+	}
+	at := time.Now().UTC()
+	for _, ev := range open {
+		rec := record(ev, "disconnect")
+		rec.At = at
+		rec.Reason = "stream-lost"
+		sink.Ingest(rec)
+		if fr, ok := sink.(interface{ Forget(string) }); ok && ev.PeerID != "" {
+			fr.Forget(ev.PeerID)
+		}
 	}
 }
 

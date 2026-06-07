@@ -207,6 +207,54 @@ func TestImpossibleTravelSkipsUnresolvable(t *testing.T) {
 	}
 }
 
+// TestImpossibleTravelSkipsSubSkewDelta is HIGH-6/HIGH-7: two distant connects
+// closer in time than clockSkewTolerance must NOT alert — the Δt is dominated by
+// inter-node clock skew, and the old code clamped a zero/near-zero Δt to a huge
+// speed, fabricating a guaranteed CRITICAL from mere simultaneity.
+func TestImpossibleTravelSkipsSubSkewDelta(t *testing.T) {
+	conn := testDB(t)
+	geo := fakeGeo{"203.0.113.10": locNYC, "198.51.100.20": locTokyo}
+
+	// Identical timestamps (Δt == 0): pure simultaneity / skew, never a clamp.
+	devZero := "dev_skew_zero"
+	seedEvent(t, conn, devZero, "node_a", "connect", "203.0.113.10", fixedNow.Add(-30*time.Minute))
+	seedEvent(t, conn, devZero, "node_b", "connect", "198.51.100.20", fixedNow.Add(-30*time.Minute))
+
+	// Δt below clockSkewTolerance (10s < 60s): indistinguishable from drift.
+	devSub := "dev_skew_sub"
+	seedEvent(t, conn, devSub, "node_a", "connect", "203.0.113.10", fixedNow.Add(-30*time.Minute))
+	seedEvent(t, conn, devSub, "node_b", "connect", "198.51.100.20", fixedNow.Add(-30*time.Minute).Add(10*time.Second))
+
+	sweep(t, conn, geo)
+	if got := alertsOfKind(t, conn, KindImpossibleTravel); len(got) != 0 {
+		t.Fatalf("sub-skew Δt produced %d impossible_travel alerts want 0 (skew/simultaneity, not travel)", len(got))
+	}
+}
+
+// TestImpossibleTravelFiresBeyondSkew confirms a genuinely-too-fast hop still
+// fires once Δt clears the skew tolerance: even charging the worst-case drift
+// against the elapsed time (Δt − clockSkewTolerance), the implied speed exceeds
+// the threshold.
+func TestImpossibleTravelFiresBeyondSkew(t *testing.T) {
+	conn := testDB(t)
+	dev := "dev_fast_beyond_skew"
+	geo := fakeGeo{"203.0.113.10": locNYC, "198.51.100.20": locTokyo}
+	// NYC→Tokyo (~10,800 km) just 5 minutes apart. Δt (300s) is well above the
+	// 60s skew bound; over the lower-bound 240s the speed is still ~162,000 km/h.
+	seedEvent(t, conn, dev, "node_a", "connect", "203.0.113.10", fixedNow.Add(-10*time.Minute))
+	seedEvent(t, conn, dev, "node_b", "connect", "198.51.100.20", fixedNow.Add(-5*time.Minute))
+
+	sweep(t, conn, geo)
+	got := alertsOfKind(t, conn, KindImpossibleTravel)
+	if len(got) != 1 {
+		t.Fatalf("genuinely-too-fast hop beyond skew: got %d alerts want 1", len(got))
+	}
+	kmh, _ := got[0].Detail["implied_kmh"].(float64)
+	if kmh <= impossibleTravelMaxKMH {
+		t.Errorf("implied_kmh = %v want > %v (computed over the lower-bound elapsed time)", kmh, impossibleTravelMaxKMH)
+	}
+}
+
 // --- concurrent_sessions --------------------------------------------------
 
 func TestConcurrentSessionsFires(t *testing.T) {
@@ -244,6 +292,63 @@ func TestConcurrentSessionsBenignSequential(t *testing.T) {
 	sweep(t, conn, nil)
 	if got := alertsOfKind(t, conn, KindConcurrentSessions); len(got) != 0 {
 		t.Fatalf("sequential sessions produced %d concurrent alerts want 0", len(got))
+	}
+}
+
+// TestConcurrentSessionsIgnoresStaleDanglingConnect is MED-10: a connect whose
+// disconnect was dropped must not be believed active to `now`, or one stale
+// connect overlaps every later session forever. Here an old connect on A (its
+// disconnect lost) is capped at connect+maxOpenSessionAge, which ends well
+// before a clean, separate session on B → no fabricated overlap.
+func TestConcurrentSessionsIgnoresStaleDanglingConnect(t *testing.T) {
+	conn := testDB(t)
+	dev := "dev_dangling"
+	// Dangling connect on A ~3h ago, no disconnect. Capped at +30m, so it is
+	// treated as closed ~2.5h before now.
+	seedEvent(t, conn, dev, "node_a", "connect", "203.0.113.10", fixedNow.Add(-3*time.Hour))
+	// A clean, well-separated session on B much later.
+	seedEvent(t, conn, dev, "node_b", "connect", "198.51.100.20", fixedNow.Add(-20*time.Minute))
+	seedEvent(t, conn, dev, "node_b", "disconnect", "198.51.100.20", fixedNow.Add(-10*time.Minute))
+
+	sweep(t, conn, nil)
+	if got := alertsOfKind(t, conn, KindConcurrentSessions); len(got) != 0 {
+		t.Fatalf("stale dangling connect fabricated %d concurrent alerts want 0", len(got))
+	}
+}
+
+// TestConcurrentSessionsRecentOpenStillCatchesOverlap confirms the cap does not
+// blind the rule to a real overlap: two recent open connects (within
+// maxOpenSessionAge of now) on different nodes still overlap and fire.
+func TestConcurrentSessionsRecentOpenStillCatchesOverlap(t *testing.T) {
+	conn := testDB(t)
+	dev := "dev_recent_open"
+	// Both connects are recent and still open; their caps reach up to now, so
+	// they genuinely overlap on two nodes — a real second session.
+	seedEvent(t, conn, dev, "node_a", "connect", "203.0.113.10", fixedNow.Add(-15*time.Minute))
+	seedEvent(t, conn, dev, "node_b", "connect", "198.51.100.20", fixedNow.Add(-10*time.Minute))
+
+	sweep(t, conn, nil)
+	if got := alertsOfKind(t, conn, KindConcurrentSessions); len(got) != 1 {
+		t.Fatalf("real overlap of two recent open sessions: got %d alerts want 1", len(got))
+	}
+}
+
+// TestConcurrentSessionsIgnoresSubSkewOverlap is MED-10/HIGH-7: an overlap
+// shorter than clockSkewTolerance is indistinguishable from two nodes' clocks
+// disagreeing and must not fire.
+func TestConcurrentSessionsIgnoresSubSkewOverlap(t *testing.T) {
+	conn := testDB(t)
+	dev := "dev_subskew_overlap"
+	// Session A: connect then disconnect. Session B connects 10s before A's
+	// disconnect → a 10s overlap, below the 60s skew tolerance.
+	seedEvent(t, conn, dev, "node_a", "connect", "203.0.113.10", fixedNow.Add(-30*time.Minute))
+	seedEvent(t, conn, dev, "node_b", "connect", "198.51.100.20", fixedNow.Add(-20*time.Minute).Add(-10*time.Second))
+	seedEvent(t, conn, dev, "node_a", "disconnect", "203.0.113.10", fixedNow.Add(-20*time.Minute))
+	seedEvent(t, conn, dev, "node_b", "disconnect", "198.51.100.20", fixedNow.Add(-15*time.Minute))
+
+	sweep(t, conn, nil)
+	if got := alertsOfKind(t, conn, KindConcurrentSessions); len(got) != 0 {
+		t.Fatalf("sub-skew overlap produced %d concurrent alerts want 0", len(got))
 	}
 }
 

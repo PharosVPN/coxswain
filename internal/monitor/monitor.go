@@ -44,6 +44,11 @@ type Event struct {
 	SourceEndpoint string // full client IP:port
 	RxBytes        uint64
 	TxBytes        uint64
+	// Reason annotates why a disconnect was written. Empty for an ordinary
+	// node-reported event; "stream-lost" for a synthetic disconnect the
+	// controller writes when a node's stream drops (LOW-14), so a dangling
+	// session is closed out rather than left open forever.
+	Reason string
 }
 
 // Resolution is the device/user a peer public key maps to.
@@ -57,6 +62,11 @@ type Resolution struct {
 // generous; a stuck DB writer sheds the overflow rather than blocking the
 // stream.
 const ingestBuffer = 1024
+
+// dropReportInterval is how often the Run loop checks whether the dropped
+// counter has advanced and, if so, logs it. Silent ingest loss is invisible
+// otherwise; this surfaces it at a bounded, rate-limited cadence.
+const dropReportInterval = 60 * time.Second
 
 // Store is the connection-history ingestion sink. It owns a background writer
 // goroutine and an in-memory peer→device/user cache so the hot path never
@@ -96,10 +106,22 @@ func (s *Store) Run(ctx context.Context) {
 		return
 	}
 	s.startOnce.Do(func() {
+		// Periodically surface silent ingest loss: a full queue sheds events
+		// (counted in s.dropped) without blocking the stream, so without this
+		// the loss is invisible. Log only the delta, rate-limited to the ticker.
+		dropTicker := time.NewTicker(dropReportInterval)
+		defer dropTicker.Stop()
+		var lastDropped uint64
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-dropTicker.C:
+				if d := s.dropped.Load(); d > lastDropped {
+					s.log.Warn("monitor: dropped connection events (ingest queue full)",
+						"dropped_total", d, "dropped_since_last", d-lastDropped)
+					lastDropped = d
+				}
 			case ev := <-s.queue:
 				s.write(ctx, ev)
 			}
@@ -186,11 +208,11 @@ func (s *Store) write(ctx context.Context, ev Event) {
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO connection_events
-		(id, at, node_id, peer_id, device_id, user_id, protocol, event_type, source_ip, source_endpoint, rx_bytes, tx_bytes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, at, node_id, peer_id, device_id, user_id, protocol, event_type, source_ip, source_endpoint, rx_bytes, tx_bytes, reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		idgen.New("cev"), at.UTC(), ev.NodeID, ev.PeerID,
 		nullable(ev.DeviceID), nullable(ev.UserID), ev.Protocol, ev.EventType,
-		ev.SourceIP, ev.SourceEndpoint, ev.RxBytes, ev.TxBytes)
+		ev.SourceIP, ev.SourceEndpoint, ev.RxBytes, ev.TxBytes, ev.Reason)
 	if err != nil {
 		s.log.Warn("monitor: persist connection event failed", "err", err)
 	}

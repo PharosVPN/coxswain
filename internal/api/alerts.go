@@ -70,10 +70,16 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 // handleAnalyticsStatus reports the engine's backend and any suitability
 // warning, separately from the alerts list. Monitor-scoped.
 func (s *Server) handleAnalyticsStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"backend":         s.backend,
 		"backend_warning": analytics.BackendWarning(s.backend),
-	})
+	}
+	// Surface silent ingest loss: a full history queue sheds events rather than
+	// blocking the live stream, so without this the loss is invisible.
+	if s.drops != nil {
+		out["events_dropped"] = s.drops.Dropped()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleAckAlert sets an alert to acknowledged. Admin-scoped; writes an audit row.

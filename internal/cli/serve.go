@@ -153,6 +153,8 @@ func newServeCmd() *cobra.Command {
 			// warning (surfaced on the alerts endpoints).
 			backend := cfg.BackendKind()
 			srv.SetBackend(backend)
+			// Surface silent history ingest loss on the analytics status endpoint.
+			srv.SetDropCounter(history)
 			// Only when a trusted TLS-terminating proxy is declared do we honour
 			// X-Forwarded-Proto for the session cookie's Secure attribute.
 			srv.SetBehindTLSProxy(cfg.UI.BehindTLSProxy)

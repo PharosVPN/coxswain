@@ -30,6 +30,10 @@ type Record struct {
 	SourceEndpoint string    `json:"source_endpoint,omitempty"`
 	RxBytes        uint64    `json:"rx_bytes"`
 	TxBytes        uint64    `json:"tx_bytes"`
+	// Reason annotates why the event was written: empty for a node-reported
+	// event, "stream-lost" for a synthetic disconnect the controller wrote when
+	// the node's stream dropped (LOW-14).
+	Reason string `json:"reason,omitempty"`
 }
 
 // Filter narrows a Query. Zero-value fields are not applied. Limit defaults to
@@ -55,7 +59,7 @@ func Query(ctx context.Context, db *sql.DB, f Filter) ([]Record, error) {
 	}
 
 	q := `SELECT id, at, node_id, peer_id, device_id, user_id, protocol,
-	             event_type, source_ip, source_endpoint, rx_bytes, tx_bytes
+	             event_type, source_ip, source_endpoint, rx_bytes, tx_bytes, reason
 	      FROM connection_events WHERE 1=1`
 	var args []any
 	if f.DeviceID != "" {
@@ -98,7 +102,7 @@ func Query(ctx context.Context, db *sql.DB, f Filter) ([]Record, error) {
 			deviceID, userID sql.NullString
 		)
 		if err := rows.Scan(&r.ID, &r.At, &r.NodeID, &r.PeerID, &deviceID, &userID,
-			&r.Protocol, &r.EventType, &r.SourceIP, &r.SourceEndpoint, &r.RxBytes, &r.TxBytes); err != nil {
+			&r.Protocol, &r.EventType, &r.SourceIP, &r.SourceEndpoint, &r.RxBytes, &r.TxBytes, &r.Reason); err != nil {
 			return nil, err
 		}
 		r.DeviceID = deviceID.String

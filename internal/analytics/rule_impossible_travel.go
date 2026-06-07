@@ -19,6 +19,16 @@ import (
 // does not geolocate (private/unknown) or the hop is shorter than
 // impossibleTravelMinKM (a coarse city-level fix over a short interval yields a
 // meaningless speed). The fastest offending pair becomes the finding.
+//
+// connection_events.at is the reporting NODE's own wall-clock — different nodes,
+// independent NTP, no central normalization — so a cross-node Δt can be off by
+// up to clockSkewTolerance purely from drift (and can even be zero or slightly
+// negative for near-simultaneous connects). This rule is therefore skew-tolerant:
+// it never clamps a zero/near-zero Δt to a huge speed (that would fabricate a
+// CRITICAL from mere simultaneity), it skips any pair with Δt <= clockSkewTolerance
+// entirely, and for the rest it computes speed over the conservative lower-bound
+// elapsed time (Δt − clockSkewTolerance) so a flagged hop is genuinely too fast
+// even after granting the worst-case drift in the device's favour.
 func ruleImpossibleTravel(_ context.Context, _ *sql.DB, dev deviceWindow, geo GeoResolver, _ time.Time) []Finding {
 	// Reduce to consecutive connects whose source IP actually changed; a stream
 	// of connects from one IP can't imply travel.
@@ -58,16 +68,20 @@ func ruleImpossibleTravel(_ context.Context, _ *sql.DB, dev deviceWindow, geo Ge
 		if km < impossibleTravelMinKM {
 			continue
 		}
-		// Events are time-ascending, so hours >= 0. Two connects at the same
-		// instant from distant cities imply infinite speed — definitely
-		// impossible; clamp to a large finite value so the JSON stays valid.
-		hours := b.ev.At.Sub(a.ev.At).Hours()
-		var kmh float64
-		if hours <= 0 {
-			kmh = impossibleTravelMaxKMH * 1e6
-		} else {
-			kmh = km / hours
+		// Δt is two node wall-clocks subtracted, so it carries up to
+		// clockSkewTolerance of NTP drift (and can be zero/negative for a
+		// near-simultaneous pair). At or below that bound we cannot tell
+		// impossible travel from skew/simultaneity — skip, never clamp to a
+		// large speed.
+		dt := b.ev.At.Sub(a.ev.At)
+		if dt <= clockSkewTolerance {
+			continue
 		}
+		// Grant the worst-case drift in the device's favour: compute speed over
+		// the conservative LOWER-BOUND elapsed time (Δt − clockSkewTolerance).
+		// dt > clockSkewTolerance here, so this is strictly positive.
+		hours := (dt - clockSkewTolerance).Hours()
+		kmh := km / hours
 		if kmh <= impossibleTravelMaxKMH {
 			continue
 		}

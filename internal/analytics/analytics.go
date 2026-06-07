@@ -75,6 +75,21 @@ const (
 	// concurrentMinNodes is how many distinct nodes a device must hold
 	// overlapping active sessions on to flag concurrent sessions.
 	concurrentMinNodes = 2
+
+	// clockSkewTolerance is the assumed upper bound on inter-node wall-clock
+	// drift. connection_events.at is each node's own wall-clock (no central
+	// normalization), so two events from different nodes can disagree by up to
+	// this much purely from NTP drift, not real elapsed time. Cross-node timing
+	// rules treat any Δt at or below this as indistinguishable from skew /
+	// simultaneity and refuse to draw a conclusion from it.
+	clockSkewTolerance = 60 * time.Second
+
+	// maxOpenSessionAge caps how long an unmatched (still-open) connect is
+	// believed to run. A dropped disconnect (node restart, lost stream) would
+	// otherwise leave a session open to `now`, manufacturing overlap with every
+	// later session forever. Past this age an open session is treated as closed
+	// at connect+maxOpenSessionAge, not `now`.
+	maxOpenSessionAge = 30 * time.Minute
 )
 
 // Finding is one rule detection, before it is persisted. Sweep turns each

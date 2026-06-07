@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/db"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
+	"github.com/PharosVPN/coxswain/internal/monitor"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -44,9 +46,59 @@ func (fakeNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStre
 	return stream.Context().Err()
 }
 
+// connectThenDropNode emits a single PEER_CONNECTED for one peer, then returns
+// from WatchEvents (the stream drops) without ever sending the matching
+// disconnect — exactly the node-restart / lost-stream case LOW-14 closes out.
+type connectThenDropNode struct {
+	nodev1.UnimplementedNodeControlServer
+	peer string
+}
+
+func (n connectThenDropNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStreamingServer[nodev1.Event]) error {
+	return stream.Send(&nodev1.Event{
+		Type:           nodev1.EventType_EVENT_TYPE_PEER_CONNECTED,
+		Protocol:       nodev1.Protocol_PROTOCOL_AMNEZIAWG,
+		PeerId:         n.peer,
+		SourceEndpoint: "203.0.113.9:51820",
+	})
+}
+
+// recordingSink captures every event passed to Ingest, for asserting the
+// synthetic stream-lost disconnect is persisted. Resolve is a no-op (the peer
+// is left unresolved; the close-out path does not depend on resolution).
+type recordingSink struct {
+	mu     sync.Mutex
+	events []monitor.Event
+}
+
+func (s *recordingSink) Resolve(context.Context, string) monitor.Resolution {
+	return monitor.Resolution{}
+}
+
+func (s *recordingSink) Ingest(ev monitor.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, ev)
+}
+
+func (s *recordingSink) snapshot() []monitor.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]monitor.Event, len(s.events))
+	copy(out, s.events)
+	return out
+}
+
 // startFakeNode brings up an mTLS NodeControl server and a matching control
 // Dialer, returning the server's address.
 func startFakeNode(t *testing.T) (addr string, dialer *control.Dialer) {
+	t.Helper()
+	return startNodeServer(t, fakeNode{})
+}
+
+// startNodeServer brings up an mTLS NodeControl server registered with the given
+// implementation, plus a matching control Dialer.
+func startNodeServer(t *testing.T, impl nodev1.NodeControlServer) (addr string, dialer *control.Dialer) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -101,7 +153,7 @@ func startFakeNode(t *testing.T) (addr string, dialer *control.Dialer) {
 		ClientCAs:    roots,
 		MinVersion:   tls.VersionTLS13,
 	})))
-	nodev1.RegisterNodeControlServer(srv, fakeNode{})
+	nodev1.RegisterNodeControlServer(srv, impl)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -143,6 +195,50 @@ func TestWatchNodePublishesEvents(t *testing.T) {
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatalf("timed out waiting for event %d", i)
+		}
+	}
+}
+
+// TestStreamDropClosesOpenSessions is LOW-14: when a node's WatchEvents stream
+// drops with a peer still connected (no disconnect sent), the controller must
+// persist a synthetic, attributed disconnect so the session is not left open in
+// the history forever.
+func TestStreamDropClosesOpenSessions(t *testing.T) {
+	const peer = "peer-stays-open"
+	addr, dialer := startNodeServer(t, connectThenDropNode{peer: peer})
+
+	hub := NewHub()
+	sink := &recordingSink{}
+
+	// Cancel as soon as we observe the close-out, so WatchNode's reconnect loop
+	// does not run forever.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_drop", ControlAddr: addr}, hub, sink)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		var disconnect *monitor.Event
+		for _, ev := range sink.snapshot() {
+			if ev.EventType == "disconnect" && ev.PeerID == peer {
+				e := ev
+				disconnect = &e
+				break
+			}
+		}
+		if disconnect != nil {
+			if disconnect.Reason != "stream-lost" {
+				t.Errorf("synthetic disconnect reason = %q want %q", disconnect.Reason, "stream-lost")
+			}
+			if disconnect.NodeID != "nod_drop" {
+				t.Errorf("synthetic disconnect node = %q want nod_drop", disconnect.NodeID)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for synthetic disconnect; got events: %+v", sink.snapshot())
+		case <-time.After(20 * time.Millisecond):
 		}
 	}
 }

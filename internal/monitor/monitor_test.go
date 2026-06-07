@@ -131,6 +131,61 @@ func TestIngestPersistsRow(t *testing.T) {
 	}
 }
 
+// TestReasonRoundTrips proves a synthetic stream-lost disconnect (LOW-14)
+// persists and surfaces its reason, while an ordinary event carries an empty
+// reason.
+func TestReasonRoundTrips(t *testing.T) {
+	conn := newTestDB(t)
+	pk, deviceID, userID, nodeID := seedPeer(t, conn)
+	ctx := context.Background()
+
+	s := NewStore(conn, nil)
+	go s.Run(ctx)
+	s.Ingest(Event{At: time.Now().UTC(), NodeID: nodeID, PeerID: pk, DeviceID: deviceID, UserID: userID,
+		EventType: "disconnect", SourceIP: "203.0.113.7", Reason: "stream-lost"})
+	s.Ingest(Event{At: time.Now().UTC().Add(time.Second), NodeID: nodeID, PeerID: pk, DeviceID: deviceID, UserID: userID,
+		EventType: "connect", SourceIP: "203.0.113.7"})
+	waitForCount(t, conn, 2)
+
+	recs, err := Query(ctx, conn, Filter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	var synthetic, ordinary bool
+	for _, r := range recs {
+		switch r.EventType {
+		case "disconnect":
+			if r.Reason != "stream-lost" {
+				t.Errorf("disconnect reason = %q want stream-lost", r.Reason)
+			}
+			synthetic = true
+		case "connect":
+			if r.Reason != "" {
+				t.Errorf("connect reason = %q want empty", r.Reason)
+			}
+			ordinary = true
+		}
+	}
+	if !synthetic || !ordinary {
+		t.Fatalf("missing rows: synthetic=%v ordinary=%v", synthetic, ordinary)
+	}
+}
+
+// TestDroppedCounter proves the ingest-loss counter advances when the queue is
+// saturated past ingestBuffer (the writer is not draining).
+func TestDroppedCounter(t *testing.T) {
+	conn := newTestDB(t)
+	s := NewStore(conn, nil)
+	// Do NOT start Run: the queue never drains, so once it fills (ingestBuffer)
+	// further Ingest calls are dropped and counted.
+	for i := 0; i < ingestBuffer+50; i++ {
+		s.Ingest(Event{NodeID: "n", PeerID: "p", EventType: "connect"})
+	}
+	if got := s.Dropped(); got == 0 {
+		t.Fatalf("Dropped() = 0, want > 0 after saturating the %d-slot queue", ingestBuffer)
+	}
+}
+
 // TestQueryFilters proves the device + source_ip filters narrow the result.
 func TestQueryFilters(t *testing.T) {
 	conn := newTestDB(t)
