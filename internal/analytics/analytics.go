@@ -39,6 +39,13 @@ const (
 	KindImpossibleTravel   = "impossible_travel"
 	KindConcurrentSessions = "concurrent_sessions"
 	KindNewGeo             = "new_geo"
+
+	// Tier-2 kinds.
+	KindRevokedProfileActive = "revoked_profile_active"
+	KindAuthFailureSpike     = "auth_failure_spike"
+	KindDormantThenActive    = "dormant_then_active"
+	KindOffHoursAccess       = "off_hours_access"
+	KindFleetHealth          = "fleet_health"
 )
 
 // Status values for an alert row.
@@ -90,6 +97,34 @@ const (
 	// later session forever. Past this age an open session is treated as closed
 	// at connect+maxOpenSessionAge, not `now`.
 	maxOpenSessionAge = 30 * time.Minute
+
+	// --- Tier-2 thresholds ------------------------------------------------
+
+	// authFailureThreshold is how many auth.login_failed audit rows from one
+	// source IP within authFailureWindow flag a credential-stuffing / brute-force
+	// spike.
+	authFailureThreshold = 5
+	// authFailureWindow is the short span over which the failed-login burst is
+	// counted. A spike is a tight cluster, not a slow trickle over the day.
+	authFailureWindow = 10 * time.Minute
+
+	// dormantThreshold is how long a device must have been silent (no connect)
+	// before a fresh connect is surfaced as a dormant-then-active reactivation —
+	// a long-idle credential suddenly coming alive.
+	dormantThreshold = 30 * 24 * time.Hour
+
+	// offHoursMinConnects / offHoursMinDays gate the off_hours rule: a device
+	// must have at least this many historical connects spread over at least this
+	// many distinct days before its hour-of-day profile is trusted enough to flag
+	// an outlier. Below this it is treated as having no established baseline (no
+	// finding), to avoid false positives on a new or lightly-used device.
+	offHoursMinConnects = 20
+	offHoursMinDays     = 7
+	// offHoursMaxShare is the upper bound on how common an hour may be in the
+	// device's history and still count as "off hours". An hour used in <= this
+	// fraction of all prior connects is a clear outlier. 0.02 = under 2% of the
+	// device's history, i.e. roughly never.
+	offHoursMaxShare = 0.02
 )
 
 // Finding is one rule detection, before it is persisted. Sweep turns each
@@ -131,13 +166,30 @@ type Location struct {
 // baseline); most rules ignore it and reason purely over dev.events.
 type rule func(ctx context.Context, db *sql.DB, dev deviceWindow, geo GeoResolver, now time.Time) []Finding
 
-// rules is the Tier-1 rule set, composed by Sweep. Adding a Tier-2/3 rule is a
-// one-line append here plus its function.
+// rules is the per-device rule set, composed by Sweep over each device's window.
+// Adding a per-device rule is a one-line append here plus its function.
 var rules = []rule{
 	ruleLeakedProfile,
 	ruleImpossibleTravel,
 	ruleConcurrentSessions,
 	ruleNewGeo,
+	ruleRevokedProfileActive,
+	ruleDormantThenActive,
+	ruleOffHoursAccess,
+}
+
+// globalRule is a detector that reasons over the whole fleet, not one device —
+// it queries its own table(s) (audit_log, nodes) rather than a deviceWindow.
+// Sweep runs each once per sweep. A global rule may also resolve open alerts as
+// a side effect (e.g. fleet_health auto-resolving when a node recovers), so it
+// returns findings to upsert AND has already performed any resolutions itself.
+type globalRule func(ctx context.Context, db *sql.DB, since, now time.Time) []Finding
+
+// globalRules is the fleet-wide rule set, composed by Sweep once per sweep
+// (independent of the per-device grouping).
+var globalRules = []globalRule{
+	ruleAuthFailureSpike,
+	ruleFleetHealth,
 }
 
 // Sweep runs every rule over the recent connection_events and upserts the
@@ -173,6 +225,22 @@ func Sweep(ctx context.Context, db *sql.DB, geo GeoResolver, now time.Time, wind
 				if isNew {
 					fresh = append(fresh, a)
 				}
+			}
+		}
+	}
+
+	// Fleet-wide rules run once per sweep, independent of the per-device grouping
+	// (they query audit_log / nodes directly). They may also resolve open alerts
+	// as a side effect (fleet_health auto-resolve), done inside the rule.
+	for _, r := range globalRules {
+		for _, f := range r(ctx, db, since, now) {
+			a, isNew, err := upsertAlert(ctx, db, f, now)
+			if err != nil {
+				slog.Warn("analytics: upsert alert failed", "kind", f.Kind, "err", err)
+				continue
+			}
+			if isNew {
+				fresh = append(fresh, a)
 			}
 		}
 	}

@@ -256,6 +256,23 @@ func SetStatus(ctx context.Context, db *sql.DB, id, status string, now time.Time
 	return nil
 }
 
+// resolveOpenByDedup marks any open alert with the given dedup_key as resolved.
+// It is the auto-resolve primitive: a rule whose condition has cleared (e.g.
+// fleet_health when a node returns to active) calls this so the open alert does
+// not linger. It is a no-op when no open alert exists for the key. updated_at is
+// bumped to now on whatever it closes.
+func resolveOpenByDedup(ctx context.Context, db *sql.DB, dedupKey string, now time.Time) error {
+	if dedupKey == "" {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE alerts SET status = ?, updated_at = ? WHERE dedup_key = ? AND status = ?`,
+		StatusResolved, now.UTC(), dedupKey, StatusOpen); err != nil {
+		return fmt.Errorf("analytics: auto-resolve %s: %w", dedupKey, err)
+	}
+	return nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error
