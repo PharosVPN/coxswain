@@ -30,6 +30,26 @@ full architecture.
 - **Serves users.** Account login + end-to-end-encrypted profile sync, reached
   by clients only through a `relay` relay (embedded by default).
 
+## Reaching the dashboard
+
+The admin Web UI binds to a **loopback address** (`ui.listen`, default
+`127.0.0.1:8443`) and opens no inbound ports. The controller may run on a remote
+droplet, so reach the dashboard one of two safe ways only:
+
+- **SSH-forwarded loopback port** (recommended): `ssh -L 8443:127.0.0.1:8443
+  user@controller` and open `http://localhost:8443`. The session cookie is sent
+  over the loopback only; it is *not* marked `Secure` here, by design, so the
+  browser still sends it over `http://localhost`.
+- **A TLS-terminating reverse proxy** in front of the UI. Set
+  `ui.behind_tls_proxy: true` so coxswain trusts the proxy's
+  `X-Forwarded-Proto` header to mark the session cookie `Secure` for HTTPS
+  requests. Leave it `false` (the default) on any direct/loopback deploy — an
+  untrusted `X-Forwarded-Proto` is then ignored and can't flip cookie security.
+
+**Do not** expose the dashboard over plain `http://` on a public interface: the
+session cookie would travel unencrypted. Use TLS or an SSH-forwarded loopback
+port.
+
 ## Stack
 
 Go · SQLite (Goose migrations) · gRPC over mTLS · embedded SvelteKit 2 / Svelte 5

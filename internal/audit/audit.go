@@ -17,10 +17,22 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/idgen"
 )
+
+// writeFailures counts audit rows whose DB INSERT failed (the slog line was
+// still emitted). It is a process-lifetime counter for a future metric — an
+// audit-loss gauge the operator can alert on. Read it with WriteFailures.
+var writeFailures atomic.Int64
+
+// WriteFailures returns how many audit-row DB writes have failed this process —
+// every one is a silently-uncommitted accountability record (MED-8). A non-zero
+// value means the audit trail is incomplete and should be investigated.
+func WriteFailures() int64 { return writeFailures.Load() }
 
 // Actor-kind constants.
 const (
@@ -49,11 +61,20 @@ type Entry struct {
 	Err        error          // non-nil marks the action a failure
 }
 
+// chainMu serializes the prev-hash read + insert so the hash chain stays
+// linear under concurrent writers. All audit writes go through the same DB and
+// are not a hot path, so a process-wide mutex is the simplest correct guard:
+// without it two goroutines could read the same prev_hash and fork the chain.
+var chainMu sync.Mutex
+
 // Log writes entry to the audit_log table and emits a structured slog line. A
 // non-nil entry.Err makes the row result='error' with the error message. The
 // DB write is the source of truth: if it fails, Log returns that error (callers
 // generally ignore it — auditing must never break the mutation it records — but
-// it is surfaced for tests and diagnostics). The slog line is always emitted.
+// it is surfaced for tests and diagnostics) AND emits a LOUD slog.Error so the
+// lost accountability record is impossible to miss (MED-8). The slog line is
+// always emitted. Each row is hash-chained to its predecessor (MED-9) so any
+// later edit/delete is detectable by Verify.
 func Log(ctx context.Context, db *sql.DB, entry Entry) error {
 	now := time.Now().UTC()
 
@@ -95,16 +116,61 @@ func Log(ctx context.Context, db *sql.DB, entry Entry) error {
 	}
 
 	id := idgen.New("aud")
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO audit_log
-		 (id, at, actor, actor_kind, action, target_type, target_id, source_ip, detail, result, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, now, entry.Actor, entry.ActorKind, entry.Action,
-		entry.TargetType, entry.TargetID, entry.SourceIP, detail, result, errMsg)
+
+	// Hold the chain lock across the prev-hash read and the insert so concurrent
+	// writers can't fork the chain on a shared prev_hash.
+	chainMu.Lock()
+	defer chainMu.Unlock()
+
+	prevHash, err := lastRowHash(ctx, db)
 	if err != nil {
+		writeFailures.Add(1)
+		slog.Error("AUDIT WRITE FAILED — accountability record lost",
+			"action", entry.Action, "actor", entry.Actor, "actor_kind", entry.ActorKind,
+			"target_type", entry.TargetType, "target_id", entry.TargetID, "error", err.Error())
+		return fmt.Errorf("audit: read chain head: %w", err)
+	}
+	rowHash := computeRowHash(prevHash, rowFields{
+		ID: id, At: now, Actor: entry.Actor, ActorKind: entry.ActorKind,
+		Action: entry.Action, TargetType: entry.TargetType, TargetID: entry.TargetID,
+		SourceIP: entry.SourceIP, Detail: detail, Result: result, Error: errMsg,
+	})
+
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO audit_log
+		 (id, at, actor, actor_kind, action, target_type, target_id, source_ip, detail, result, error, prev_hash, row_hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, now, entry.Actor, entry.ActorKind, entry.Action,
+		entry.TargetType, entry.TargetID, entry.SourceIP, detail, result, errMsg,
+		prevHash, rowHash)
+	if err != nil {
+		writeFailures.Add(1)
+		// MED-8: a mutation can commit while its audit row silently fails to write.
+		// We do NOT fail the mutation (accountability-vs-availability) but make the
+		// loss impossible to miss with a loud, attributed error line.
+		slog.Error("AUDIT WRITE FAILED — accountability record lost",
+			"action", entry.Action, "actor", entry.Actor, "actor_kind", entry.ActorKind,
+			"target_type", entry.TargetType, "target_id", entry.TargetID, "error", err.Error())
 		return fmt.Errorf("audit: write log: %w", err)
 	}
 	return nil
+}
+
+// lastRowHash returns the row_hash of the most recent audit row (the chain
+// head), or "" when the table is empty (the first row chains from the empty
+// string). The newest row is the one with the greatest (at, id) — matching the
+// canonical ORDER BY used by Query and Verify.
+func lastRowHash(ctx context.Context, db *sql.DB) (string, error) {
+	var h string
+	err := db.QueryRowContext(ctx,
+		`SELECT row_hash FROM audit_log ORDER BY at DESC, id DESC LIMIT 1`).Scan(&h)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return h, nil
 }
 
 // Record is a stored audit row, as returned by Query.
@@ -215,8 +281,10 @@ func Purge(ctx context.Context, db *sql.DB, days int) (int64, error) {
 }
 
 // SourceIP extracts the client IP from an HTTP request: the RemoteAddr with its
-// port stripped (coxswain binds localhost and sits behind no proxy, so we do not
-// trust X-Forwarded-For).
+// port stripped. The controller may run remotely (a droplet) and is reached over
+// an SSH-forwarded loopback port or a TLS proxy, but we still do not trust
+// X-Forwarded-For — a spoofed header must never forge the recorded source IP, so
+// the audit trail keeps the real peer (the proxy/tunnel endpoint) instead.
 func SourceIP(r *http.Request) string {
 	if r == nil {
 		return ""

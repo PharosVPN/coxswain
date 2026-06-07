@@ -153,6 +153,9 @@ func newServeCmd() *cobra.Command {
 			// warning (surfaced on the alerts endpoints).
 			backend := cfg.BackendKind()
 			srv.SetBackend(backend)
+			// Only when a trusted TLS-terminating proxy is declared do we honour
+			// X-Forwarded-Proto for the session cookie's Secure attribute.
+			srv.SetBehindTLSProxy(cfg.UI.BehindTLSProxy)
 			// The node-push primitive backs the reconcile route + push-on-provision.
 			// cli owns the config + routed dialers, so it supplies the closure.
 			cfgCopy := cfg

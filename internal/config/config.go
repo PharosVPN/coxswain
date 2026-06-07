@@ -154,11 +154,20 @@ type LogConfig struct {
 	Level string `koanf:"level" yaml:"level"`
 }
 
-// UIConfig controls the embedded admin Web UI. It binds to localhost only —
-// coxswain opens no inbound ports.
+// UIConfig controls the embedded admin Web UI. It binds to a loopback address —
+// coxswain opens no inbound ports. The controller may run on a remote droplet
+// (reached over an SSH-forwarded loopback port or a TLS-terminating proxy), so
+// the dashboard must only be reached over TLS or an SSH-forwarded loopback port.
 type UIConfig struct {
-	// Listen is the localhost address the admin UI binds to.
+	// Listen is the loopback address the admin UI binds to.
 	Listen string `koanf:"listen" yaml:"listen"`
+	// BehindTLSProxy declares that a trusted TLS-terminating reverse proxy sits in
+	// front of the UI. Only when true does coxswain trust the X-Forwarded-Proto
+	// header to decide whether a request arrived over a secure transport (and thus
+	// whether to set the session cookie's Secure attribute). Default false —
+	// matching why audit.go deliberately does NOT trust X-Forwarded-For — so a
+	// spoofed header can never flip cookie security on a direct/loopback deploy.
+	BehindTLSProxy bool `koanf:"behind_tls_proxy" yaml:"behind_tls_proxy"`
 }
 
 // ProtocolsConfig toggles which data-plane protocols the fleet offers.

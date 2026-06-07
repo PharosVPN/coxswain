@@ -94,6 +94,31 @@ func TestReconcileSecondsDefaults(t *testing.T) {
 	}
 }
 
+func TestBehindTLSProxyDefaultsOffAndOverrides(t *testing.T) {
+	// Default (unset in every preset) is false — X-Forwarded-Proto is not trusted
+	// unless the operator explicitly opts in.
+	for _, posture := range []Posture{PosturePersonal, PostureEnterprise} {
+		c, _ := Preset(posture)
+		if c.UI.BehindTLSProxy {
+			t.Errorf("%s preset: ui.behind_tls_proxy should default false", posture)
+		}
+	}
+	// It round-trips through write/load and is settable via env.
+	path := filepath.Join(t.TempDir(), "cox.yaml")
+	cfg, _ := Preset(PosturePersonal)
+	if err := Write(path, cfg, false); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	t.Setenv("COX_UI__BEHIND_TLS_PROXY", "true")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.UI.BehindTLSProxy {
+		t.Error("ui.behind_tls_proxy: env override to true not applied")
+	}
+}
+
 func TestValidateRejectsBadPosture(t *testing.T) {
 	c := Config{Posture: "bogus", StateDir: "./state"}
 	if err := c.Validate(); err == nil {

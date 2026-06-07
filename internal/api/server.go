@@ -43,8 +43,15 @@ type Server struct {
 	controllerHost string
 	pusher         NodePusher
 	backend        string // state-store kind ("sqlite"|"postgres"); drives the analytics warning
+	behindTLSProxy bool   // trust X-Forwarded-Proto for the cookie Secure attribute
 	http           *http.Server
 }
+
+// SetBehindTLSProxy declares that a trusted TLS-terminating reverse proxy fronts
+// the UI, so the session cookie's Secure attribute may be derived from the
+// X-Forwarded-Proto header. Call before Run; unset (the default) trusts only the
+// request's own TLS state, so a spoofed header can never flip cookie security.
+func (s *Server) SetBehindTLSProxy(v bool) { s.behindTLSProxy = v }
 
 // SetBackend records the state-store backend kind so the analytics alerts
 // endpoints can surface the backend-suitability warning. Call before Run;
