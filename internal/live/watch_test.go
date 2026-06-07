@@ -133,7 +133,7 @@ func TestWatchNodePublishesEvents(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_x", ControlAddr: addr}, hub)
+	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_x", ControlAddr: addr}, hub, nil)
 
 	for i := 0; i < 3; i++ {
 		select {

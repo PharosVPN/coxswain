@@ -144,6 +144,10 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	// Live events — monitoring scope (closes the M4 gap).
 	mux.HandleFunc("GET /ws/events", monitor(s.handleEvents))
 
+	// Session history — the persisted, source-IP-aware connection log
+	// (Phase B monitoring). Monitor scope, the same as the live stream.
+	mux.HandleFunc("GET /api/sessions", monitor(s.handleListSessions))
+
 	// Everything else — the embedded admin SPA (least-specific pattern).
 	mux.Handle("GET /", spaHandler())
 

@@ -26,9 +26,9 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 
 	want := []string{
-		"admins", "api_tokens", "audit_log", "bootstrap_tokens", "ca", "controller_cert",
-		"device_certs", "device_exits", "devices", "enrollment_tickets", "metrics_samples",
-		"node_certs", "node_links", "nodes", "path_hops", "paths", "peers",
+		"admins", "api_tokens", "audit_log", "bootstrap_tokens", "ca", "connection_events",
+		"controller_cert", "device_certs", "device_exits", "devices", "enrollment_tickets",
+		"metrics_samples", "node_certs", "node_links", "nodes", "path_hops", "paths", "peers",
 		"profile_signing_key", "profile_specs", "profiles", "relays", "servers", "service_certs",
 		"sessions", "ssh_identity", "users",
 	}

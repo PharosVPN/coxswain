@@ -19,22 +19,31 @@ import (
 const subscriberBuffer = 64
 
 // Event is a live node event in coxswain's own shape, ready for JSON fan-out.
+// The monitoring fields (DeviceID, User, SourceIP) are populated by the live
+// plane from the connection-history Store's peer resolution, so the live stream
+// carries the same enrichment the persisted session history does.
 type Event struct {
-	NodeID   string    `json:"node_id"`
-	At       time.Time `json:"at"`
-	Type     string    `json:"type"`
-	Protocol string    `json:"protocol,omitempty"`
-	PeerID   string    `json:"peer_id,omitempty"`
-	Message  string    `json:"message,omitempty"`
+	NodeID         string    `json:"node_id"`
+	At             time.Time `json:"at"`
+	Type           string    `json:"type"`
+	Protocol       string    `json:"protocol,omitempty"`
+	PeerID         string    `json:"peer_id,omitempty"`
+	Message        string    `json:"message,omitempty"`
+	DeviceID       string    `json:"device_id,omitempty"`
+	User           string    `json:"user,omitempty"`
+	SourceIP       string    `json:"source_ip,omitempty"`
+	SourceEndpoint string    `json:"source_endpoint,omitempty"`
 }
 
-// eventFrom converts a node proto event from a node into a live.Event.
+// eventFrom converts a node proto event from a node into a live.Event. The
+// monitoring fields are filled in by streamNode after peer resolution.
 func eventFrom(nodeID string, e *nodev1.Event) Event {
 	ev := Event{
-		NodeID:  nodeID,
-		Type:    strings.TrimPrefix(e.GetType().String(), "EVENT_TYPE_"),
-		PeerID:  e.GetPeerId(),
-		Message: e.GetMessage(),
+		NodeID:         nodeID,
+		Type:           strings.TrimPrefix(e.GetType().String(), "EVENT_TYPE_"),
+		PeerID:         e.GetPeerId(),
+		Message:        e.GetMessage(),
+		SourceEndpoint: e.GetSourceEndpoint(),
 	}
 	if proto := strings.TrimPrefix(e.GetProtocol().String(), "PROTOCOL_"); proto != "UNSPECIFIED" {
 		ev.Protocol = proto

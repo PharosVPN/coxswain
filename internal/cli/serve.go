@@ -17,6 +17,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/live"
+	"github.com/PharosVPN/coxswain/internal/monitor"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/provision"
@@ -74,7 +75,17 @@ func newServeCmd() *cobra.Command {
 			}
 
 			hub := live.NewHub()
+			// The connection-history store turns the ephemeral WatchEvents
+			// firehose into persisted, source-IP-aware session history (Phase B).
+			// Its writer runs off the stream goroutines so a DB stall never stalls
+			// the live plane; it is the sink every node watcher feeds.
+			history := monitor.NewStore(conn, nil)
 			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				history.Run(ctx)
+			}()
 			watched := 0
 			for _, n := range nodes {
 				if n.ControlAddr == "" {
@@ -91,7 +102,7 @@ func newServeCmd() *cobra.Command {
 				wg.Add(1)
 				go func(node fleet.Node) {
 					defer wg.Done()
-					live.WatchNode(ctx, dialer, node, hub)
+					live.WatchNode(ctx, dialer, node, hub, history)
 				}(n)
 			}
 
@@ -166,6 +177,15 @@ func newServeCmd() *cobra.Command {
 			go func() {
 				defer wg.Done()
 				runAuditPurge(ctx, conn, cfg.Retention.AuditDays)
+			}()
+
+			// Connection-history retention: purge connection_events older than
+			// retention.metrics_days on startup and once a day after (it is the
+			// same time-series class as the metrics samples). Skipped at 0.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runHistoryPurge(ctx, conn, cfg.Retention.MetricsDays)
 			}()
 
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
