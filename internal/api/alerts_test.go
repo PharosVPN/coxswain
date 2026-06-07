@@ -209,10 +209,43 @@ func TestAnalyticsStatusBackendWarning(t *testing.T) {
 	var body struct {
 		Backend        string `json:"backend"`
 		BackendWarning string `json:"backend_warning"`
+		SIEMDropped    *int64 `json:"siem_events_dropped"`
 	}
 	json.NewDecoder(resp.Body).Decode(&body) //nolint:errcheck
 	if body.Backend != "sqlite" || body.BackendWarning == "" {
 		t.Errorf("status: backend=%q warning=%q want sqlite + non-empty", body.Backend, body.BackendWarning)
+	}
+	// With no SIEM listener wired, the field is always present and reads 0.
+	if body.SIEMDropped == nil {
+		t.Error("status: siem_events_dropped missing; want present (0)")
+	} else if *body.SIEMDropped != 0 {
+		t.Errorf("status: siem_events_dropped = %d want 0 (no listener)", *body.SIEMDropped)
+	}
+}
+
+// fakeSIEMDrops is a stand-in for *siem.Listener's drop counter.
+type fakeSIEMDrops int64
+
+func (f fakeSIEMDrops) Dropped() int64 { return int64(f) }
+
+// TestAnalyticsStatusSIEMDropped: when a SIEM drop counter is wired, the status
+// endpoint surfaces its count as siem_events_dropped.
+func TestAnalyticsStatusSIEMDropped(t *testing.T) {
+	ts, client, _, srv := setupServer(t)
+	srv.SetSIEMDropCounter(fakeSIEMDrops(7))
+	login(t, ts, client)
+
+	resp, err := client.Get(ts.URL + "/api/analytics/status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		SIEMDropped int64 `json:"siem_events_dropped"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body) //nolint:errcheck
+	if body.SIEMDropped != 7 {
+		t.Errorf("siem_events_dropped = %d want 7", body.SIEMDropped)
 	}
 }
 

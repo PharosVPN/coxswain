@@ -30,8 +30,14 @@ type SignedCert struct {
 // the Fleet CA, yielding a one-year server certificate (DESIGN §5). The node
 // keeps its private key; only the CSR crosses to coxswain.
 //
-// extraIPs and extraDNS are SANs coxswain adds on top of those in the CSR — coxswain
-// pins the address it will dial rather than trusting the request alone.
+// coxswain is the sole authority on a node's identity: it pins the SANs to the
+// address it will dial (extraIPs / extraDNS) and the Subject to a value it
+// controls, ignoring both the SANs and the Subject in the CSR. A compromised
+// node therefore cannot mint a cert carrying another node's address or an
+// arbitrary hostname — node mTLS keys off the Fleet-CA chain plus this pinned
+// SAN, which coxswain verifies when it dials the node (internal/control/dial.go),
+// not off the Subject. Only the CSR's public key survives (the node keeps its
+// private key).
 func SignNodeCSR(fleet Authority, csrPEM []byte, extraIPs []net.IP, extraDNS []string) (SignedCert, error) {
 	if fleet.Role != RoleFleet {
 		return SignedCert{}, fmt.Errorf("SignNodeCSR: expected fleet CA, got %q", fleet.Role)
@@ -53,17 +59,31 @@ func SignNodeCSR(fleet Authority, csrPEM []byte, extraIPs []net.IP, extraDNS []s
 	if err != nil {
 		return SignedCert{}, err
 	}
+	// Pin the SANs to the address coxswain dials; the CSR's own SANs are
+	// discarded so a node cannot assert an identity it was not granted.
+	dnsNames := append([]string{}, extraDNS...)
+	ipAddrs := append([]net.IP{}, extraIPs...)
+
+	// Derive a controller-controlled Subject CN from the pinned identity rather
+	// than trusting csr.Subject.
+	cn := "PharosVPN Node"
+	if len(dnsNames) > 0 {
+		cn = dnsNames[0]
+	} else if len(ipAddrs) > 0 {
+		cn = ipAddrs[0].String()
+	}
+
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               csr.Subject,
+		Subject:               pkix.Name{CommonName: cn, Organization: []string{nodeOrg}},
 		NotBefore:             now.Add(-5 * time.Minute),
 		NotAfter:              now.Add(leafValidity),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:              append(append([]string{}, csr.DNSNames...), extraDNS...),
-		IPAddresses:           append(append([]net.IP{}, csr.IPAddresses...), extraIPs...),
+		DNSNames:              dnsNames,
+		IPAddresses:           ipAddrs,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, fleet.Cert, csr.PublicKey, fleet.Key)

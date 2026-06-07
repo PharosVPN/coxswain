@@ -30,6 +30,10 @@ const (
 
 	// relayOrg is the delegation Organization coxswain's auth path keys off.
 	relayOrg = "PharosVPN Relay"
+	// nodeOrg is the Organization coxswain stamps on a node leaf. Node auth keys
+	// off the Fleet-CA chain plus the pinned SAN, not this Org, so it is purely
+	// descriptive — but it is controller-controlled, never copied from the CSR.
+	nodeOrg = "PharosVPN"
 	// GRPCServerName is the CN/SAN of coxswain's gRPC-leg leaf; the relay verifies
 	// coxswain's backend cert against it (relay.Config.BackendServerName).
 	GRPCServerName = "coxswain-grpc"

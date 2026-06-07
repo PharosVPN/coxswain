@@ -79,6 +79,14 @@ func (s *Server) handleAnalyticsStatus(w http.ResponseWriter, _ *http.Request) {
 	if s.drops != nil {
 		out["events_dropped"] = s.drops.Dropped()
 	}
+	// SIEM slow-consumer drops: a backed-up SIEM consumer is shed rather than
+	// stalling the hub. Report 0 when the listener is disabled (no consumers,
+	// no drops) so the field is always present for dashboards.
+	var siemDropped int64
+	if s.siemDrops != nil {
+		siemDropped = s.siemDrops.Dropped()
+	}
+	out["siem_events_dropped"] = siemDropped
 	writeJSON(w, http.StatusOK, out)
 }
 

@@ -39,6 +39,24 @@ func newTestDB(t *testing.T) *sql.DB {
 	return conn
 }
 
+// setupServer is like setup but also returns the *Server, so a test can wire
+// optional dependencies (e.g. a SIEM drop counter) before exercising it.
+func setupServer(t *testing.T) (*httptest.Server, *http.Client, *sql.DB, *Server) {
+	t.Helper()
+	conn := newTestDB(t)
+	if err := auth.SyncConfigAdmin(context.Background(), conn, testAdminPassword); err != nil {
+		t.Fatalf("SyncConfigAdmin: %v", err)
+	}
+	srv := NewServer("", conn, live.NewHub(), provision.Options{
+		VPNSubnet: "10.86.0.0/16", PortMin: 2000, PortMax: 60000,
+	}, nil, nil, nil, "")
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+
+	jar, _ := cookiejar.New(nil)
+	return ts, &http.Client{Jar: jar}, conn, srv
+}
+
 // setup builds a migrated database, the synced fixed admin, and a running
 // test HTTP server with a cookie-jar client.
 func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {

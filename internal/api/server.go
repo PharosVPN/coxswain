@@ -42,9 +42,10 @@ type Server struct {
 	geo            *geoip.Resolver
 	controllerHost string
 	pusher         NodePusher
-	backend        string     // state-store kind ("sqlite"|"postgres"); drives the analytics warning
-	drops          DropCounter // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
-	behindTLSProxy bool        // trust X-Forwarded-Proto for the cookie Secure attribute
+	backend        string          // state-store kind ("sqlite"|"postgres"); drives the analytics warning
+	drops          DropCounter     // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
+	siemDrops      SIEMDropCounter // SIEM slow-consumer drop counter (nil = listener disabled)
+	behindTLSProxy bool            // trust X-Forwarded-Proto for the cookie Secure attribute
 	http           *http.Server
 }
 
@@ -58,6 +59,18 @@ type DropCounter interface {
 // SetDropCounter wires the history store's ingest-loss counter into the
 // analytics status endpoint. Call before Run; nil leaves the count absent.
 func (s *Server) SetDropCounter(d DropCounter) { s.drops = d }
+
+// SIEMDropCounter reports how many events the SIEM gRPC listener shed because a
+// slow consumer fell behind. *siem.Listener satisfies it. The analytics status
+// endpoint surfaces this so a SIEM integration's silent loss is observable.
+type SIEMDropCounter interface {
+	Dropped() int64
+}
+
+// SetSIEMDropCounter wires the SIEM listener's slow-consumer drop counter into
+// the analytics status endpoint. Call before Run; nil (the listener is disabled)
+// leaves siem_events_dropped reported as 0.
+func (s *Server) SetSIEMDropCounter(d SIEMDropCounter) { s.siemDrops = d }
 
 // SetBehindTLSProxy declares that a trusted TLS-terminating reverse proxy fronts
 // the UI, so the session cookie's Secure attribute may be derived from the
