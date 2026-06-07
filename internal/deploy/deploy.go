@@ -226,13 +226,24 @@ func Service(ctx context.Context, remote Remote, action string) error {
 }
 
 func installBinary(ctx context.Context, remote Remote, spec InstallSpec, binaryPath string) error {
+	// Stage to a temp path, then atomic-rename over the target. A direct write to
+	// binaryPath fails with "text file busy" when the agent is already running
+	// (the `cox nodes update` case); rename swaps the directory entry while the
+	// live process keeps the old inode until its restart.
+	tmp := binaryPath + ".new"
 	if len(spec.Binary) > 0 {
-		return remote.Upload(ctx, binaryPath, spec.Binary, 0o755)
+		if err := remote.Upload(ctx, tmp, spec.Binary, 0o755); err != nil {
+			return err
+		}
+	} else {
+		cmd := fmt.Sprintf("curl -fsSL %s -o %s && chmod 0755 %s",
+			shellQuote(spec.URL), shellQuote(tmp), shellQuote(tmp))
+		if _, err := remote.Run(ctx, cmd, nil); err != nil {
+			return fmt.Errorf("deploy: download binary: %w", err)
+		}
 	}
-	cmd := fmt.Sprintf("curl -fsSL %s -o %s && chmod +x %s",
-		shellQuote(spec.URL), binaryPath, binaryPath)
-	if _, err := remote.Run(ctx, cmd, nil); err != nil {
-		return fmt.Errorf("deploy: download binary: %w", err)
+	if _, err := remote.Run(ctx, fmt.Sprintf("mv -f %s %s", shellQuote(tmp), shellQuote(binaryPath)), nil); err != nil {
+		return fmt.Errorf("deploy: install binary: %w", err)
 	}
 	return nil
 }

@@ -51,8 +51,9 @@ func newProfilesCreateCmd() *cobra.Command {
 			"cascade) — optionally a subset of the entry node's IP pool (--entry-ips),\n" +
 			"and the data-plane protocol (--protocol amneziawg|xray-reality). The\n" +
 			"device is re-provisioned so its sealed bundle carries the new profile.\n\n" +
-			"After creating, run `cox nodes push <entry-node>` so the profile's peer\n" +
-			"reaches the node; the device picks the profile up on its next sync.",
+			"The new peer is pushed to the affected node(s) automatically; if a node\n" +
+			"is unreachable the reconcile sweep delivers it when the node returns. The\n" +
+			"device picks the profile up on its next sync.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

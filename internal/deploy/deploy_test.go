@@ -151,8 +151,19 @@ func TestAddNodeUploadsBinary(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddNode: %v", err)
 	}
-	if got := remote.uploads["/usr/local/bin/node"]; string(got) != string(binary) {
-		t.Error("node binary was not uploaded")
+	if got := remote.uploads["/usr/local/bin/node.new"]; string(got) != string(binary) {
+		t.Error("node binary was not staged to the temp path")
+	}
+	// It must be atomic-renamed into place (so 'cox nodes update' doesn't hit
+	// 'text file busy' on a running agent).
+	moved := false
+	for _, c := range remote.commands {
+		if c == "mv -f '/usr/local/bin/node.new' '/usr/local/bin/node'" {
+			moved = true
+		}
+	}
+	if !moved {
+		t.Errorf("binary not atomically renamed into place; commands=%v", remote.commands)
 	}
 }
 

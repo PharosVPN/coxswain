@@ -45,8 +45,8 @@ func newDevicesIssueCmd() *cobra.Command {
 			".pharosid file. Copy the file to the device and import it; the device\n" +
 			"logs in with the account passphrase to sync *its own* profile.\n\n" +
 			"The user must have an enrolled encryption key (set up on a first device).\n" +
-			"After issuing, run `cox nodes push <node>` so the new device's peer\n" +
-			"reaches the nodes. The file holds a private key — move it secretly.",
+			"The new device's peer is pushed to the affected node(s) automatically.\n" +
+			"The file holds a private key — move it secretly.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
