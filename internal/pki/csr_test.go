@@ -81,8 +81,8 @@ func TestSignNodeCSRChains(t *testing.T) {
 	if cn := signed.Cert.Subject.CommonName; cn != "203.0.113.7" {
 		t.Errorf("subject CN: got %q want 203.0.113.7 (pinned IP)", cn)
 	}
-	if orgs := signed.Cert.Subject.Organization; len(orgs) != 1 || orgs[0] != "PharosVPN" {
-		t.Errorf("subject O: got %v want [PharosVPN]", orgs)
+	if orgs := signed.Cert.Subject.Organization; len(orgs) != 1 || orgs[0] != "PharosVPN Node" {
+		t.Errorf("subject O: got %v want [PharosVPN Node]", orgs)
 	}
 }
 
