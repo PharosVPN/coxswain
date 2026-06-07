@@ -136,9 +136,11 @@ func (s *Server) handleSetServerRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := fleet.SetServerRoute(r.Context(), s.db, id, req.Route); err != nil {
+		s.audited(r, "server.route", "server", id, map[string]any{"route": req.Route, "hops": len(req.Route)}, err)
 		writeError(w, http.StatusInternalServerError, "failed to set route")
 		return
 	}
+	s.audited(r, "server.route", "server", id, map[string]any{"route": req.Route, "hops": len(req.Route)}, nil)
 	srv, err := fleet.GetServer(r.Context(), s.db, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to reload server")

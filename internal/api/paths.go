@@ -127,15 +127,18 @@ func (s *Server) handleProvisionPath(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "path provisioning unavailable")
 		return
 	}
-	p, err := s.paths.ProvisionPath(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	p, err := s.paths.ProvisionPath(r.Context(), id)
 	if errors.Is(err, fleet.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "path not found")
 		return
 	}
 	if err != nil {
+		s.audited(r, "path.provision", "path", id, nil, err)
 		writeError(w, http.StatusBadGateway, "provision path failed: "+err.Error())
 		return
 	}
+	s.audited(r, "path.provision", "path", p.ID, map[string]any{"name": p.Name}, nil)
 	view, err := s.pathView(r.Context(), p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load path")

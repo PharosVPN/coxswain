@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -102,10 +103,38 @@ func (s *Server) handlePushNode(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.pusher(r.Context(), id)
 	if err != nil {
+		s.audited(r, "node.push", "node", id, nil, err)
 		writeError(w, http.StatusBadGateway, "push failed: "+err.Error())
 		return
 	}
+	s.audited(r, "node.push", "node", id, pushDetail(res), nil)
 	writeJSON(w, http.StatusOK, res)
+}
+
+// pushDetail extracts the applied/AmneziaWG-revision context from a push result
+// for the audit row, without coupling the api package to the reconcile result
+// type — it round-trips the result through JSON and keeps whatever subset of the
+// known fields is present. The reconcile.PushResult fields carry no JSON tags,
+// so the keys are the Go field names. A nil/odd result yields no detail.
+func pushDetail(res any) map[string]any {
+	b, err := json.Marshal(res)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil || len(m) == 0 {
+		return nil
+	}
+	detail := map[string]any{}
+	for _, k := range []string{"PushedRevision", "AppliedRevision", "AmneziaPeers", "Reloaded"} {
+		if v, ok := m[k]; ok {
+			detail[k] = v
+		}
+	}
+	if len(detail) == 0 {
+		return nil
+	}
+	return detail
 }
 
 // handleUpdateNode updates a node's name and network policy under optimistic
