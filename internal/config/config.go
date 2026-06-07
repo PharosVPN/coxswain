@@ -152,6 +152,24 @@ type FleetConfig struct {
 	EndpointPortMax int `koanf:"endpoint_port_max" yaml:"endpoint_port_max"`
 	// Rotation is the client endpoint-rotation policy (anti-correlation).
 	Rotation RotationConfig `koanf:"rotation" yaml:"rotation"`
+	// ReconcileInterval is how often (in seconds) `cox serve`'s reconcile sweep
+	// polls every node's live status and heals drift (Phase 2, Option B). Zero or
+	// negative falls back to DefaultReconcileSeconds. The sweep is the backstop
+	// that makes silent config drift self-heal even when a push is missed.
+	ReconcileInterval int `koanf:"reconcile_interval" yaml:"reconcile_interval"`
+}
+
+// DefaultReconcileSeconds is the reconcile-sweep interval used when
+// fleet.reconcile_interval is unset.
+const DefaultReconcileSeconds = 45
+
+// ReconcileSeconds returns the effective reconcile-sweep interval, applying the
+// default when the configured value is unset or non-positive.
+func (f FleetConfig) ReconcileSeconds() int {
+	if f.ReconcileInterval > 0 {
+		return f.ReconcileInterval
+	}
+	return DefaultReconcileSeconds
 }
 
 // RotationConfig is the client endpoint-rotation policy (DESIGN §3,

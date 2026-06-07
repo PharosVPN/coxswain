@@ -83,6 +83,31 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.nodeView(n))
 }
 
+// handlePushNode reconciles a node — delivers coxswain's current peer set over
+// the control plane (the Phase 2 PushNode primitive) — and returns the push
+// result as JSON. This is the route the web UI uses to heal a node, which it
+// could not do before Phase 2.
+func (s *Server) handlePushNode(w http.ResponseWriter, r *http.Request) {
+	if s.pusher == nil {
+		writeError(w, http.StatusServiceUnavailable, "node push is not available on this server")
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := fleet.GetNode(r.Context(), s.db, id); errors.Is(err, fleet.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load node")
+		return
+	}
+	res, err := s.pusher(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "push failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 // handleUpdateNode updates a node's name and network policy under optimistic
 // concurrency: the request must carry the version the admin loaded. A stale
 // version yields 409.

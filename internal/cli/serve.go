@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/PharosVPN/coxswain/internal/api"
 	"github.com/PharosVPN/coxswain/internal/auth"
@@ -19,6 +20,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/reconcile"
 	"github.com/PharosVPN/coxswain/internal/relayhost"
 	"github.com/spf13/cobra"
 )
@@ -135,9 +137,33 @@ func newServeCmd() *cobra.Command {
 				pathCoord = coord
 			}
 			srv := api.NewServer(cfg.UI.Listen, conn, hub, provOpts, cliDeployer{cfg: cfg, conn: conn, geo: geo}, pathCoord, geo, controllerHost)
+			// The node-push primitive backs the reconcile route + push-on-provision.
+			// cli owns the config + routed dialers, so it supplies the closure.
+			cfgCopy := cfg
+			srv.SetNodePusher(func(pctx context.Context, nodeID string) (any, error) {
+				node, gErr := fleet.GetNode(pctx, conn, nodeID)
+				if gErr != nil {
+					return nil, gErr
+				}
+				return reconcile.PushNode(pctx, &cfgCopy, conn, node)
+			})
+
+			// The reconcile sweep (Phase 2, Option B): an always-on goroutine that
+			// polls every node's live status and heals drift/stale data planes, so a
+			// missed push self-heals. Runs under the serve ctx; stops on cancel.
+			interval := time.Duration(cfg.Fleet.ReconcileSeconds()) * time.Second
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				reconcile.Run(ctx, &cfgCopy, conn, interval, func(format string, args ...any) {
+					fmt.Printf("  "+format+"\n", args...)
+				})
+			}()
+
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)
+			fmt.Printf("  reconcile sweep every %s\n", interval)
 
 			err = srv.Run(ctx)
 			wg.Wait()

@@ -440,6 +440,88 @@ func TestProvisionDeviceSpecs(t *testing.T) {
 	}
 }
 
+// TestProvisionBumpsConfigRevision proves the Phase 2 contract: a device
+// provision advances config_revision (intent) on every node it placed a peer on,
+// and reports those nodes in Result.AffectedNodes — so a node that has not yet
+// applied the new peer set shows as DRIFT (applied_revision < intended) and the
+// sweep heals it. Nodes the device never touched are left untouched.
+func TestProvisionBumpsConfigRevision(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, _ := enrolledUser(t, conn)
+
+	device, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "phone"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	// Two ready nodes (peer lands on both) and one pending (skipped, untouched).
+	ams, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "ams", Region: "eu", PublicIP: "203.0.113.7",
+		WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation,
+	})
+	if err != nil {
+		t.Fatalf("CreateNode ams: %v", err)
+	}
+	fra, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "fra", Region: "eu", PublicIP: "203.0.113.8",
+		WGPublicKey: "bm9kZS1mcmEtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation,
+	})
+	if err != nil {
+		t.Fatalf("CreateNode fra: %v", err)
+	}
+	pending, err := fleet.CreateNode(ctx, conn, fleet.Node{Name: "pending", Region: "us"})
+	if err != nil {
+		t.Fatalf("CreateNode pending: %v", err)
+	}
+
+	// Baseline: every node starts at config_revision 0.
+	for _, id := range []string{ams.ID, fra.ID, pending.ID} {
+		if n, _ := fleet.GetNode(ctx, conn, id); n.ConfigRevision != 0 {
+			t.Fatalf("node %s pre-provision revision = %d, want 0", id, n.ConfigRevision)
+		}
+	}
+
+	res, err := provision.ProvisionDevice(ctx, conn, device.ID, opts)
+	if err != nil {
+		t.Fatalf("ProvisionDevice: %v", err)
+	}
+
+	// Both ready nodes are reported affected; the pending node is not.
+	affected := map[string]bool{}
+	for _, id := range res.AffectedNodes {
+		affected[id] = true
+	}
+	if !affected[ams.ID] || !affected[fra.ID] {
+		t.Errorf("affected nodes %v, want both ready nodes", res.AffectedNodes)
+	}
+	if affected[pending.ID] {
+		t.Errorf("pending node %s should not be affected", pending.ID)
+	}
+
+	// Each ready node's intended revision advanced (DRIFT now detectable); the
+	// untouched pending node stayed at 0.
+	for _, id := range []string{ams.ID, fra.ID} {
+		n, _ := fleet.GetNode(ctx, conn, id)
+		if n.ConfigRevision <= 0 {
+			t.Errorf("node %s config_revision = %d after provision, want > 0", id, n.ConfigRevision)
+		}
+	}
+	if n, _ := fleet.GetNode(ctx, conn, pending.ID); n.ConfigRevision != 0 {
+		t.Errorf("untouched node config_revision = %d, want 0", n.ConfigRevision)
+	}
+
+	// A re-provision advances intent again (monotonic), keeping DRIFT detection
+	// alive across the live-test regression (peer set changed, no push reached).
+	before, _ := fleet.GetNode(ctx, conn, ams.ID)
+	if _, err := provision.ProvisionDevice(ctx, conn, device.ID, opts); err != nil {
+		t.Fatalf("re-provision: %v", err)
+	}
+	after, _ := fleet.GetNode(ctx, conn, ams.ID)
+	if after.ConfigRevision <= before.ConfigRevision {
+		t.Errorf("re-provision did not advance config_revision: %d -> %d", before.ConfigRevision, after.ConfigRevision)
+	}
+}
+
 func TestAllocateDeviceIPSequential(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()

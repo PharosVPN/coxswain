@@ -294,6 +294,44 @@ func NextNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) (int
 	return rev, nil
 }
 
+// BumpNodeConfigRevision advances a node's intended config revision without a
+// push, so a re-provision that changed the node's intended peer set makes the
+// node's stale applied_revision detectable as DRIFT (Phase 2). It is the same
+// atomic monotonic bump as NextNodeConfigRevision, but discards the new value —
+// provisioning only needs intent to move ahead of the node's applied revision.
+// A missing node yields ErrNotFound.
+func BumpNodeConfigRevision(ctx context.Context, db *sql.DB, nodeID string) error {
+	_, err := NextNodeConfigRevision(ctx, db, nodeID)
+	return err
+}
+
+// SetNodeStatus sets a node's lifecycle status (e.g. StatusUnreachable when the
+// control plane can't be reached, StatusActive once it heals). node is the
+// source of truth for its data plane, so this is an unconditional write (no
+// optimistic-version check) that still bumps version and updated_at. A no-op
+// when the status already matches, to avoid churning version on every sweep. A
+// missing row yields ErrNotFound.
+func SetNodeStatus(ctx context.Context, db *sql.DB, nodeID, status string) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE nodes SET status = ?, version = version + 1, updated_at = ?
+		 WHERE id = ? AND status != ?`,
+		status, time.Now().UTC(), nodeID, status)
+	if err != nil {
+		return fmt.Errorf("set node status: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		// Either the node is gone, or its status already matched (a no-op).
+		if _, gErr := GetNode(ctx, db, nodeID); errors.Is(gErr, ErrNotFound) {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
 // SetNodeAmneziaWG records the AmneziaWG server identity node reported for a
 // node — its public key and obfuscation parameter set. coxswain calls this when it
 // learns the values from a node's GetStatus; node is the source of truth, so

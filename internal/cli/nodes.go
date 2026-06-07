@@ -15,15 +15,12 @@ import (
 	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/deploy"
 	"github.com/PharosVPN/coxswain/internal/fleet"
-	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/pki"
-	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/reconcile"
 	"github.com/PharosVPN/coxswain/internal/server"
 	"github.com/PharosVPN/coxswain/internal/ssh"
 	"github.com/PharosVPN/coxswain/internal/wg"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // obfNote describes whether a node also reported obfuscation parameters, for
@@ -313,45 +310,6 @@ func newNodesListCmd() *cobra.Command {
 	return cmd
 }
 
-// toNodeAmneziaWGPeers converts coxswain's fleet.Peer rows for one node into the
-// proto Peer messages PushAmneziaWGConfig expects. Non-AmneziaWG peers are
-// skipped — XRay has its own encoder (toNodeXRayPeers).
-func toNodeAmneziaWGPeers(peers []fleet.Peer) []*nodev1.Peer {
-	out := make([]*nodev1.Peer, 0, len(peers))
-	for _, p := range peers {
-		if p.Protocol != profile.ProtocolAmneziaWG {
-			continue
-		}
-		out = append(out, &nodev1.Peer{
-			Id:           p.ID,
-			Protocol:     nodev1.Protocol_PROTOCOL_AMNEZIAWG,
-			PublicKey:    p.PublicKey,
-			AllowedIps:   []string{p.AllowedIP},
-			PresharedKey: p.PresharedKey,
-		})
-	}
-	return out
-}
-
-// toNodeXRayPeers converts coxswain's fleet.Peer rows for one node into the
-// proto Peer messages PushXRayRealityConfig expects. For XRay the peer's
-// PublicKey carries the VLESS UUID (the node uses it as the client id).
-func toNodeXRayPeers(peers []fleet.Peer) []*nodev1.Peer {
-	out := make([]*nodev1.Peer, 0, len(peers))
-	for _, p := range peers {
-		if p.Protocol != profile.ProtocolXRayReality {
-			continue
-		}
-		out = append(out, &nodev1.Peer{
-			Id:        p.ID,
-			Protocol:  nodev1.Protocol_PROTOCOL_XRAY_REALITY,
-			PublicKey: p.PublicKey, // the VLESS UUID
-			Flow:      p.Flow,
-		})
-	}
-	return out
-}
-
 func newNodesPushCmd() *cobra.Command {
 	var cfgPath string
 	cmd := &cobra.Command{
@@ -376,80 +334,28 @@ func newNodesPushCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if node.ControlAddr == "" {
-				return fmt.Errorf("node %s has no control address", node.ID)
-			}
 
-			peers, err := fleet.ListPeersByNode(ctx, conn, node.ID)
-			if err != nil {
-				return err
-			}
-			amneziaPeers := toNodeAmneziaWGPeers(peers)
-
-			dialer, err := newControlDialer(ctx, conn, nodeRoute(ctx, conn, node))
-			if err != nil {
-				return err
-			}
-			client, err := dialer.Dial(node.ControlAddr)
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-
-			revision, err := fleet.NextNodeConfigRevision(ctx, conn, node.ID)
+			// PushNode is the single delivery primitive (Phase 2) — the same flow
+			// this command used to inline, now shared with provisioning, the sweep,
+			// and the API.
+			res, err := reconcile.PushNode(ctx, &cfg, conn, node)
 			if err != nil {
 				return err
 			}
 
-			rpcCtx, cancel := context.WithTimeout(ctx, controlRPCTimeout)
-			defer cancel()
-			resp, err := client.PushAmneziaWGConfig(rpcCtx, revision, amneziaPeers)
-			if err != nil {
-				return fmt.Errorf("control %s: %w", node.ControlAddr, err)
-			}
-
-			fmt.Printf("node %s — pushed %d AmneziaWG peer(s)\n", node.Name, len(amneziaPeers))
-			fmt.Printf("  revision  %d (applied %d)\n", revision, resp.GetAppliedRevision())
-			fmt.Printf("  reloaded  %t\n", resp.GetReloaded())
-
-			// XRay/REALITY: push the VLESS client set + the fleet's camouflage
-			// policy (decoy dest, accepted SNI, shortIds, port) so the node brings
-			// its REALITY server up. Skipped when XRay is disabled fleet-wide.
+			fmt.Printf("node %s — pushed %d AmneziaWG peer(s)\n", node.Name, res.AmneziaPeers)
+			fmt.Printf("  revision  %d (applied %d)\n", res.PushedRevision, res.AppliedRevision)
+			fmt.Printf("  reloaded  %t\n", res.Reloaded)
 			if cfg.Protocols.XRay {
-				xrayPeers := toNodeXRayPeers(peers)
-				dest, serverNames := profile.RealityCamouflage(cfg.Reality.DecoySite)
-				xrayRev, rErr := fleet.NextNodeConfigRevision(ctx, conn, node.ID)
-				if rErr != nil {
-					return rErr
-				}
-				xResp, xErr := client.PushXRayRealityConfig(rpcCtx, xrayRev, xrayPeers,
-					dest, serverNames, []string{""}, uint32(profile.XRayListenPort))
-				switch {
-				case status.Code(xErr) == codes.Unimplemented:
-					// This node runs a build without REALITY (e.g. a cascade exit that
-					// only carries AmneziaWG). That's fine — skip xray and continue, so
-					// the cascade reconcile below still runs. Aborting here would leave
-					// the node's edge peer wiped by the awg full-replace above.
+				if res.XRaySkipped {
 					fmt.Println("  xray      skipped (node has no REALITY support)")
-				case xErr != nil:
-					return fmt.Errorf("control %s (xray): %w", node.ControlAddr, xErr)
-				default:
-					fmt.Printf("  xray      pushed %d REALITY client(s), revision %d (applied %d), reloaded %t\n",
-						len(xrayPeers), xrayRev, xResp.GetAppliedRevision(), xResp.GetReloaded())
+				} else {
+					fmt.Printf("  xray      pushed %d REALITY client(s)\n", res.XRayPeers)
 				}
 			}
-
-			// A device-peer push full-replaces awg0, wiping any cascade edge peer
-			// this node carries as an exit/mid hop. Re-apply the cascade state so
-			// the edge peers are re-added (last, so they re-own the device IPs).
-			coord, err := newCascadeCoordinator(ctx, conn)
-			if err != nil {
-				return err
+			if res.CascadeReapplied {
+				fmt.Println("  cascade   edge peers re-applied")
 			}
-			if err := coord.ReconcileNode(ctx, node.ID); err != nil {
-				return fmt.Errorf("re-apply cascade peers on %s: %w", node.Name, err)
-			}
-			fmt.Println("  cascade   edge peers re-applied")
 			return nil
 		},
 	}

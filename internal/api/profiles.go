@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/PharosVPN/coxswain/internal/fleet"
@@ -150,13 +151,34 @@ func (s *Server) handleDeleteProfileSpec(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// reprovision re-seals a device's bundle after a profile change. A device whose
-// user has not enrolled an encryption key yet can't be sealed to — that's not an
-// error here; the change applies on the next sync/provision.
+// reprovision re-seals a device's bundle after a profile change, then
+// best-effort delivers the changed peer set to every affected node (Phase 2
+// push-on-provision). A device whose user has not enrolled an encryption key yet
+// can't be sealed to — that's not an error here; the change applies on the next
+// sync/provision. A push failure is non-fatal — it's logged and the reconcile
+// sweep heals it — so it does not fail the provision.
 func (s *Server) reprovision(ctx context.Context, deviceID string) error {
-	_, err := provision.ProvisionDevice(ctx, s.db, deviceID, s.provOpts)
+	res, err := provision.ProvisionDevice(ctx, s.db, deviceID, s.provOpts)
 	if errors.Is(err, profile.ErrNoEncryptionKey) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	s.pushAffected(ctx, res.AffectedNodes)
+	return nil
+}
+
+// pushAffected best-effort delivers coxswain's current peer set to each node a
+// provision changed. A nil pusher (e.g. in tests) or a per-node failure is
+// non-fatal: the reconcile sweep heals what immediate delivery misses.
+func (s *Server) pushAffected(ctx context.Context, nodeIDs []string) {
+	if s.pusher == nil {
+		return
+	}
+	for _, id := range nodeIDs {
+		if _, err := s.pusher(ctx, id); err != nil {
+			log.Printf("api: push to node %s after provision failed (sweep will retry): %v", id, err)
+		}
+	}
 }

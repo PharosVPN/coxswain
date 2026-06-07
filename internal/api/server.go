@@ -24,6 +24,13 @@ const (
 	shutdownTimeout = 5 * time.Second
 )
 
+// NodePusher delivers coxswain's current peer set to one node over the control
+// plane (the Phase 2 PushNode primitive), returning a JSON-encodable result. The
+// cli package supplies the concrete implementation (it owns the config + routed
+// dialers); a nil pusher disables the reconcile route. It is also called
+// best-effort after a device (re)provision to deliver changes immediately.
+type NodePusher func(ctx context.Context, nodeID string) (any, error)
+
 // Server is the admin HTTP server.
 type Server struct {
 	db             *sql.DB
@@ -33,8 +40,14 @@ type Server struct {
 	paths          PathCoordinator
 	geo            *geoip.Resolver
 	controllerHost string
+	pusher         NodePusher
 	http           *http.Server
 }
+
+// SetNodePusher wires the node-push primitive used by the reconcile route and
+// push-on-provision. Call it before Run. A nil pusher leaves those best-effort
+// (provision still succeeds; the sweep heals) and the push route returns 503.
+func (s *Server) SetNodePusher(p NodePusher) { s.pusher = p }
 
 // NewServer builds the admin server bound to addr (a localhost address).
 // provOpts carries the fleet settings device provisioning needs; deployer
@@ -61,6 +74,9 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("GET /api/nodes/{id}", s.requireAuth(s.handleGetNode))
 	mux.HandleFunc("PATCH /api/nodes/{id}", s.requireAuth(s.handleUpdateNode))
 	mux.HandleFunc("DELETE /api/nodes/{id}", s.requireAuth(s.handleDeleteNode))
+	// Reconcile a node — deliver coxswain's current peer set (the Phase 2 push
+	// primitive), so the web UI can heal a node, which it could not do before.
+	mux.HandleFunc("POST /api/nodes/{id}/push", s.requireAuth(s.handlePushNode))
 	mux.HandleFunc("POST /api/network-policy/preview", s.requireAuth(s.handleNetworkPolicyPreview))
 
 	// Relays — relays in the egress / onion chain (for the fleet map's roles).

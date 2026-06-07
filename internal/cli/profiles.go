@@ -18,6 +18,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/profile"
 	"github.com/PharosVPN/coxswain/internal/provision"
+	"github.com/PharosVPN/coxswain/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
@@ -113,8 +114,7 @@ func newProfilesCreateCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"  re-provisioned: %d profile(s), %d peer(s), revision %d\n", res.ProfileCount, res.PeerCount, res.ProfileVersion)
-			fmt.Fprintln(cmd.OutOrStdout(),
-				"  next: run `cox nodes push <entry-node>` so the profile's peer reaches the node")
+			pushAffectedNodes(cmd, ctx, cfg, conn, res.AffectedNodes)
 			return nil
 		},
 	}
@@ -211,11 +211,36 @@ func newProfilesRemoveCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"  re-provisioned: %d profile(s), %d peer(s), revision %d\n", res.ProfileCount, res.PeerCount, res.ProfileVersion)
+			pushAffectedNodes(cmd, ctx, cfg, conn, res.AffectedNodes)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to cox.yaml")
 	return cmd
+}
+
+// pushAffectedNodes best-effort delivers the current peer set to each node a
+// provision changed (Phase 2 push-on-provision). A push failure is non-fatal —
+// the reconcile sweep heals it — but is surfaced as a warning so the operator
+// knows delivery is pending. Empty when no node was affected (e.g. the user has
+// no encryption key yet, so nothing was provisioned).
+func pushAffectedNodes(cmd *cobra.Command, ctx context.Context, cfg config.Config, conn *sql.DB, nodeIDs []string) {
+	out := cmd.OutOrStdout()
+	for _, id := range nodeIDs {
+		node, err := fleet.GetNode(ctx, conn, id)
+		if err != nil {
+			fmt.Fprintf(out, "  warning: push to %s skipped: %v\n", id, err)
+			continue
+		}
+		if node.ControlAddr == "" {
+			continue // not yet enrolled — the sweep delivers once it is
+		}
+		if _, err := reconcile.PushNode(ctx, &cfg, conn, node); err != nil {
+			fmt.Fprintf(out, "  warning: push to %s failed (the sweep will retry): %v\n", node.Name, err)
+			continue
+		}
+		fmt.Fprintf(out, "  pushed: %s reconciled\n", node.Name)
+	}
 }
 
 // resolveDevice finds a user's device by alias, or — when the alias is empty and

@@ -50,6 +50,12 @@ type Result struct {
 	PeerCount      int
 	ProfileCount   int
 	ProfileVersion int64
+	// AffectedNodes is the set of node IDs whose intended peer set this provision
+	// changed — every node a peer was created on or cleared from. Their
+	// config_revision is bumped (so the node's stale applied_revision shows as
+	// DRIFT), and the caller best-effort pushes to each (Phase 2). Deterministic
+	// order, deduplicated.
+	AffectedNodes []string
 }
 
 // ProvisionDevice renders every profile a device should hold into its own
@@ -91,9 +97,17 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		return Result{}, err
 	}
 	ipBySpec := map[string]string{}
+	// affected accumulates every node whose intended peer set this provision
+	// changes — the nodes peers are cleared from now, plus the nodes peers are
+	// (re)created on below. Each gets a config_revision bump so a node serving the
+	// old set shows as DRIFT until a push reaches it (Phase 2).
+	affected := map[string]bool{}
 	for _, p := range existing {
 		if ipBySpec[p.ProfileSpecID] == "" && p.AllowedIP != "" {
 			ipBySpec[p.ProfileSpecID] = p.AllowedIP
+		}
+		if p.NodeID != "" {
+			affected[p.NodeID] = true
 		}
 	}
 	if len(existing) > 0 {
@@ -127,6 +141,30 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		}
 	}
 
+	// Fold in every node a fresh peer landed on, then bump each affected node's
+	// intended config_revision so a re-provision that changed the node's peer set
+	// is detectable as DRIFT (its applied_revision now trails intent) until a push
+	// reaches it. The bump is monotonic; a later push double-bumping is harmless —
+	// only the relative comparison matters.
+	current, err := fleet.ListPeersByDevice(ctx, db, device.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, p := range current {
+		if p.NodeID != "" {
+			affected[p.NodeID] = true
+		}
+	}
+	affectedNodes := make([]string, 0, len(affected))
+	for _, n := range nodes {
+		if affected[n.ID] {
+			affectedNodes = append(affectedNodes, n.ID)
+			if err := fleet.BumpNodeConfigRevision(ctx, db, n.ID); err != nil {
+				return Result{}, fmt.Errorf("provision: bump config revision on %s: %w", n.ID, err)
+			}
+		}
+	}
+
 	prof := profile.Profile{User: device.UserID, Profiles: clientProfiles}
 	if opts.Control != (profile.ControlEndpoint{}) {
 		ctrl := opts.Control
@@ -143,6 +181,7 @@ func ProvisionDevice(ctx context.Context, db *sql.DB, deviceID string, opts Opti
 		PeerCount:      peerCount,
 		ProfileCount:   len(clientProfiles),
 		ProfileVersion: revision,
+		AffectedNodes:  affectedNodes,
 	}, nil
 }
 

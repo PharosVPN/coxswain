@@ -113,10 +113,14 @@ func (s *Server) handleProvisionDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "provisioning failed")
 		return
 	}
+	// Best-effort push-on-provision (Phase 2): deliver the changed peer set now;
+	// the reconcile sweep is the backstop for anything this misses.
+	s.pushAffected(r.Context(), res.AffectedNodes)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"device_id":        res.Device.ID,
 		"tunnel_ip":        res.TunnelIP,
 		"peer_count":       res.PeerCount,
 		"profile_revision": res.ProfileVersion,
+		"pushed_nodes":     res.AffectedNodes,
 	})
 }

@@ -151,7 +151,7 @@ func newDevicesIssueCmd() *cobra.Command {
 			if pathID != "" {
 				fmt.Printf("  egress path %s\n", pathID)
 			}
-			fmt.Println("  next: run `cox nodes push <node>` so the device's peer reaches the nodes")
+			pushAffectedNodes(cmd, ctx, cfg, conn, res.AffectedNodes)
 			fmt.Println("  copy the .pharosid to the device over a trusted channel — it holds a private key")
 			return nil
 		},

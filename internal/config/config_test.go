@@ -74,6 +74,26 @@ func TestEnvOverride(t *testing.T) {
 	}
 }
 
+func TestReconcileSecondsDefaults(t *testing.T) {
+	// Unset / non-positive falls back to the default; a positive value is honoured.
+	if got := (FleetConfig{}).ReconcileSeconds(); got != DefaultReconcileSeconds {
+		t.Errorf("unset ReconcileSeconds() = %d, want default %d", got, DefaultReconcileSeconds)
+	}
+	if got := (FleetConfig{ReconcileInterval: -5}).ReconcileSeconds(); got != DefaultReconcileSeconds {
+		t.Errorf("negative ReconcileSeconds() = %d, want default %d", got, DefaultReconcileSeconds)
+	}
+	if got := (FleetConfig{ReconcileInterval: 30}).ReconcileSeconds(); got != 30 {
+		t.Errorf("ReconcileSeconds() = %d, want 30", got)
+	}
+	// The presets carry the field through a write/load round-trip.
+	for _, posture := range []Posture{PosturePersonal, PostureEnterprise} {
+		c, _ := Preset(posture)
+		if c.Fleet.ReconcileInterval != DefaultReconcileSeconds {
+			t.Errorf("%s preset reconcile_interval = %d, want %d", posture, c.Fleet.ReconcileInterval, DefaultReconcileSeconds)
+		}
+	}
+}
+
 func TestValidateRejectsBadPosture(t *testing.T) {
 	c := Config{Posture: "bogus", StateDir: "./state"}
 	if err := c.Validate(); err == nil {
