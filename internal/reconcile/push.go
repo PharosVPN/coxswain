@@ -165,11 +165,13 @@ func pushNode(ctx context.Context, cfg *config.Config, conn *sql.DB, node fleet.
 	if cfg.Protocols.XRay {
 		xrayPeers := toXRayPeers(peers)
 		dest, serverNames := profile.RealityCamouflage(cfg.Reality.DecoySite)
-		xrayRev, rErr := fleet.NextNodeConfigRevision(ctx, conn, node.ID)
-		if rErr != nil {
-			return res, rErr
-		}
-		_, xErr := client.PushXRayRealityConfig(rpcCtx, xrayRev, xrayPeers,
+		// Reuse the AmneziaWG revision — do NOT bump config_revision again. The
+		// node reports its AmneziaWG applied_revision in GetStatus; if the XRay
+		// push (or its skip on a no-REALITY node) advanced config_revision past
+		// that, every fully-synced node would look one revision behind and the
+		// reconcile sweep would re-push it forever (a DRIFT loop). Exactly one
+		// config_revision bump per PushNode, owned by the AmneziaWG push above.
+		_, xErr := client.PushXRayRealityConfig(rpcCtx, revision, xrayPeers,
 			dest, serverNames, []string{""}, uint32(profile.XRayListenPort))
 		switch {
 		case status.Code(xErr) == codes.Unimplemented:

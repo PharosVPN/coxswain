@@ -202,9 +202,18 @@ func TestPushNodeToleratesXRayUnimplemented(t *testing.T) {
 
 	client := &fakePushClient{appliedRev: 1, xrayUnimpl: true}
 	noopCoord := stubReconciler{}
+
+	before, _ := fleet.GetNode(ctx, conn, node.ID)
 	res, err := pushNode(ctx, cfg, conn, node, client, &noopCoord)
 	if err != nil {
 		t.Fatalf("pushNode: %v", err)
+	}
+	// Exactly one config_revision bump per PushNode: awg + xray share a revision.
+	// A second bump (the old behaviour) made a synced node look one behind and
+	// the sweep re-push it forever (the live-fleet DRIFT loop).
+	after, _ := fleet.GetNode(ctx, conn, node.ID)
+	if got := after.ConfigRevision - before.ConfigRevision; got != 1 {
+		t.Errorf("config_revision bumped by %d, want exactly 1 (awg+xray must share one revision)", got)
 	}
 	if !client.xrayCalled {
 		t.Error("XRay push was not attempted")
