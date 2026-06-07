@@ -50,8 +50,10 @@ func newEnrollCmd() *cobra.Command {
 
 			ticket, token, err := enroll.IssueTicket(ctx, conn, userID)
 			if err != nil {
+				auditCLI(ctx, conn, "enroll.issue", "user", userID, nil, err)
 				return err
 			}
+			auditCLI(ctx, conn, "enroll.issue", "ticket", ticket.ID, map[string]any{"user_id": userID}, nil)
 			link := enroll.TicketURL(relay, token, bundle.Root.Fingerprint())
 			png, err := enroll.QRCode(link)
 			if err != nil {

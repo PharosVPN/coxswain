@@ -97,8 +97,10 @@ func newServersAddCmd() *cobra.Command {
 				Dialer:   dialer,
 			})
 			if err != nil {
+				auditCLI(ctx, conn, "server.add", "server", "", map[string]any{"ssh_host": args[0]}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "server.add", "server", srv.ID, map[string]any{"name": srv.Name, "ssh_host": srv.SSHHost}, nil)
 
 			fmt.Printf("server onboarded — %s\n", dash(srv.Name))
 			fmt.Printf("  server id   %s\n", srv.ID)
@@ -207,11 +209,13 @@ func newServersRemoveCmd() *cobra.Command {
 			}
 			defer conn.Close()
 			if err := fleet.DeleteServer(ctx, conn, args[0]); err != nil {
+				auditCLI(ctx, conn, "server.rm", "server", args[0], nil, err)
 				if errors.Is(err, fleet.ErrServerInUse) {
 					return fmt.Errorf("server %s still has node/relay roles deployed — remove those first", args[0])
 				}
 				return err
 			}
+			auditCLI(ctx, conn, "server.rm", "server", args[0], nil, nil)
 			fmt.Printf("server %s removed\n", args[0])
 			return nil
 		},

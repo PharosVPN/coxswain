@@ -170,8 +170,10 @@ func newRelaysAddCmd() *cobra.Command {
 				res, err = deploy.AddRelay(ctx, conn, sshConn, bundle, params)
 			}
 			if err != nil {
+				auditCLI(ctx, conn, "relay.add", "relay", "", map[string]any{"name": name, "region": region}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "relay.add", "relay", res.Relay.ID, map[string]any{"name": res.Relay.Name, "region": res.Relay.Region}, nil)
 
 			fmt.Printf("relay enrolled — %s\n", res.Relay.Name)
 			fmt.Printf("  relay id       %s\n", res.Relay.ID)

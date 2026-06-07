@@ -500,8 +500,10 @@ func newNodesUpdateCmd() *cobra.Command {
 
 			updated, err := deploy.UpdateAgent(ctx, conn, sshConn, node, spec)
 			if err != nil {
+				auditCLI(ctx, conn, "node.update", "node", node.ID, map[string]any{"name": node.Name}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "node.update", "node", updated.ID, map[string]any{"name": updated.Name, "agent_version": updated.AgentVersion}, nil)
 			fmt.Printf("node %s updated — agent version %s\n", updated.ID, dash(updated.AgentVersion))
 			return nil
 		},
