@@ -13,6 +13,7 @@ import (
 
 	"github.com/PharosVPN/coxswain/internal/analytics"
 	"github.com/PharosVPN/coxswain/internal/api"
+	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/auth"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/fleet"
@@ -24,6 +25,7 @@ import (
 	"github.com/PharosVPN/coxswain/internal/provision"
 	"github.com/PharosVPN/coxswain/internal/reconcile"
 	"github.com/PharosVPN/coxswain/internal/relayhost"
+	"github.com/PharosVPN/coxswain/internal/siem"
 	"github.com/spf13/cobra"
 )
 
@@ -231,6 +233,16 @@ func newServeCmd() *cobra.Command {
 					cfg.Analytics.IntervalSecondsOr(), cfg.Analytics.WindowHoursOr(), backend)
 			}
 
+			// --- SIEM/enterprise inbound gRPC monitoring stream (Phase D) ---------
+			// Optional, OFF by default (siem.listen unset) so coxswain keeps zero
+			// inbound ports. When configured, it reuses the same live hub as the
+			// dashboard WS — no second event pipeline — and authenticates consumers
+			// with a monitor-scope token via the package's stream interceptor.
+			if stop := startSIEMStream(ctx, &wg, cfg.SIEM, conn, hub); stop != nil {
+				defer stop()
+			}
+			// ----------------------------------------------------------------------
+
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)
@@ -243,6 +255,57 @@ func newServeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	return cmd
+}
+
+// startSIEMStream brings up the optional inbound SIEM gRPC monitoring stream
+// (Phase D). It is disabled unless siem.listen is set, preserving coxswain's
+// zero-inbound-by-default posture. The server reuses the live hub as its event
+// source (no second pipeline) and authenticates consumers with a monitor-scope
+// token. A bind failure is non-fatal — it prints a warning and the admin plane
+// still serves. Returns a stop func, or nil when nothing started. All
+// SIEM-specific wiring lives here to keep serve.go's main body untouched.
+func startSIEMStream(ctx context.Context, wg *sync.WaitGroup, cfg config.SIEMConfig, conn *sql.DB, hub *live.Hub) (stop func()) {
+	opts := siem.Options{Listen: cfg.Listen, TLSCert: cfg.TLSCert, TLSKey: cfg.TLSKey}
+	if !opts.Enabled() {
+		return nil
+	}
+
+	// onSubscribe writes a light audit row when a consumer connects, so the audit
+	// trail shows who is streaming. The token is in the (auth-enriched) context.
+	onSubscribe := func(sctx context.Context) {
+		actor := "siem"
+		if tok, ok := siem.TokenFromContext(sctx); ok {
+			actor = tok.Name
+		}
+		_ = audit.Log(sctx, conn, audit.Entry{
+			Actor:      actor,
+			ActorKind:  audit.KindToken,
+			Action:     "siem.subscribe",
+			TargetType: "siem",
+		})
+	}
+
+	ln, err := siem.Start(conn, hub, opts, onSubscribe)
+	if err != nil {
+		fmt.Printf("  warning: SIEM stream disabled — %v\n", err)
+		return nil
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if sErr := ln.Serve(); sErr != nil && ctx.Err() == nil {
+			fmt.Printf("  warning: SIEM stream stopped: %v\n", sErr)
+		}
+	}()
+
+	tlsNote := "PLAINTEXT — loopback/SSH-tunnel only; set siem.tls_cert/tls_key for production"
+	if ln.TLS() {
+		tlsNote = "TLS"
+	}
+	fmt.Printf("  siem:    grpc://%s (%s, monitor-scope token required)\n", ln.Addr(), tlsNote)
+
+	return func() { ln.Stop() }
 }
 
 // remoteRelayEndpoints is the set of remote relay tunnel addresses coxswain dials:

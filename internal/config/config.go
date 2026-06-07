@@ -47,6 +47,31 @@ type Config struct {
 	Fleet     FleetConfig     `koanf:"fleet" yaml:"fleet"`
 	Node      NodeConfig      `koanf:"node" yaml:"node"`
 	Admin     AdminConfig     `koanf:"admin" yaml:"admin"`
+	// SIEM is the optional inbound gRPC monitoring stream for enterprise/SIEM
+	// ingestion. Off by default (empty Listen) — coxswain keeps zero inbound ports
+	// unless this is configured.
+	SIEM SIEMConfig `koanf:"siem" yaml:"siem"`
+}
+
+// SIEMConfig controls the optional inbound gRPC MonitorStream server (the
+// SIEM/enterprise ingestion plane). It is DISABLED by default: with Listen empty
+// coxswain opens no inbound port, preserving the zero-inbound-by-default posture
+// (DESIGN §2, §6). When enabled, an enterprise consumer dials in over gRPC,
+// authenticates with a monitor-scope API token, and receives the live stream of
+// session connect/disconnect events plus analytics alerts.
+//
+// Production guidance: set TLSCert/TLSKey so the stream is encrypted in transit
+// (a monitor token over a plaintext socket is exposed to a network observer),
+// and mint a dedicated monitor-scope token for the consumer. Without TLS, only
+// expose Listen over loopback / an SSH-forwarded port.
+type SIEMConfig struct {
+	// Listen is the address the SIEM gRPC server binds (e.g. ":9443"). Empty
+	// (the default) disables the listener entirely — no inbound port is opened.
+	Listen string `koanf:"listen" yaml:"listen"`
+	// TLSCert / TLSKey are PEM file paths for transport TLS. Both must be set to
+	// enable TLS; otherwise the listener is plaintext (loopback / SSH-tunnel only).
+	TLSCert string `koanf:"tls_cert" yaml:"tls_cert"`
+	TLSKey  string `koanf:"tls_key" yaml:"tls_key"`
 }
 
 // ControlLocationConfig is the controller's manual map location (when geoip is
