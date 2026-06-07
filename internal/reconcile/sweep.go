@@ -40,16 +40,36 @@ func amneziaWGService(s *nodev1.GetStatusResponse) *nodev1.ServiceStatus {
 //
 // It is a pure function (no I/O), so the sweep's logic is unit-testable without a
 // live node.
-func needsReconcile(s *nodev1.GetStatusResponse, intendedRev int64) (push bool, reason string) {
+func needsReconcile(s *nodev1.GetStatusResponse, intendedRev int64) (push, stale bool, reason string) {
 	if applied := s.GetAppliedRevision(); applied < intendedRev {
-		return true, fmt.Sprintf("DRIFT (applied %d < intended %d)", applied, intendedRev)
+		return true, false, fmt.Sprintf("DRIFT (applied %d < intended %d)", applied, intendedRev)
 	}
 	if svc := amneziaWGService(s); svc != nil {
 		if svc.GetPeerCount() > 0 && svc.GetHandshakingPeers() == 0 {
-			return true, fmt.Sprintf("STALE (%d peers, 0 handshaking)", svc.GetPeerCount())
+			return true, true, fmt.Sprintf("STALE (%d peers, 0 handshaking)", svc.GetPeerCount())
 		}
 	}
-	return false, ""
+	return false, false, ""
+}
+
+// staleHealCooldown rate-limits STALE-triggered re-pushes per node. A node with
+// provisioned peers but nobody currently connected reports zero handshakes every
+// pass; we must not re-push it (and bump its config_revision) every tick. A
+// genuinely-broken plane still gets one heal attempt per cooldown.
+const staleHealCooldown = 5 * time.Minute
+
+// shouldHeal decides whether a node needsReconcile flagged should actually be
+// pushed THIS pass. DRIFT heals are unconditional — a push makes applied ==
+// intended, so they never loop. STALE heals are rate-limited per node via
+// healedAt so an idle node isn't hammered every interval.
+func shouldHeal(stale bool, nodeID string, healedAt map[string]time.Time, now time.Time, cooldown time.Duration) bool {
+	if !stale {
+		return true
+	}
+	if last, ok := healedAt[nodeID]; ok && now.Sub(last) < cooldown {
+		return false
+	}
+	return true
 }
 
 // SweepOnce runs one pass of the reconcile sweep over every node: for each node
@@ -60,11 +80,14 @@ func needsReconcile(s *nodev1.GetStatusResponse, intendedRev int64) (push bool, 
 // This is the heart of Option B: an always-on controller that closes the gap
 // where a re-provision changed a node's intended peer set but no push reached it,
 // so the node served stale config while reporting healthy.
-func SweepOnce(ctx context.Context, cfg *config.Config, conn *sql.DB, logf Logf) int {
+func SweepOnce(ctx context.Context, cfg *config.Config, conn *sql.DB, logf Logf, staleHealedAt map[string]time.Time) int {
 	log := func(format string, args ...any) {
 		if logf != nil {
 			logf(format, args...)
 		}
+	}
+	if staleHealedAt == nil {
+		staleHealedAt = map[string]time.Time{}
 	}
 	nodes, err := fleet.ListNodes(ctx, conn)
 	if err != nil {
@@ -93,13 +116,22 @@ func SweepOnce(ctx context.Context, cfg *config.Config, conn *sql.DB, logf Logf)
 			continue
 		}
 
-		push, reason := needsReconcile(st, node.ConfigRevision)
+		push, stale, reason := needsReconcile(st, node.ConfigRevision)
 		if !push {
 			// Healthy + in sync: clear any prior unreachable/error status.
 			if node.Status != fleet.StatusActive {
 				_ = fleet.SetNodeStatus(ctx, conn, node.ID, fleet.StatusActive)
 			}
 			continue
+		}
+		if !shouldHeal(stale, node.ID, staleHealedAt, time.Now(), staleHealCooldown) {
+			// STALE but recently healed — don't re-push an idle node every tick;
+			// still visible via `cox nodes status` (⚠ STALE) for an operator.
+			log("reconcile: %s %s — within stale cooldown, not re-pushing", node.Name, reason)
+			continue
+		}
+		if stale {
+			staleHealedAt[node.ID] = time.Now()
 		}
 
 		log("reconcile: healing %s — %s", node.Name, reason)
@@ -138,6 +170,13 @@ func Run(ctx context.Context, cfg *config.Config, conn *sql.DB, interval time.Du
 	if interval <= 0 {
 		interval = time.Duration(config.DefaultReconcileSeconds) * time.Second
 	}
+	// Per-node STALE-heal timestamps, persisted across passes so an idle node
+	// isn't re-pushed every interval (DRIFT heals stay unconditional).
+	staleHealedAt := map[string]time.Time{}
+	// Reconcile once immediately on startup: heals any drift that accumulated
+	// while the controller was down (e.g. across a controller restart) without
+	// waiting a full interval.
+	SweepOnce(ctx, cfg, conn, logf, staleHealedAt)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -145,7 +184,7 @@ func Run(ctx context.Context, cfg *config.Config, conn *sql.DB, interval time.Du
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			SweepOnce(ctx, cfg, conn, logf)
+			SweepOnce(ctx, cfg, conn, logf, staleHealedAt)
 		}
 	}
 }

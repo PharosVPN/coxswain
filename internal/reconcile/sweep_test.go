@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/db"
@@ -96,7 +97,7 @@ func TestNeedsReconcile(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			push, reason := needsReconcile(tc.status, tc.intendedRev)
+			push, _, reason := needsReconcile(tc.status, tc.intendedRev)
 			if push != tc.wantPush {
 				t.Errorf("needsReconcile push = %v, want %v (reason %q)", push, tc.wantPush, reason)
 			}
@@ -107,6 +108,24 @@ func TestNeedsReconcile(t *testing.T) {
 				t.Errorf("needsReconcile reason = %q, want empty for no-push", reason)
 			}
 		})
+	}
+}
+
+func TestShouldHeal(t *testing.T) {
+	now := time.Now()
+	healed := map[string]time.Time{"n": now.Add(-1 * time.Minute)} // healed 1m ago
+
+	if !shouldHeal(false, "n", healed, now, staleHealCooldown) {
+		t.Error("DRIFT should always heal, even within the cooldown")
+	}
+	if shouldHeal(true, "n", healed, now, staleHealCooldown) {
+		t.Error("STALE within cooldown should be skipped (idle node, do not re-push)")
+	}
+	if !shouldHeal(true, "n", healed, now.Add(10*time.Minute), staleHealCooldown) {
+		t.Error("STALE past the cooldown should heal again")
+	}
+	if !shouldHeal(true, "never-healed", healed, now, staleHealCooldown) {
+		t.Error("STALE for a node never healed should heal")
 	}
 }
 
@@ -148,7 +167,7 @@ func TestSweepOnceMarksUnreachable(t *testing.T) {
 	}
 
 	cfg := &config.Config{Posture: config.PosturePersonal, StateDir: "."}
-	healed := SweepOnce(ctx, cfg, conn, nil)
+	healed := SweepOnce(ctx, cfg, conn, nil, nil)
 	if healed != 0 {
 		t.Errorf("healed = %d, want 0 (the node never answered)", healed)
 	}
