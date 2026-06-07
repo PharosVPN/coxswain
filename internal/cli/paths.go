@@ -61,14 +61,17 @@ func newPathsAddCmd() *cobra.Command {
 			}
 			p, err := fleet.CreatePath(ctx, conn, args[0], color, hops)
 			if err != nil {
+				auditCLI(ctx, conn, "path.add", "path", "", map[string]any{"name": args[0], "hops": hops}, err)
 				return err
 			}
 			if _, err := coord.ProvisionPath(ctx, p.ID); err != nil {
 				// Roll back so a failed provision leaves no dangling path.
 				_ = coord.DeprovisionPath(ctx, p.ID)
 				_ = fleet.DeletePath(ctx, conn, p.ID)
+				auditCLI(ctx, conn, "path.add", "path", p.ID, map[string]any{"name": args[0], "hops": hops}, err)
 				return fmt.Errorf("provision path: %w", err)
 			}
+			auditCLI(ctx, conn, "path.add", "path", p.ID, map[string]any{"name": args[0], "hops": hops}, nil)
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"path %s created: %s [%s], status active\n", p.ID, args[0], strings.Join(hops, " → "))
 			return nil
@@ -178,8 +181,10 @@ func newPathsRemoveCmd() *cobra.Command {
 				return err
 			}
 			if err := coord.DeprovisionPath(ctx, args[0]); err != nil {
+				auditCLI(ctx, conn, "path.rm", "path", args[0], nil, err)
 				return err
 			}
+			auditCLI(ctx, conn, "path.rm", "path", args[0], nil, nil)
 			fmt.Fprintf(cmd.OutOrStdout(), "path %s removed\n", args[0])
 			return nil
 		},
@@ -209,8 +214,10 @@ func newPathsBindCmd() *cobra.Command {
 				return err
 			}
 			if err := coord.BindDeviceToPath(ctx, args[0], args[1]); err != nil {
+				auditCLI(ctx, conn, "path.bind", "device", args[0], map[string]any{"path_id": args[1]}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "path.bind", "device", args[0], map[string]any{"path_id": args[1]}, nil)
 			fmt.Fprintf(cmd.OutOrStdout(), "device %s bound to path %s\n", args[0], args[1])
 			return nil
 		},
@@ -237,8 +244,10 @@ func newPathsUnbindCmd() *cobra.Command {
 				return err
 			}
 			if err := coord.ClearDevicePath(ctx, args[0]); err != nil {
+				auditCLI(ctx, conn, "path.unbind", "device", args[0], nil, err)
 				return err
 			}
+			auditCLI(ctx, conn, "path.unbind", "device", args[0], nil, nil)
 			fmt.Fprintf(cmd.OutOrStdout(), "device %s path binding cleared\n", args[0])
 			return nil
 		},

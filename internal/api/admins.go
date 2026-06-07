@@ -60,9 +60,11 @@ func (s *Server) handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "admin.add", "user", "", map[string]any{"email": req.Email}, err)
 		writeError(w, http.StatusInternalServerError, "failed to create admin")
 		return
 	}
+	s.audited(r, "admin.add", "user", user.ID, map[string]any{"email": user.Email}, nil)
 	writeJSON(w, http.StatusCreated, toUserView(user))
 }
 
@@ -84,8 +86,10 @@ func (s *Server) handleDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "admin.rm", "user", id, nil, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete admin")
 		return
 	}
+	s.audited(r, "admin.rm", "user", id, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }

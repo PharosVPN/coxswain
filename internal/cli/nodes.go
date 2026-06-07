@@ -250,8 +250,10 @@ func newNodesAddCmd() *cobra.Command {
 				})
 			}
 			if err != nil {
+				auditCLI(ctx, conn, "node.add", "node", "", map[string]any{"name": name, "region": region}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "node.add", "node", res.Node.ID, map[string]any{"name": res.Node.Name, "region": res.Node.Region}, nil)
 
 			fmt.Printf("node onboarded — %s\n", res.Node.Name)
 			fmt.Printf("  node id       %s\n", res.Node.ID)
@@ -574,8 +576,10 @@ func newNodesRemoveCmd() *cobra.Command {
 			defer conn.Close()
 
 			if err := fleet.DeleteNode(cmd.Context(), conn, args[0]); err != nil {
+				auditCLI(cmd.Context(), conn, "node.rm", "node", args[0], nil, err)
 				return err
 			}
+			auditCLI(cmd.Context(), conn, "node.rm", "node", args[0], nil, nil)
 			fmt.Printf("node %s removed from inventory\n", args[0])
 			return nil
 		},

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/auth"
 )
 
@@ -39,6 +40,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := account.GetUserByEmail(r.Context(), s.db, req.Username)
 	if errors.Is(err, account.ErrNotFound) {
+		s.auditLoginFailed(r, req.Username, "no such account")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -50,6 +52,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if user.Status != account.StatusActive ||
 		user.Role != account.RoleAdmin ||
 		!auth.VerifyPassword(user.PasswordHash, req.Password) {
+		s.auditLoginFailed(r, req.Username, "invalid credentials")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -59,6 +62,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
+	_ = audit.Log(r.Context(), s.db, audit.Entry{
+		Actor: user.Email, ActorKind: audit.KindSession, Action: "auth.login",
+		TargetType: "user", TargetID: user.ID, SourceIP: audit.SourceIP(r),
+	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
@@ -86,4 +93,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toUserView(currentUser(r)))
+}
+
+// auditLoginFailed records a failed login attempt (result=error). The actor is
+// the attempted username so the trail shows who was tried.
+func (s *Server) auditLoginFailed(r *http.Request, username, reason string) {
+	_ = audit.Log(r.Context(), s.db, audit.Entry{
+		Actor: username, ActorKind: audit.KindSession, Action: "auth.login_failed",
+		TargetType: "user", SourceIP: audit.SourceIP(r),
+		Err: errors.New(reason),
+	})
 }

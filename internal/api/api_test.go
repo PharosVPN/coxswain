@@ -25,9 +25,8 @@ import (
 
 const testAdminPassword = "test-admin-password"
 
-// setup builds a migrated database, the synced fixed admin, and a running
-// test HTTP server with a cookie-jar client.
-func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
+// newTestDB opens a migrated, throwaway database for a test.
+func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))
 	if err != nil {
@@ -37,6 +36,14 @@ func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
 	if err := db.Migrate(conn); err != nil {
 		t.Fatalf("db.Migrate: %v", err)
 	}
+	return conn
+}
+
+// setup builds a migrated database, the synced fixed admin, and a running
+// test HTTP server with a cookie-jar client.
+func setup(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
+	t.Helper()
+	conn := newTestDB(t)
 	if err := auth.SyncConfigAdmin(context.Background(), conn, testAdminPassword); err != nil {
 		t.Fatalf("SyncConfigAdmin: %v", err)
 	}

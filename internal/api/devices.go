@@ -71,9 +71,11 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 		UserID: userID, Name: req.Name, Platform: req.Platform,
 	})
 	if err != nil {
+		s.audited(r, "device.add", "device", "", map[string]any{"name": req.Name, "user_id": userID}, err)
 		writeError(w, http.StatusInternalServerError, "failed to create device")
 		return
 	}
+	s.audited(r, "device.add", "device", device.ID, map[string]any{"name": device.Name, "user_id": userID}, nil)
 	writeJSON(w, http.StatusCreated, toDeviceView(device))
 }
 
@@ -89,16 +91,19 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "device.rm", "device", id, nil, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete device")
 		return
 	}
+	s.audited(r, "device.rm", "device", id, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleProvisionDevice places a device on every ready node and issues it a
 // freshly sealed profile.
 func (s *Server) handleProvisionDevice(w http.ResponseWriter, r *http.Request) {
-	res, err := provision.ProvisionDevice(r.Context(), s.db, r.PathValue("id"), s.provOpts)
+	deviceID := r.PathValue("id")
+	res, err := provision.ProvisionDevice(r.Context(), s.db, deviceID, s.provOpts)
 	switch {
 	case errors.Is(err, account.ErrNotFound):
 		writeError(w, http.StatusNotFound, "device not found")
@@ -110,9 +115,11 @@ func (s *Server) handleProvisionDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "the VPN subnet is exhausted")
 		return
 	case err != nil:
+		s.audited(r, "device.provision", "device", deviceID, nil, err)
 		writeError(w, http.StatusInternalServerError, "provisioning failed")
 		return
 	}
+	s.audited(r, "device.provision", "device", deviceID, map[string]any{"peer_count": res.PeerCount}, nil)
 	// Best-effort push-on-provision (Phase 2): deliver the changed peer set now;
 	// the reconcile sweep is the backstop for anything this misses.
 	s.pushAffected(r.Context(), res.AffectedNodes)

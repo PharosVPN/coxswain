@@ -108,9 +108,11 @@ func (s *Server) handleCreatePath(w http.ResponseWriter, r *http.Request) {
 		// Roll back: clean up any partial inner-link config, then drop the row.
 		_ = s.paths.DeprovisionPath(r.Context(), p.ID)
 		_ = fleet.DeletePath(r.Context(), s.db, p.ID)
+		s.audited(r, "path.create", "path", p.ID, map[string]any{"name": req.Name, "hops": req.NodeIDs}, err)
 		writeError(w, http.StatusBadGateway, "provision path failed: "+err.Error())
 		return
 	}
+	s.audited(r, "path.create", "path", provisioned.ID, map[string]any{"name": provisioned.Name, "hops": req.NodeIDs}, nil)
 	view, err := s.pathView(r.Context(), provisioned)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load path")
@@ -171,9 +173,11 @@ func (s *Server) handleDeletePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.paths.DeprovisionPath(ctx, id); err != nil {
+		s.audited(r, "path.rm", "path", id, nil, err)
 		writeError(w, http.StatusBadGateway, "remove path failed: "+err.Error())
 		return
 	}
+	s.audited(r, "path.rm", "path", id, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -194,10 +198,13 @@ func (s *Server) handleBindDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path_id is required")
 		return
 	}
-	if err := s.paths.BindDeviceToPath(r.Context(), r.PathValue("id"), req.PathID); err != nil {
+	deviceID := r.PathValue("id")
+	if err := s.paths.BindDeviceToPath(r.Context(), deviceID, req.PathID); err != nil {
+		s.audited(r, "path.bind", "device", deviceID, map[string]any{"path_id": req.PathID}, err)
 		writeError(w, http.StatusBadGateway, "bind device failed: "+err.Error())
 		return
 	}
+	s.audited(r, "path.bind", "device", deviceID, map[string]any{"path_id": req.PathID}, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -207,9 +214,12 @@ func (s *Server) handleClearDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "path provisioning unavailable")
 		return
 	}
-	if err := s.paths.ClearDevicePath(r.Context(), r.PathValue("id")); err != nil {
+	deviceID := r.PathValue("id")
+	if err := s.paths.ClearDevicePath(r.Context(), deviceID); err != nil {
+		s.audited(r, "path.unbind", "device", deviceID, nil, err)
 		writeError(w, http.StatusBadGateway, "clear device binding failed: "+err.Error())
 		return
 	}
+	s.audited(r, "path.unbind", "device", deviceID, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }

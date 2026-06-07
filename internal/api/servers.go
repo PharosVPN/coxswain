@@ -170,12 +170,15 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	host := req.Host
 	srv, err := s.deployer.Bootstrap(r.Context(), req)
 	req.Password = "" // scrub: never retained beyond the bootstrap call
 	if err != nil {
+		s.audited(r, "server.add", "server", "", map[string]any{"ssh_host": host}, err)
 		writeError(w, http.StatusBadGateway, "onboard failed: "+err.Error())
 		return
 	}
+	s.audited(r, "server.add", "server", srv.ID, map[string]any{"name": srv.Name}, nil)
 	writeJSON(w, http.StatusCreated, s.serverView(srv))
 }
 
@@ -238,9 +241,11 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := fleet.DeleteServer(ctx, s.db, id); err != nil && !errors.Is(err, fleet.ErrNotFound) {
+		s.audited(r, "server.rm", "server", id, nil, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete server")
 		return
 	}
+	s.audited(r, "server.rm", "server", id, map[string]any{"name": srv.Name}, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -267,9 +272,11 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 	case "node":
 		node, err := s.deployer.DeployNode(r.Context(), id, req.Name, req.Region)
 		if err != nil {
+			s.audited(r, "node.add", "server", id, map[string]any{"name": req.Name, "region": req.Region}, err)
 			writeError(w, http.StatusBadGateway, "deploy node failed: "+err.Error())
 			return
 		}
+		s.audited(r, "node.add", "node", node.ID, map[string]any{"name": node.Name, "server_id": id}, nil)
 		writeJSON(w, http.StatusCreated, s.nodeView(node))
 	case "relay":
 		relay, err := s.deployer.DeployRelay(r.Context(), id, RelayDeployRequest{
@@ -281,9 +288,11 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			OnionPort:  req.OnionPort,
 		})
 		if err != nil {
+			s.audited(r, "relay.add", "server", id, map[string]any{"name": req.Name, "region": req.Region}, err)
 			writeError(w, http.StatusBadGateway, "deploy relay failed: "+err.Error())
 			return
 		}
+		s.audited(r, "relay.add", "relay", relay.ID, map[string]any{"name": relay.Name, "server_id": id}, nil)
 		writeJSON(w, http.StatusCreated, s.relayView(relay))
 	default:
 		writeError(w, http.StatusBadRequest, "role must be \"node\" or \"relay\"")

@@ -71,21 +71,26 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "user.add", "user", "", map[string]any{"name": req.Name, "email": req.Email}, err)
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
+	s.audited(r, "user.add", "user", user.ID, map[string]any{"name": user.Name, "email": user.Email}, nil)
 	writeJSON(w, http.StatusCreated, toUserView(user))
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	err := account.DeleteUser(r.Context(), s.db, r.PathValue("id"))
+	id := r.PathValue("id")
+	err := account.DeleteUser(r.Context(), s.db, id)
 	if errors.Is(err, account.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 	if err != nil {
+		s.audited(r, "user.rm", "user", id, nil, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete user")
 		return
 	}
+	s.audited(r, "user.rm", "user", id, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }

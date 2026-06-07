@@ -115,11 +115,14 @@ func newDevicesIssueCmd() *cobra.Command {
 			// sealed into its own profile.
 			res, err := provision.ProvisionDevice(ctx, conn, device.ID, provisionOptions(cfg))
 			if errors.Is(err, profile.ErrNoEncryptionKey) {
+				auditCLI(ctx, conn, "device.issue", "device", device.ID, map[string]any{"user": user.Email, "name": name}, err)
 				return fmt.Errorf("user %s has not enrolled an encryption key yet — set up a first device and sync once to enroll, then re-issue", user.Email)
 			}
 			if err != nil {
+				auditCLI(ctx, conn, "device.issue", "device", device.ID, map[string]any{"user": user.Email, "name": name}, err)
 				return fmt.Errorf("provision device: %w", err)
 			}
+			auditCLI(ctx, conn, "device.issue", "device", device.ID, map[string]any{"user": user.Email, "name": name}, nil)
 
 			data, err := deviceid.Bundle{
 				User:            user.Email,

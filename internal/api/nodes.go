@@ -169,9 +169,11 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "node.update", "node", r.PathValue("id"), map[string]any{"name": req.Name}, err)
 		writeError(w, http.StatusInternalServerError, "failed to update node")
 		return
 	}
+	s.audited(r, "node.update", "node", updated.ID, map[string]any{"name": updated.Name}, nil)
 	writeJSON(w, http.StatusOK, s.nodeView(updated))
 }
 
@@ -193,8 +195,10 @@ func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.audited(r, "node.rm", "node", id, nil, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete node")
 		return
 	}
+	s.audited(r, "node.rm", "node", id, nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -95,8 +95,10 @@ func newProfilesCreateCmd() *cobra.Command {
 				Protocol: proto,
 			})
 			if err != nil {
+				auditCLI(ctx, conn, "profile.create", "profile", "", map[string]any{"name": args[0], "device_id": device.ID}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "profile.create", "profile", spec.ID, map[string]any{"name": spec.Name, "device_id": spec.DeviceID}, nil)
 
 			fmt.Fprintf(cmd.OutOrStdout(), "profile %s created: %q for %s / %s (%s, %s)\n",
 				spec.ID, spec.Name, user.Email, device.Name, egressLabel(spec), spec.Protocol)
@@ -198,8 +200,10 @@ func newProfilesRemoveCmd() *cobra.Command {
 				return fmt.Errorf("no such profile %q: %w", args[0], err)
 			}
 			if err := fleet.DeleteProfileSpec(ctx, conn, spec.ID); err != nil {
+				auditCLI(ctx, conn, "profile.rm", "profile", spec.ID, map[string]any{"name": spec.Name}, err)
 				return err
 			}
+			auditCLI(ctx, conn, "profile.rm", "profile", spec.ID, map[string]any{"name": spec.Name, "device_id": spec.DeviceID}, nil)
 			fmt.Fprintf(cmd.OutOrStdout(), "profile %s (%q) deleted\n", spec.ID, spec.Name)
 
 			// Re-provision so the device's bundle drops the profile and its peer.

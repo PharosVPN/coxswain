@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/authn"
 	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/live"
 	"github.com/PharosVPN/coxswain/internal/provision"
@@ -60,73 +61,88 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	s := &Server{db: db, hub: hub, provOpts: provOpts, deployer: deployer, paths: paths, geo: geo, controllerHost: controllerHost}
 	mux := http.NewServeMux()
 
+	// Scope helpers: GET reads require readonly; the live/monitoring stream
+	// requires monitor+; mutations require admin. A session admin satisfies any
+	// scope (the existing behaviour), so the web UI is unaffected.
+	readonly := func(h http.HandlerFunc) http.HandlerFunc { return s.requireScope(authn.ScopeReadonly, h) }
+	monitor := func(h http.HandlerFunc) http.HandlerFunc { return s.requireScope(authn.ScopeMonitor, h) }
+	admin := func(h http.HandlerFunc) http.HandlerFunc { return s.requireScope(authn.ScopeAdmin, h) }
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	// Auth — login is the only unauthenticated API route.
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
-	mux.HandleFunc("POST /api/auth/logout", s.requireAuth(s.handleLogout))
-	mux.HandleFunc("GET /api/auth/me", s.requireAuth(s.handleMe))
+	mux.HandleFunc("POST /api/auth/logout", readonly(s.handleLogout))
+	mux.HandleFunc("GET /api/auth/me", readonly(s.handleMe))
 
 	// Fleet.
-	mux.HandleFunc("GET /api/nodes", s.requireAuth(s.handleListNodes))
-	mux.HandleFunc("GET /api/nodes/{id}", s.requireAuth(s.handleGetNode))
-	mux.HandleFunc("PATCH /api/nodes/{id}", s.requireAuth(s.handleUpdateNode))
-	mux.HandleFunc("DELETE /api/nodes/{id}", s.requireAuth(s.handleDeleteNode))
+	mux.HandleFunc("GET /api/nodes", readonly(s.handleListNodes))
+	mux.HandleFunc("GET /api/nodes/{id}", readonly(s.handleGetNode))
+	mux.HandleFunc("PATCH /api/nodes/{id}", admin(s.handleUpdateNode))
+	mux.HandleFunc("DELETE /api/nodes/{id}", admin(s.handleDeleteNode))
 	// Reconcile a node — deliver coxswain's current peer set (the Phase 2 push
 	// primitive), so the web UI can heal a node, which it could not do before.
-	mux.HandleFunc("POST /api/nodes/{id}/push", s.requireAuth(s.handlePushNode))
-	mux.HandleFunc("POST /api/network-policy/preview", s.requireAuth(s.handleNetworkPolicyPreview))
+	mux.HandleFunc("POST /api/nodes/{id}/push", admin(s.handlePushNode))
+	mux.HandleFunc("POST /api/network-policy/preview", readonly(s.handleNetworkPolicyPreview))
 
 	// Relays — relays in the egress / onion chain (for the fleet map's roles).
-	mux.HandleFunc("GET /api/relays", s.requireAuth(s.handleListRelays))
+	mux.HandleFunc("GET /api/relays", readonly(s.handleListRelays))
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
-	mux.HandleFunc("GET /api/node-links", s.requireAuth(s.handleListNodeLinks))
+	mux.HandleFunc("GET /api/node-links", readonly(s.handleListNodeLinks))
 
 	// Data-plane paths — named multi-hop chains entry → [mid] → exit.
-	mux.HandleFunc("GET /api/paths", s.requireAuth(s.handleListPaths))
-	mux.HandleFunc("POST /api/paths", s.requireAuth(s.handleCreatePath))
-	mux.HandleFunc("DELETE /api/paths/{id}", s.requireAuth(s.handleDeletePath))
-	mux.HandleFunc("POST /api/paths/{id}/provision", s.requireAuth(s.handleProvisionPath))
+	mux.HandleFunc("GET /api/paths", readonly(s.handleListPaths))
+	mux.HandleFunc("POST /api/paths", admin(s.handleCreatePath))
+	mux.HandleFunc("DELETE /api/paths/{id}", admin(s.handleDeletePath))
+	mux.HandleFunc("POST /api/paths/{id}/provision", admin(s.handleProvisionPath))
 
 	// The controller itself — its public IP + resolved location, for the map.
-	mux.HandleFunc("GET /api/self", s.requireAuth(s.handleSelf))
+	mux.HandleFunc("GET /api/self", readonly(s.handleSelf))
 
 	// Servers — machines cox owns; onboard by key or password, then deploy roles.
-	mux.HandleFunc("GET /api/ssh-key", s.requireAuth(s.handleSSHKey))
-	mux.HandleFunc("GET /api/servers", s.requireAuth(s.handleListServers))
-	mux.HandleFunc("POST /api/servers", s.requireAuth(s.handleCreateServer))
-	mux.HandleFunc("DELETE /api/servers/{id}", s.requireAuth(s.handleDeleteServer))
-	mux.HandleFunc("POST /api/servers/{id}/deploy", s.requireAuth(s.handleDeployServer))
-	mux.HandleFunc("PATCH /api/servers/{id}/route", s.requireAuth(s.handleSetServerRoute))
+	mux.HandleFunc("GET /api/ssh-key", readonly(s.handleSSHKey))
+	mux.HandleFunc("GET /api/servers", readonly(s.handleListServers))
+	mux.HandleFunc("POST /api/servers", admin(s.handleCreateServer))
+	mux.HandleFunc("DELETE /api/servers/{id}", admin(s.handleDeleteServer))
+	mux.HandleFunc("POST /api/servers/{id}/deploy", admin(s.handleDeployServer))
+	mux.HandleFunc("PATCH /api/servers/{id}/route", admin(s.handleSetServerRoute))
 
 	// Admins.
-	mux.HandleFunc("GET /api/admins", s.requireAuth(s.handleListAdmins))
-	mux.HandleFunc("POST /api/admins", s.requireAuth(s.handleCreateAdmin))
-	mux.HandleFunc("DELETE /api/admins/{id}", s.requireAuth(s.handleDeleteAdmin))
+	mux.HandleFunc("GET /api/admins", readonly(s.handleListAdmins))
+	mux.HandleFunc("POST /api/admins", admin(s.handleCreateAdmin))
+	mux.HandleFunc("DELETE /api/admins/{id}", admin(s.handleDeleteAdmin))
 
 	// End-user accounts.
-	mux.HandleFunc("GET /api/users", s.requireAuth(s.handleListUsers))
-	mux.HandleFunc("POST /api/users", s.requireAuth(s.handleCreateUser))
-	mux.HandleFunc("DELETE /api/users/{id}", s.requireAuth(s.handleDeleteUser))
+	mux.HandleFunc("GET /api/users", readonly(s.handleListUsers))
+	mux.HandleFunc("POST /api/users", admin(s.handleCreateUser))
+	mux.HandleFunc("DELETE /api/users/{id}", admin(s.handleDeleteUser))
 
 	// Devices and provisioning.
-	mux.HandleFunc("GET /api/users/{id}/devices", s.requireAuth(s.handleListDevices))
-	mux.HandleFunc("POST /api/users/{id}/devices", s.requireAuth(s.handleCreateDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}", s.requireAuth(s.handleDeleteDevice))
-	mux.HandleFunc("POST /api/devices/{id}/provision", s.requireAuth(s.handleProvisionDevice))
+	mux.HandleFunc("GET /api/users/{id}/devices", readonly(s.handleListDevices))
+	mux.HandleFunc("POST /api/users/{id}/devices", admin(s.handleCreateDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}", admin(s.handleDeleteDevice))
+	mux.HandleFunc("POST /api/devices/{id}/provision", admin(s.handleProvisionDevice))
 	// Bind a device's traffic onto a data-plane path (the live switch), or clear it.
-	mux.HandleFunc("POST /api/devices/{id}/bind", s.requireAuth(s.handleBindDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}/bind", s.requireAuth(s.handleClearDevice))
+	mux.HandleFunc("POST /api/devices/{id}/bind", admin(s.handleBindDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}/bind", admin(s.handleClearDevice))
 
 	// Profiles — a device's named connection configs (egress + entry IPs + protocol).
-	mux.HandleFunc("GET /api/profiles", s.requireAuth(s.handleListProfileSpecs))
-	mux.HandleFunc("POST /api/profiles", s.requireAuth(s.handleCreateProfileSpec))
-	mux.HandleFunc("DELETE /api/profiles/{id}", s.requireAuth(s.handleDeleteProfileSpec))
+	mux.HandleFunc("GET /api/profiles", readonly(s.handleListProfileSpecs))
+	mux.HandleFunc("POST /api/profiles", admin(s.handleCreateProfileSpec))
+	mux.HandleFunc("DELETE /api/profiles/{id}", admin(s.handleDeleteProfileSpec))
 
-	// Live events — auth-gated (closes the M4 gap).
-	mux.HandleFunc("GET /ws/events", s.requireAuth(s.handleEvents))
+	// API tokens — scoped bearer credentials (admin-only management).
+	mux.HandleFunc("GET /api/tokens", admin(s.handleListTokens))
+	mux.HandleFunc("POST /api/tokens", admin(s.handleCreateToken))
+	mux.HandleFunc("DELETE /api/tokens/{id}", admin(s.handleRevokeToken))
+
+	// Audit log — the management trail (admin-only).
+	mux.HandleFunc("GET /api/audit", admin(s.handleListAudit))
+
+	// Live events — monitoring scope (closes the M4 gap).
+	mux.HandleFunc("GET /ws/events", monitor(s.handleEvents))
 
 	// Everything else — the embedded admin SPA (least-specific pattern).
 	mux.Handle("GET /", spaHandler())

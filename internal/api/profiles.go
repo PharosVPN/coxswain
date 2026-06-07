@@ -116,9 +116,11 @@ func (s *Server) handleCreateProfileSpec(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
+		s.audited(r, "profile.create", "profile", "", map[string]any{"name": req.Name, "device_id": req.DeviceID}, err)
 		writeError(w, http.StatusInternalServerError, "create profile failed")
 		return
 	}
+	s.audited(r, "profile.create", "profile", spec.ID, map[string]any{"name": spec.Name, "device_id": spec.DeviceID}, nil)
 
 	if err := s.reprovision(ctx, spec.DeviceID); err != nil {
 		writeError(w, http.StatusBadGateway, "profile saved but re-provision failed: "+err.Error())
@@ -141,9 +143,11 @@ func (s *Server) handleDeleteProfileSpec(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := fleet.DeleteProfileSpec(ctx, s.db, spec.ID); err != nil {
+		s.audited(r, "profile.rm", "profile", spec.ID, map[string]any{"name": spec.Name}, err)
 		writeError(w, http.StatusInternalServerError, "delete profile failed")
 		return
 	}
+	s.audited(r, "profile.rm", "profile", spec.ID, map[string]any{"name": spec.Name, "device_id": spec.DeviceID}, nil)
 	if err := s.reprovision(ctx, spec.DeviceID); err != nil {
 		writeError(w, http.StatusBadGateway, "profile deleted but re-provision failed: "+err.Error())
 		return

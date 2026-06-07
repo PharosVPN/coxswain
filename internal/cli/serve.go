@@ -160,6 +160,14 @@ func newServeCmd() *cobra.Command {
 				})
 			}()
 
+			// Audit retention: purge rows older than retention.audit_days on
+			// startup and once a day after. Skipped entirely when audit_days is 0.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runAuditPurge(ctx, conn, cfg.Retention.AuditDays)
+			}()
+
 			fmt.Printf("coxswain admin server — http://%s, watching %d node(s)\n", cfg.UI.Listen, watched)
 			fmt.Printf("  api:     http://%s/api\n", cfg.UI.Listen)
 			fmt.Printf("  events:  ws://%s/ws/events\n", cfg.UI.Listen)
