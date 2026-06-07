@@ -16,13 +16,20 @@
 	const path = $derived($page.url.pathname);
 	const isLogin = $derived(path === '/login');
 
-	const nav = [
+	// Nav, grouped: the fleet/data-plane cluster, then a security/monitoring
+	// cluster for the controller capabilities. A null href renders a heading.
+	const nav: { href: string | null; label: string }[] = [
 		{ href: '/', label: 'Fleet' },
 		{ href: '/paths', label: 'Paths' },
 		{ href: '/profiles', label: 'Profiles' },
 		{ href: '/servers', label: 'Servers' },
 		{ href: '/users', label: 'Users' },
-		{ href: '/admins', label: 'Admins' }
+		{ href: '/admins', label: 'Admins' },
+		{ href: null, label: 'Monitoring' },
+		{ href: '/monitoring', label: 'Live & sessions' },
+		{ href: '/alerts', label: 'Alerts' },
+		{ href: '/audit', label: 'Audit log' },
+		{ href: '/tokens', label: 'API tokens' }
 	];
 
 	onMount(async () => {
@@ -63,18 +70,24 @@
 				<div class="text-xs text-ink-3">PharosVPN controller</div>
 			</div>
 			<nav class="mt-4 flex flex-col gap-1">
-				{#each nav as item (item.href)}
-					{@const active = path === item.href}
-					<a
-						href={item.href}
-						aria-current={active ? 'page' : undefined}
-						class="rounded-md px-3 py-2 text-sm font-medium"
-						style={active
-							? 'background: var(--hover-overlay); color: var(--c-brand-100)'
-							: 'color: var(--c-gray-200)'}
-					>
-						{item.label}
-					</a>
+				{#each nav as item (item.label)}
+					{#if item.href === null}
+						<div class="mt-4 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">
+							{item.label}
+						</div>
+					{:else}
+						{@const active = path === item.href}
+						<a
+							href={item.href}
+							aria-current={active ? 'page' : undefined}
+							class="rounded-md px-3 py-2 text-sm font-medium"
+							style={active
+								? 'background: var(--hover-overlay); color: var(--c-brand-100)'
+								: 'color: var(--c-gray-200)'}
+						>
+							{item.label}
+						</a>
+					{/if}
 				{/each}
 			</nav>
 		</aside>

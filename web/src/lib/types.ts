@@ -122,6 +122,12 @@ export interface LiveEvent {
 	protocol?: string;
 	peer_id?: string;
 	message?: string;
+	device_id?: string;
+	user?: string;
+	source_ip?: string;
+	source_endpoint?: string;
+	// alert carries an analytics Alert when type === 'alert' (Phase C).
+	alert?: Alert;
 }
 
 export interface Device {
@@ -154,6 +160,87 @@ export interface ProfileSpec {
 	entry_ips?: string[];
 	protocol: string;
 	version: number;
+}
+
+// Token is the API representation of an API token — never the secret. Minted
+// secrets come back once inside TokenCreated.
+export interface Token {
+	id: string;
+	name: string;
+	scope: string;
+	prefix: string;
+	created_at: string;
+	created_by?: string;
+	expires_at?: string;
+	last_used_at?: string;
+	revoked_at?: string;
+}
+
+// TokenCreated is the create response — the token view plus the plaintext
+// secret, returned exactly once.
+export interface TokenCreated extends Token {
+	secret: string;
+}
+
+// AuditRecord is one row of the management trail.
+export interface AuditRecord {
+	id: string;
+	at: string;
+	actor: string;
+	actor_kind: string;
+	action: string;
+	target_type: string;
+	target_id: string;
+	source_ip: string;
+	detail?: Record<string, unknown>;
+	result: string;
+	error?: string;
+}
+
+// SessionRecord is one persisted connection event (connect/disconnect).
+export interface SessionRecord {
+	id: string;
+	at: string;
+	node_id?: string;
+	peer_id?: string;
+	device_id?: string;
+	user_id?: string;
+	protocol?: string;
+	event_type: string;
+	source_ip?: string;
+	source_endpoint?: string;
+	rx_bytes: number;
+	tx_bytes: number;
+}
+
+// Alert is one analytics finding over the session history.
+export interface Alert {
+	id: string;
+	at: string;
+	kind: string;
+	severity: string;
+	device_id?: string;
+	user_id?: string;
+	node_id?: string;
+	source_ips: string[];
+	detail?: Record<string, unknown>;
+	status: string;
+	dedup_key?: string;
+	created_at: string;
+	updated_at: string;
+}
+
+// AlertsEnvelope wraps the alerts list with the analytics backend warning.
+export interface AlertsEnvelope {
+	alerts: Alert[];
+	backend: string;
+	backend_warning?: string;
+}
+
+// AnalyticsStatus reports the analytics backend and any suitability warning.
+export interface AnalyticsStatus {
+	backend: string;
+	backend_warning?: string;
 }
 
 export interface ApiError {
