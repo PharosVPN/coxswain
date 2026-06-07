@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 The PharosVPN Authors
+
+syntax = "proto3";
+
+// Package pharos.monitor.v1 is coxswain's SIEM/enterprise monitoring contract.
+// Unlike NodeControl (where coxswain is the client dialing out to nodes), here
+// coxswain is the gRPC SERVER: an enterprise SIEM consumer dials IN over gRPC
+// and receives a live stream of monitoring events (session connect/disconnect
+// plus analytics alerts). The listener is OFF by default — coxswain keeps zero
+// inbound ports unless siem.listen is configured (DESIGN §2, §6). A consumer
+// authenticates with a monitor-scope API token (authorization: Bearer cox_...).
+package pharos.monitor.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// MonitorStream is the SIEM ingestion service. It reuses coxswain's live event
+// hub (the same source the admin dashboard WebSocket fans out) as its event
+// source — there is exactly one live-event pipeline.
+service MonitorStream {
+  // Subscribe opens a server-stream of monitoring events, held open until the
+  // client disconnects or the server shuts down. The optional kinds filter
+  // selects which event kinds the consumer wants.
+  rpc Subscribe(SubscribeRequest) returns (stream MonitorEvent);
+}
+
+// SubscribeRequest selects which event kinds to receive. An empty kinds list
+// means "all kinds". Recognised kinds are "connect", "disconnect", and "alert";
+// unknown kinds simply never match.
+message SubscribeRequest {
+  repeated string kinds = 1;
+}
+
+// MonitorEvent is one monitoring event. Exactly one of session/alert is set,
+// keyed by type ("connect"/"disconnect" → session; "alert" → alert).
+message MonitorEvent {
+  // at is when the event occurred (the live event's timestamp).
+  google.protobuf.Timestamp at = 1;
+  // type is the normalised event kind: "connect", "disconnect", or "alert".
+  string type = 2;
+  // session is set for "connect"/"disconnect" events.
+  SessionEvent session = 3;
+  // alert is set for "alert" events.
+  AlertEvent alert = 4;
+}
+
+// SessionEvent is a tunnel session boundary (a peer connecting or disconnecting
+// on a node), enriched with the device/user/source attribution the live plane
+// resolves.
+message SessionEvent {
+  // event_type echoes the kind ("connect" or "disconnect").
+  string event_type = 1;
+  string node_id = 2;
+  string device_id = 3;
+  string user_id = 4;
+  // protocol is the data-plane protocol (e.g. "AMNEZIAWG", "XRAY_REALITY").
+  string protocol = 5;
+  // source_ip is the client's public IP (derived from source_endpoint).
+  string source_ip = 6;
+  // source_endpoint is the client's public ip:port as the node reported it.
+  string source_endpoint = 7;
+  // reason carries extra context for synthetic disconnects (e.g. "stream-lost").
+  string reason = 8;
+}
+
+// AlertEvent is an analytics anomaly alert (Phase C), flattened for SIEM
+// ingestion. detail_json carries the rule-specific detail map as a JSON object
+// string so a consumer can index it without a schema change per rule.
+message AlertEvent {
+  string id = 1;
+  // kind is the detection rule's identifier (e.g. "impossible_travel").
+  string kind = 2;
+  // severity is the alert severity (e.g. "low"/"medium"/"high").
+  string severity = 3;
+  string device_id = 4;
+  string user_id = 5;
+  repeated string source_ips = 6;
+  // detail_json is the rule's detail map encoded as a JSON object string
+  // (empty "{}" when absent).
+  string detail_json = 7;
+}
