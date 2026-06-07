@@ -8,9 +8,9 @@
 // source: pharos/account/v1/sync.proto
 
 // Package pharos.account.v1 is the relayed client account & sync contract
-// (DESIGN §8). caravel reaches AccountSync through a beacon relay; coxswain never
+// (DESIGN §8). caravel reaches AccountSync through a relay relay; coxswain never
 // exposes it on a public port. coxswain serves only ciphertext — a compromised
-// remote beacon cannot read user profiles.
+// remote relay cannot read user profiles.
 
 package accountv1
 

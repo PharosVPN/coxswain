@@ -107,9 +107,32 @@ func newNodesStatusCmd() *cobra.Command {
 			fmt.Println("  services:")
 			for _, svc := range status.GetServices() {
 				proto := strings.TrimPrefix(svc.GetProtocol().String(), "PROTOCOL_")
-				fmt.Printf("    %-14s running=%t listening=%t peers=%d\n",
+				line := fmt.Sprintf("    %-14s running=%t listening=%t peers=%d",
 					proto, svc.GetRunning(), svc.GetListening(), svc.GetPeerCount())
+				// Handshake liveness (AmneziaWG only; age=-1 means n/a). A peer set
+				// with zero recent handshakes is a stale/broken data plane even when
+				// it reports running+listening — the silent-drift signature.
+				if age := svc.GetNewestHandshakeAgeSeconds(); age >= 0 {
+					line += fmt.Sprintf(" handshaking=%d/%d newest=%s",
+						svc.GetHandshakingPeers(), svc.GetPeerCount(),
+						(time.Duration(age) * time.Second).String())
+					if svc.GetPeerCount() > 0 && svc.GetHandshakingPeers() == 0 {
+						line += "  ⚠ STALE — peers but no handshakes"
+					}
+				}
+				fmt.Println(line)
 			}
+
+			// Config revision: what the node has actually applied vs what coxswain
+			// intends. A node behind its intended revision is serving a stale peer
+			// set (heal with `cox nodes push <id>`). (Provision advances intent in
+			// Phase 2; until then this catches push-rejected / never-applied cases.)
+			applied, intended := status.GetAppliedRevision(), node.ConfigRevision
+			fmt.Printf("  revision      applied=%d intended=%d", applied, intended)
+			if applied < intended {
+				fmt.Printf("  ⚠ DRIFT — node behind; run `cox nodes push %s`", node.ID)
+			}
+			fmt.Println()
 
 			// Persist the AmneziaWG identity node reports — its public key and
 			// per-node obfuscation. Provisioning needs both before it can place
