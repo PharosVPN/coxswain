@@ -94,7 +94,7 @@ func streamNode(ctx context.Context, dialer *control.Dialer, node fleet.Node, hu
 	// peer public key, carrying the last enriched event so the synthetic
 	// disconnect keeps the device/user/source attribution.
 	open := map[string]Event{}
-	defer closeOpenSessions(node.ID, open, sink)
+	defer closeOpenSessions(open, hub, sink)
 
 	for {
 		ev, err := stream.Recv()
@@ -114,26 +114,41 @@ func streamNode(ctx context.Context, dialer *control.Dialer, node fleet.Node, hu
 	}
 }
 
-// closeOpenSessions persists a synthetic disconnect for every peer left open
-// when a node's stream drops, so a lost stream / node restart does not dangle
-// sessions in the history forever. It is best-effort and idempotent: the node
-// will re-report live peers as fresh connects on reconnect, and a real
-// disconnect that arrived first already removed the peer from `open`. The
-// synthetic event is attributed (reason: "stream-lost") so it is distinguishable
-// in the history from a node-reported disconnect. A nil sink (persistence
-// disabled) is a no-op.
-func closeOpenSessions(nodeID string, open map[string]Event, sink Sink) {
-	if sink == nil || len(open) == 0 {
+// closeOpenSessions closes out every peer left open when a node's stream drops,
+// so a lost stream / node restart does not dangle sessions forever. For each open
+// peer it (1) persists a synthetic disconnect to the history sink and (2)
+// publishes a matching PEER_DISCONNECTED to the live hub, so the SSE/WS dashboard
+// feed and the gRPC SIEM stream also see the session close — otherwise those
+// feeds would show the session open indefinitely. Both carry reason "stream-lost"
+// and the full device/user/source attribution, so a synthetic close-out is
+// distinguishable from a node-reported disconnect. It is best-effort and
+// idempotent: the node re-reports live peers as fresh connects on reconnect, and
+// a real disconnect that arrived first already removed the peer from `open`. A
+// nil sink skips persistence; the hub publish still happens (the live tests pass
+// a nil sink). A nil hub skips the publish.
+func closeOpenSessions(open map[string]Event, hub *Hub, sink Sink) {
+	if len(open) == 0 {
 		return
 	}
 	at := time.Now().UTC()
 	for _, ev := range open {
-		rec := record(ev, "disconnect")
-		rec.At = at
-		rec.Reason = "stream-lost"
-		sink.Ingest(rec)
-		if fr, ok := sink.(interface{ Forget(string) }); ok && ev.PeerID != "" {
-			fr.Forget(ev.PeerID)
+		// Synthetic disconnect: keep the original event's attribution, stamp it
+		// "now", and mark it stream-lost.
+		ev.Type = "PEER_DISCONNECTED"
+		ev.At = at
+		ev.Message = ""
+		ev.Reason = "stream-lost"
+
+		if hub != nil {
+			hub.Publish(ev)
+		}
+		if sink != nil {
+			rec := record(ev, "disconnect")
+			rec.Reason = "stream-lost"
+			sink.Ingest(rec)
+			if fr, ok := sink.(interface{ Forget(string) }); ok && ev.PeerID != "" {
+				fr.Forget(ev.PeerID)
+			}
 		}
 	}
 }

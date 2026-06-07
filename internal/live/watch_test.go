@@ -242,3 +242,43 @@ func TestStreamDropClosesOpenSessions(t *testing.T) {
 		}
 	}
 }
+
+// TestStreamDropPublishesDisconnectToHub: when a node's stream drops with a peer
+// still connected, the synthetic close-out must ALSO fan to the live hub (not
+// only the history sink), so the SSE/WS dashboard feed and the gRPC SIEM stream
+// see the session close. The published event is a PEER_DISCONNECTED carrying
+// reason "stream-lost" with the original peer's attribution.
+func TestStreamDropPublishesDisconnectToHub(t *testing.T) {
+	const peer = "peer-stays-open"
+	addr, dialer := startNodeServer(t, connectThenDropNode{peer: peer})
+
+	hub := NewHub()
+	_, events := hub.Subscribe()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// nil sink: persistence is irrelevant here — we assert the HUB publish.
+	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_drop", ControlAddr: addr}, hub, nil)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case e := <-events:
+			if e.Type != "PEER_DISCONNECTED" {
+				continue // skip the initial PEER_CONNECTED
+			}
+			if e.PeerID != peer {
+				t.Errorf("disconnect peer = %q want %q", e.PeerID, peer)
+			}
+			if e.Reason != "stream-lost" {
+				t.Errorf("disconnect reason = %q want stream-lost", e.Reason)
+			}
+			if e.NodeID != "nod_drop" {
+				t.Errorf("disconnect node = %q want nod_drop", e.NodeID)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for stream-lost disconnect on the hub")
+		}
+	}
+}

@@ -178,10 +178,11 @@ func translate(ev live.Event) (*monitorv1.MonitorEvent, bool) {
 			Protocol:       ev.Protocol,
 			SourceIp:       ev.SourceIP,
 			SourceEndpoint: ev.SourceEndpoint,
-			// Reason is only populated on the persisted history record (a
-			// synthetic "stream-lost" disconnect is written to the sink, not
-			// published to the hub), so the live SIEM stream leaves it empty. The
-			// wire field stays for forward-compat if the hub later carries it.
+			// Reason carries through the live event — notably "stream-lost" on the
+			// synthetic close-out a watcher publishes when a node's stream drops,
+			// so a SIEM consumer sees those dangling sessions close. Empty on a
+			// node-reported disconnect.
+			Reason: ev.Reason,
 		}
 	}
 	return me, true

@@ -381,6 +381,30 @@ func TestTranslateUnknownAlertPayload(t *testing.T) {
 	}
 }
 
+// TestTranslatePassesReason: the synthetic stream-lost disconnect's reason flows
+// through to SessionEvent.reason, so a SIEM consumer can tell a node-reported
+// disconnect from a controller-side close-out.
+func TestTranslatePassesReason(t *testing.T) {
+	me, keep := translate(live.Event{
+		Type:   "PEER_DISCONNECTED",
+		NodeID: "n1",
+		PeerID: "p1",
+		Reason: "stream-lost",
+	})
+	if !keep {
+		t.Fatal("disconnect event was dropped")
+	}
+	if r := me.GetSession().GetReason(); r != "stream-lost" {
+		t.Fatalf("session reason = %q, want stream-lost", r)
+	}
+
+	// A node-reported disconnect carries no reason.
+	me, _ = translate(live.Event{Type: "PEER_DISCONNECTED", NodeID: "n1"})
+	if r := me.GetSession().GetReason(); r != "" {
+		t.Fatalf("session reason = %q, want empty", r)
+	}
+}
+
 // TestStreamClosesOnClientCancel: cancelling the client context tears the stream
 // down and unsubscribes from the hub.
 func TestStreamClosesOnClientCancel(t *testing.T) {

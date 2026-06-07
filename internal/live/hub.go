@@ -33,6 +33,11 @@ type Event struct {
 	User           string    `json:"user,omitempty"`
 	SourceIP       string    `json:"source_ip,omitempty"`
 	SourceEndpoint string    `json:"source_endpoint,omitempty"`
+	// Reason carries extra context for a disconnect — notably "stream-lost" on the
+	// synthetic close-out a watcher publishes when a node's stream drops, so the
+	// dashboard feed and the SIEM stream can tell it apart from a node-reported
+	// disconnect. Empty on ordinary node events.
+	Reason string `json:"reason,omitempty"`
 	// Alert carries an analytics alert when Type == "alert" (Phase C). It is the
 	// raw alert payload so a dashboard can render it without a second fetch. nil
 	// for ordinary node events.

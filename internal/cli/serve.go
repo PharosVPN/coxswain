@@ -238,8 +238,10 @@ func newServeCmd() *cobra.Command {
 			// inbound ports. When configured, it reuses the same live hub as the
 			// dashboard WS — no second event pipeline — and authenticates consumers
 			// with a monitor-scope token via the package's stream interceptor.
-			if stop := startSIEMStream(ctx, &wg, cfg.SIEM, conn, hub); stop != nil {
+			if ln, stop := startSIEMStream(ctx, &wg, cfg.SIEM, conn, hub); stop != nil {
 				defer stop()
+				// Surface SIEM slow-consumer drops on the analytics status endpoint.
+				srv.SetSIEMDropCounter(ln)
 			}
 			// ----------------------------------------------------------------------
 
@@ -263,11 +265,13 @@ func newServeCmd() *cobra.Command {
 // source (no second pipeline) and authenticates consumers with a monitor-scope
 // token. A bind failure is non-fatal — it prints a warning and the admin plane
 // still serves. Returns a stop func, or nil when nothing started. All
-// SIEM-specific wiring lives here to keep serve.go's main body untouched.
-func startSIEMStream(ctx context.Context, wg *sync.WaitGroup, cfg config.SIEMConfig, conn *sql.DB, hub *live.Hub) (stop func()) {
+// SIEM-specific wiring lives here to keep serve.go's main body untouched. It
+// returns the running listener (for its drop counter) alongside the stop func;
+// both are nil when nothing started.
+func startSIEMStream(ctx context.Context, wg *sync.WaitGroup, cfg config.SIEMConfig, conn *sql.DB, hub *live.Hub) (ln *siem.Listener, stop func()) {
 	opts := siem.Options{Listen: cfg.Listen, TLSCert: cfg.TLSCert, TLSKey: cfg.TLSKey}
 	if !opts.Enabled() {
-		return nil
+		return nil, nil
 	}
 
 	// onSubscribe writes a light audit row when a consumer connects, so the audit
@@ -288,7 +292,7 @@ func startSIEMStream(ctx context.Context, wg *sync.WaitGroup, cfg config.SIEMCon
 	ln, err := siem.Start(conn, hub, opts, onSubscribe)
 	if err != nil {
 		fmt.Printf("  warning: SIEM stream disabled — %v\n", err)
-		return nil
+		return nil, nil
 	}
 
 	wg.Add(1)
@@ -305,7 +309,7 @@ func startSIEMStream(ctx context.Context, wg *sync.WaitGroup, cfg config.SIEMCon
 	}
 	fmt.Printf("  siem:    grpc://%s (%s, monitor-scope token required)\n", ln.Addr(), tlsNote)
 
-	return func() { ln.Stop() }
+	return ln, func() { ln.Stop() }
 }
 
 // remoteRelayEndpoints is the set of remote relay tunnel addresses coxswain dials:
