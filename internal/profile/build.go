@@ -140,7 +140,7 @@ type xrayRealityParams struct {
 // offer that protocol is dropped. For a cascade profile (Path set) only the
 // entry hop is carried; the rest of the chain is routed server-side.
 func BuildClientProfile(in BuildInput) ClientProfile {
-	cp := ClientProfile{ID: in.SpecID, Name: in.Name, Protocol: in.Protocol, Path: in.Path}
+	cp := ClientProfile{ID: in.SpecID, Name: in.Name, Protocol: in.Protocol, Path: in.Path, MTU: pathMTU(in.Path)}
 	// For a path-bound profile the client dials only the entry node; the rest of
 	// the chain (mids → exit) is routed server-side. Carry just the entry, so the
 	// profile is what the client actually uses. (A direct profile carries its
@@ -219,6 +219,53 @@ func BuildClientProfile(in BuildInput) ClientProfile {
 	}
 	return cp
 }
+
+// innerLinkOverhead is the bytes one inner AmneziaWG cascade layer (entry→exit)
+// costs a client packet. Each cascade hop decaps the client's tunnel and recaps
+// it for the next link; that re-encapsulation eats headroom, so the client's
+// tunnel MTU must shrink by this much per inner link or large packets blackhole.
+// 80B is a CONSERVATIVE estimate (AmneziaWG/WireGuard framing + IPv6 headroom);
+// the EXACT value must be re-verified against a real multi-hop client connect —
+// the live cascade data path could not be measured without a connected client.
+// Observed: a 2-node path's inner link ran at MTU 1340 (= 1420 - 80), which this
+// formula reproduces.
+const innerLinkOverhead = 80
+
+// minSaneMTU is an absurdity floor (the IPv4 minimum reassembly buffer). The
+// hop-aware formula is conservative and is intentionally NOT clamped UP toward
+// 1420 — clamping up would reintroduce the blackhole. This floor only guards
+// against a pathological hop count producing a sub-576 MTU.
+const minSaneMTU = 576
+
+// pathMTU returns the conservative tunnel MTU for a profile's egress path, or 0
+// (the 1420 client default) for a direct single-node profile. A cascade packet
+// is re-encapsulated once per inner link (entry→exit), so the client's MTU must
+// drop by innerLinkOverhead per inner link to fit each inner AWG link:
+//
+//	mtu = 1420 - 80*innerLinks,  innerLinks = max(1, len(Hops)-1)
+//
+// A 2-node path → 1340 (matches the observed inner link); a 4-node path → 1180.
+// We never clamp UP (that would blackhole again); only an absurd result below
+// minSaneMTU is floored.
+func pathMTU(path *PathView) int {
+	if path == nil || len(path.Hops) == 0 {
+		return 0 // direct profile: leave unset, client defaults to 1420
+	}
+	innerLinks := len(path.Hops) - 1
+	if innerLinks < 1 {
+		innerLinks = 1
+	}
+	mtu := defaultClientMTU - innerLinkOverhead*innerLinks
+	if mtu < minSaneMTU {
+		mtu = minSaneMTU
+	}
+	return mtu
+}
+
+// defaultClientMTU is the client's tunnel MTU on a direct (single-hop) profile —
+// the AmneziaWG client interface (awg0) MTU. The hop-aware cascade MTU reduces
+// from this baseline.
+const defaultClientMTU = 1420
 
 // RealityCamouflage turns a configured decoy site into the REALITY dest
 // (host:port) and the accepted serverNames (the decoy host). A bare host gets

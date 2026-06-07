@@ -67,6 +67,13 @@ type ClientProfile struct {
 	// Nodes) and the controller routes entry → [mid] → exit. Nil for a direct
 	// single-node egress.
 	Path *PathView `json:"path,omitempty"`
+	// MTU is the tunnel MTU the client must set for this profile. A cascade
+	// (Path) profile reduces it below the 1420 default so a full client packet
+	// still fits each inner entry→exit AmneziaWG link after the per-hop
+	// decap/recap (those inner links are ~1340, so a 1420 client packet would
+	// blackhole on large transfers). Zero/omitted for a direct profile, where
+	// the client defaults to 1420. Matches caravel's per-profile `mtu` read.
+	MTU int `json:"mtu,omitempty"`
 }
 
 // PathHop is one node in a device's egress chain, for client display. Hop 0 is

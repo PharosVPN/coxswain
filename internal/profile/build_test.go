@@ -63,6 +63,68 @@ func TestBuildEmitsPath(t *testing.T) {
 	}
 }
 
+// TestBuildHopAwareMTU checks the cascade MTU is reduced hop-aware so a client
+// packet fits each inner entry→exit link (mtu = 1420 - 80*innerLinks), that a
+// direct profile leaves MTU 0 (client defaults to 1420), and that the field is
+// omitted from a direct profile's JSON (omitempty) so existing direct profiles
+// are byte-for-byte unchanged.
+func TestBuildHopAwareMTU(t *testing.T) {
+	base := profile.BuildInput{
+		SpecID:      "pspec_mtu",
+		Name:        "MTU",
+		Protocol:    profile.ProtocolAmneziaWG,
+		DeviceWGKey: "priv",
+		TunnelIP:    "10.8.0.2",
+		Nodes: []profile.BuildNode{
+			{ID: "nod_entry", Name: "nyc", Region: "nyc1", EndpointIPs: []string{"1.1.1.1"}, WGPublicKey: "pub"},
+		},
+	}
+
+	cases := []struct {
+		name string
+		hops int // number of hops in the path; 0 = direct (no path)
+		want int
+	}{
+		{"direct", 0, 0},       // single node, no cascade: client default 1420
+		{"two-hop", 2, 1340},   // 1 inner link: 1420 - 80 (matches observed)
+		{"three-hop", 3, 1260}, // 2 inner links: 1420 - 160
+		{"four-hop", 4, 1180},  // 3 inner links: 1420 - 240
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base
+			if tc.hops > 0 {
+				hops := make([]profile.PathHop, tc.hops)
+				for i := range hops {
+					role := "mid"
+					switch i {
+					case 0:
+						role = "entry"
+					case tc.hops - 1:
+						role = "exit"
+					}
+					hops[i] = profile.PathHop{ID: "nod_entry", Role: role}
+				}
+				hops[0].ID = "nod_entry"
+				in.Path = &profile.PathView{Name: "chain", Hops: hops}
+			}
+			cp := profile.BuildClientProfile(in)
+			if cp.MTU != tc.want {
+				t.Fatalf("%s: MTU = %d, want %d", tc.name, cp.MTU, tc.want)
+			}
+		})
+	}
+
+	// A direct profile omits `mtu` from its JSON (omitempty) — unchanged bytes.
+	out, err := json.Marshal(profile.BuildClientProfile(base))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if got := string(out); contains(got, `"mtu"`) {
+		t.Fatalf("direct profile should omit mtu, got %s", got)
+	}
+}
+
 // TestBuildEmitsRequestedProtocol checks that BuildClientProfile emits only the
 // profile's single protocol: an XRay profile carries XRay entries (with the
 // right key/port/identity) and drops nodes missing a REALITY key; an AmneziaWG
