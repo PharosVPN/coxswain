@@ -30,16 +30,17 @@ func seedDisconnectBytes(t *testing.T, conn *sql.DB, deviceID, nodeID, sourceIP 
 }
 
 // seedBaselineSessions seeds `count` prior completed (disconnect) sessions all
-// carrying the same tx_bytes, spread one per day before the window, building a
-// device's median baseline = perTx.
-func seedBaselineSessions(t *testing.T, conn *sql.DB, dev string, count int, perTx uint64) {
+// carrying the same rx_bytes, spread one per day before the window, building a
+// device's median baseline = perRx. (tx is seeded to the same value; the rule
+// keys on rx, so tx is immaterial to the baseline.)
+func seedBaselineSessions(t *testing.T, conn *sql.DB, dev string, count int, perRx uint64) {
 	t.Helper()
 	for i := 1; i <= count; i++ {
 		// Spread one per day starting two days back, so every baseline session is
 		// strictly before the 24h sweep window (none lands inside it as the window
 		// start) and all `count` are counted in the median.
 		at := fixedNow.Add(-time.Duration(i+1) * 24 * time.Hour)
-		seedDisconnectBytes(t, conn, dev, "node_base", "203.0.113.9", perTx, perTx, at)
+		seedDisconnectBytes(t, conn, dev, "node_base", "203.0.113.9", perRx, perRx, at)
 	}
 }
 
@@ -49,15 +50,17 @@ const (
 )
 
 // TestDataVolumeExfilFires: a device with a solid low-volume baseline closes one
-// session whose tx far exceeds both the floor and 10× its median → warning.
+// session whose rx (the client's UPLOAD — the exfil direction) far exceeds both
+// the floor and 10× its median → warning. The session's tx (download) is small,
+// proving the rule keys on rx, not tx.
 func TestDataVolumeExfilFires(t *testing.T) {
 	conn := testDB(t)
 	dev := "dev_exfil"
 	// Baseline: 24 prior sessions of ~50 MiB each → median 50 MiB.
 	seedBaselineSessions(t, conn, dev, 24, 50*mib)
-	// A window session shipping 4 GiB out: clears the 1 GiB floor and is ~80× the
-	// 50 MiB median (well past 10×).
-	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 100*mib, 4*gib, fixedNow.Add(-1*time.Hour))
+	// A window session UPLOADING 4 GiB (rx): clears the 1 GiB floor and is ~80× the
+	// 50 MiB median (well past 10×). tx (download) is a modest 100 MiB.
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 4*gib, 100*mib, fixedNow.Add(-1*time.Hour))
 
 	sweep(t, conn, nil)
 
@@ -72,11 +75,11 @@ func TestDataVolumeExfilFires(t *testing.T) {
 	if a.DeviceID != dev {
 		t.Errorf("device = %q want %q", a.DeviceID, dev)
 	}
-	if tx, _ := a.Detail["tx_bytes"].(float64); uint64(tx) != 4*gib {
-		t.Errorf("tx_bytes = %v want %d", a.Detail["tx_bytes"], 4*gib)
+	if rx, _ := a.Detail["rx_bytes"].(float64); uint64(rx) != 4*gib {
+		t.Errorf("rx_bytes = %v want %d", a.Detail["rx_bytes"], 4*gib)
 	}
-	if med, _ := a.Detail["median_tx_bytes"].(float64); uint64(med) != 50*mib {
-		t.Errorf("median_tx_bytes = %v want %d", a.Detail["median_tx_bytes"], 50*mib)
+	if med, _ := a.Detail["median_rx_bytes"].(float64); uint64(med) != 50*mib {
+		t.Errorf("median_rx_bytes = %v want %d", a.Detail["median_rx_bytes"], 50*mib)
 	}
 	if f, _ := a.Detail["factor_over_median"].(float64); f < float64(dataVolumeFactor) {
 		t.Errorf("factor_over_median = %v want >= %d", a.Detail["factor_over_median"], dataVolumeFactor)
@@ -89,15 +92,15 @@ func TestDataVolumeExfilFires(t *testing.T) {
 	}
 }
 
-// TestDataVolumeExfilBelowFloorDoesNotFire: a session that is a huge multiple of
-// a tiny median but under the 1 GiB absolute floor must NOT fire — not enough
-// data leaving to matter.
+// TestDataVolumeExfilBelowFloorDoesNotFire: a session whose upload (rx) is a huge
+// multiple of a tiny median but under the 1 GiB absolute floor must NOT fire —
+// not enough data leaving to matter.
 func TestDataVolumeExfilBelowFloorDoesNotFire(t *testing.T) {
 	conn := testDB(t)
 	dev := "dev_under_floor"
-	// Median 2 MiB; a 200 MiB session is 100× the median but well under 1 GiB.
+	// Median 2 MiB; a 200 MiB upload is 100× the median but well under 1 GiB.
 	seedBaselineSessions(t, conn, dev, 24, 2*mib)
-	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 10*mib, 200*mib, fixedNow.Add(-1*time.Hour))
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 200*mib, 10*mib, fixedNow.Add(-1*time.Hour))
 
 	sweep(t, conn, nil)
 	if got := alertsOfKind(t, conn, KindDataVolumeExfil); len(got) != 0 {
@@ -105,16 +108,36 @@ func TestDataVolumeExfilBelowFloorDoesNotFire(t *testing.T) {
 	}
 }
 
-// TestDataVolumeExfilBelowFactorDoesNotFire: a heavy user whose median is already
-// large — the session clears the floor but is under 10× the median, so it is a
-// normal big upload for THIS device and must NOT fire.
+// TestDataVolumeExfilLargeDownloadDoesNotFire: a session that DOWNLOADED a huge
+// amount (big tx) but uploaded almost nothing (tiny rx) must NOT fire — a large
+// download is not the exfil direction. This is the exact live regression: a
+// 20 MiB+ download landed in tx, not rx, so keying on tx would false-alarm.
+func TestDataVolumeExfilLargeDownloadDoesNotFire(t *testing.T) {
+	conn := testDB(t)
+	dev := "dev_big_download"
+	// Solid low-upload baseline: median rx 50 MiB.
+	seedBaselineSessions(t, conn, dev, 24, 50*mib)
+	// A window session DOWNLOADING 8 GiB (tx) but uploading only 10 MiB (rx). The
+	// huge tx clears the floor and is a big multiple, but the rule keys on rx —
+	// 10 MiB is under the floor AND under 10× the 50 MiB median — so no alert.
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 10*mib, 8*gib, fixedNow.Add(-1*time.Hour))
+
+	sweep(t, conn, nil)
+	if got := alertsOfKind(t, conn, KindDataVolumeExfil); len(got) != 0 {
+		t.Fatalf("large-download session produced %d data_volume alerts want 0 (rule must key on upload)", len(got))
+	}
+}
+
+// TestDataVolumeExfilBelowFactorDoesNotFire: a heavy uploader whose median is
+// already large — the session clears the floor but is under 10× the median, so it
+// is a normal big upload for THIS device and must NOT fire.
 func TestDataVolumeExfilBelowFactorDoesNotFire(t *testing.T) {
 	conn := testDB(t)
 	dev := "dev_heavy"
-	// Median 800 MiB (a heavy user). A 4 GiB session clears the floor but is only
-	// 5× the median — under the 10× factor.
+	// Median 800 MiB upload (a heavy user). A 4 GiB upload clears the floor but is
+	// only 5× the median — under the 10× factor.
 	seedBaselineSessions(t, conn, dev, 24, 800*mib)
-	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 1*gib, 4*gib, fixedNow.Add(-1*time.Hour))
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 4*gib, 1*gib, fixedNow.Add(-1*time.Hour))
 
 	sweep(t, conn, nil)
 	if got := alertsOfKind(t, conn, KindDataVolumeExfil); len(got) != 0 {
@@ -128,9 +151,11 @@ func TestDataVolumeExfilBelowFactorDoesNotFire(t *testing.T) {
 func TestDataVolumeExfilThinHistoryDoesNotFire(t *testing.T) {
 	conn := testDB(t)
 	dev := "dev_thin_hist"
-	// Only 5 prior sessions (median 20 MiB) — below the 20-session minimum.
+	// Only 5 prior sessions (median 20 MiB upload) — below the 20-session minimum.
 	seedBaselineSessions(t, conn, dev, 5, 20*mib)
-	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 100*mib, 8*gib, fixedNow.Add(-1*time.Hour))
+	// An 8 GiB upload (rx) that WOULD clear the floor and factor if the baseline
+	// were trusted — only the thin history blocks it.
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 8*gib, 100*mib, fixedNow.Add(-1*time.Hour))
 
 	sweep(t, conn, nil)
 	if got := alertsOfKind(t, conn, KindDataVolumeExfil); len(got) != 0 {
@@ -145,16 +170,16 @@ func TestDataVolumeExfilDedupRefreshesNotDuplicates(t *testing.T) {
 	conn := testDB(t)
 	dev := "dev_exfil_dedup"
 	seedBaselineSessions(t, conn, dev, 24, 50*mib)
-	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 100*mib, 4*gib, fixedNow.Add(-1*time.Hour))
+	seedDisconnectBytes(t, conn, dev, "node_x", "198.51.100.20", 4*gib, 100*mib, fixedNow.Add(-1*time.Hour))
 
 	// First sweep opens the alert.
 	fresh1 := sweep(t, conn, nil)
 	if !containsKind(fresh1, KindDataVolumeExfil) {
 		t.Fatalf("first sweep did not open a data_volume alert")
 	}
-	// A second over-baseline session the same day keeps the condition live; a
+	// A second over-baseline upload the same day keeps the condition live; a
 	// second sweep must REFRESH, not insert a duplicate.
-	seedDisconnectBytes(t, conn, dev, "node_y", "192.0.2.30", 100*mib, 5*gib, fixedNow.Add(-30*time.Minute))
+	seedDisconnectBytes(t, conn, dev, "node_y", "192.0.2.30", 5*gib, 100*mib, fixedNow.Add(-30*time.Minute))
 	fresh2, err := Sweep(context.Background(), conn, nil, fixedNow.Add(time.Minute), DefaultWindow)
 	if err != nil {
 		t.Fatalf("second Sweep: %v", err)

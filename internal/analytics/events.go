@@ -22,7 +22,10 @@ type event struct {
 	EventType string // "connect" | "disconnect" | "handshake"
 	SourceIP  string
 	// RxBytes/TxBytes are the session's transferred byte deltas, stamped on the
-	// disconnect row (connect rows carry 0). The data_volume rule reads TxBytes.
+	// disconnect row (connect rows carry 0). RxBytes is the node's awg transfer-rx
+	// = the client's UPLOAD (data leaving the client toward the tunnel); TxBytes
+	// is the client's download. The data_volume rule reads RxBytes (the exfil
+	// direction).
 	RxBytes uint64
 	TxBytes uint64
 }

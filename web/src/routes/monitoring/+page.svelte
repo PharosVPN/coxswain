@@ -226,7 +226,8 @@
 					<tr>
 						<th>Time</th><th>Event</th><th>Device</th><th>User</th>
 						<th>Node</th><th>Source IP</th><th>Protocol</th>
-						<th class="text-right">Rx</th><th class="text-right">Tx</th>
+						<th class="text-right" title="Client upload (data leaving the client toward the tunnel)">↑ Up</th>
+						<th class="text-right" title="Client download (data sent to the client)">↓ Down</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -239,6 +240,7 @@
 							<td class="text-ink-2">{s.node_id || '—'}</td>
 							<td class="tnum text-ink-2">{s.source_ip || '—'}</td>
 							<td class="text-ink-2">{s.protocol || '—'}</td>
+							<!-- ↑ Up = rx_bytes (node received from client = client upload); ↓ Down = tx_bytes (client download). -->
 							<td class="tnum whitespace-nowrap text-right text-ink-2">{fmtBytes(s.rx_bytes)}</td>
 							<td class="tnum whitespace-nowrap text-right text-ink-2">{fmtBytes(s.tx_bytes)}</td>
 						</tr>
