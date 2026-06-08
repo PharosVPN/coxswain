@@ -270,14 +270,24 @@ func (c *Coordinator) ClearDevicePath(ctx context.Context, deviceID string) erro
 // peer on an exit/mid hop — the previous hop's key carrying the cascaded devices'
 // allowed-IPs. Call this right after such a push so the edge peer is re-added
 // last and re-owns those allowed-IPs (AddPeer moves an allowed-IP to whichever
-// peer claims it last). No-op when the node is in no path.
+// peer claims it last).
+//
+// When the node is on no cascade path it is still an egress node: it must apply
+// its base forwarding/masquerade policy so a freshly-onboarded single-hop node
+// starts forwarding + NAT without a manual `cox nodes push-policy`. The node
+// persists the policy and re-applies it on every reboot, so this one push stays
+// in effect permanently.
 func (c *Coordinator) ReconcileNode(ctx context.Context, nodeID string) error {
 	pids, err := fleet.ListPathIDsContainingNode(ctx, c.db, nodeID)
 	if err != nil {
 		return err
 	}
 	if len(pids) == 0 {
-		return nil
+		node, err := fleet.GetNode(ctx, c.db, nodeID)
+		if err != nil {
+			return err
+		}
+		return c.pushNodePolicy(ctx, node)
 	}
 	set := make(map[string]bool, len(pids))
 	for _, p := range pids {
@@ -298,7 +308,12 @@ func (c *Coordinator) ReconcileNode(ctx context.Context, nodeID string) error {
 func (c *Coordinator) reconcile(ctx context.Context, pathIDs map[string]bool) error {
 	type edge struct{ entry, exit string }
 	edges := map[edge]bool{}
-	transitNodes := map[string]bool{}
+	// policyNodes is every node on every affected path. Each one has its network
+	// policy (base forwarding/masquerade plus any transit routes it owns) pushed.
+	// This deliberately includes the EXIT (last hop): the exit owns no transit
+	// route, but it is the hop that masquerades the cascade's traffic to the
+	// internet, so it must still receive its forwarding/masquerade policy.
+	policyNodes := map[string]bool{}
 	for pid := range pathIDs {
 		hops, err := fleet.ListPathHops(ctx, c.db, pid)
 		if err != nil {
@@ -306,7 +321,10 @@ func (c *Coordinator) reconcile(ctx context.Context, pathIDs map[string]bool) er
 		}
 		for i := 0; i < len(hops)-1; i++ {
 			edges[edge{hops[i].NodeID, hops[i+1].NodeID}] = true
-			transitNodes[hops[i].NodeID] = true
+			policyNodes[hops[i].NodeID] = true
+		}
+		if n := len(hops); n > 0 {
+			policyNodes[hops[n-1].NodeID] = true // the exit masquerades egress
 		}
 	}
 	for e := range edges {
@@ -314,12 +332,12 @@ func (c *Coordinator) reconcile(ctx context.Context, pathIDs map[string]bool) er
 			return err
 		}
 	}
-	for nid := range transitNodes {
+	for nid := range policyNodes {
 		node, err := fleet.GetNode(ctx, c.db, nid)
 		if err != nil {
 			return err
 		}
-		if err := c.pushNodeTransits(ctx, node); err != nil {
+		if err := c.pushNodePolicy(ctx, node); err != nil {
 			return err
 		}
 	}
@@ -410,12 +428,14 @@ func (c *Coordinator) pushEdgePeer(ctx context.Context, entryID, exitID string) 
 	})
 }
 
-// pushNodeTransits recomputes and pushes a node's full transit set — one route
-// per cascaded source, for every downstream hop the node has across all paths —
-// alongside its base forwarding/masquerade/isolation policy. The source CIDR is
-// always the address on the PATH ENTRY. Forwarding is forced on when any transit
-// exists, since transit requires it.
-func (c *Coordinator) pushNodeTransits(ctx context.Context, node fleet.Node) error {
+// pushNodePolicy pushes a node's full network policy in one SetNetworkConfig:
+// its base forwarding/masquerade/isolation flags plus its transit set — one
+// route per cascaded source, for every downstream hop the node has across all
+// paths. The source CIDR is always the address on the PATH ENTRY. Forwarding is
+// forced on when any transit exists, since transit requires it. A node with no
+// transit role — a single-hop exit, or the exit hop of a cascade — is pushed its
+// base policy only, which is what makes a plain egress node forward + masquerade.
+func (c *Coordinator) pushNodePolicy(ctx context.Context, node fleet.Node) error {
 	pids, err := fleet.ListPathIDsContainingNode(ctx, c.db, node.ID)
 	if err != nil {
 		return err

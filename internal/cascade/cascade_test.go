@@ -528,13 +528,23 @@ func TestReconcileNodeReappliesEdgePeer(t *testing.T) {
 		t.Errorf("re-applied edge peer = %+v, want ENTRYPUB= allowed [10.86.0.5/32]", got)
 	}
 
-	// A node in no path: no error, no RPCs.
+	// A node in no path is still an egress node: ReconcileNode pushes its base
+	// forwarding/masquerade policy (no transits) so a freshly-onboarded single-hop
+	// node forwards + NATs on its own, without a manual `cox nodes push-policy`.
 	lone := mkNode(t, conn, "lone", "lone:8444", "9.9.9.9", "LONEPUB=")
 	if err := coord.ReconcileNode(ctx, lone.ID); err != nil {
 		t.Fatalf("ReconcileNode(no-path): %v", err)
 	}
-	if ff.nodes["lone:8444"] != nil {
-		t.Error("ReconcileNode on a path-less node should make no calls")
+	ln := ff.nodes["lone:8444"]
+	if ln == nil {
+		t.Fatal("ReconcileNode on a path-less egress node should push its base policy")
+	}
+	if len(ln.setNet) != 1 {
+		t.Fatalf("path-less node got %d SetNetworkConfig pushes, want exactly 1", len(ln.setNet))
+	}
+	if got := ln.lastNet(); !got.GetForwarding() || !got.GetMasquerade() ||
+		got.GetIsolation() || len(got.GetTransits()) != 0 {
+		t.Errorf("path-less base policy = %+v, want forwarding+masquerade, no isolation, no transits", got)
 	}
 }
 
