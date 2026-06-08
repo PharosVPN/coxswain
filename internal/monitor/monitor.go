@@ -80,8 +80,21 @@ type Store struct {
 
 	mu    sync.RWMutex
 	cache map[string]Resolution // peer public key → resolution
+	// open pairs a live session's connect with its disconnect: it holds the
+	// peer's CUMULATIVE awg counters captured at PEER_CONNECTED, keyed by peer
+	// public key. SessionBytes subtracts these from the disconnect's cumulative
+	// to get the per-session delta, then evicts the entry. Guarded by mu, the
+	// same lock as the resolution cache.
+	open map[string]cumBytes
 
 	startOnce sync.Once
+}
+
+// cumBytes is a peer's cumulative awg rx/tx counters at the moment a session
+// opened, remembered so the matching disconnect can be turned into a delta.
+type cumBytes struct {
+	rx uint64
+	tx uint64
 }
 
 // NewStore returns a Store backed by db. Call Run with the serve context to
@@ -95,6 +108,7 @@ func NewStore(db *sql.DB, log *slog.Logger) *Store {
 		log:   log,
 		queue: make(chan Event, ingestBuffer),
 		cache: make(map[string]Resolution),
+		open:  make(map[string]cumBytes),
 	}
 }
 
@@ -166,15 +180,69 @@ func (s *Store) Resolve(ctx context.Context, peerID string) Resolution {
 	return res
 }
 
-// Forget drops a peer's cached resolution. The live plane calls it when a peer
-// disconnects for good, so a re-provisioned key resolves afresh.
+// Forget drops a peer's cached resolution and any open session pairing. The live
+// plane calls it when a peer disconnects for good, so a re-provisioned key
+// resolves afresh and a never-closed session does not pin a stale connect
+// cumulative (e.g. a stream-lost close-out that did not flow through
+// SessionBytes).
 func (s *Store) Forget(peerID string) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	delete(s.cache, peerID)
+	delete(s.open, peerID)
 	s.mu.Unlock()
+}
+
+// SessionBytes pairs a peer's connect → disconnect cumulative awg counters and
+// returns the per-session byte delta to persist on the live event.
+//
+//   - On a "connect" it remembers the cumulative (rxCum/txCum) for the peer and
+//     returns 0,0 — a connect carries no session bytes.
+//   - On a "disconnect" it computes the delta against the remembered connect
+//     cumulative, then evicts the pairing. Guards: if there is NO remembered
+//     connect (the controller started mid-session, or the connect predates this
+//     watcher), or the disconnect cumulative is BELOW the connect cumulative (a
+//     counter reset / peer re-add), it returns 0 for that field rather than a
+//     bogus huge number. The two directions are guarded independently.
+//
+// Any other event type is a no-op returning 0,0. SessionBytes takes mu, the same
+// lock as the resolution cache and pairing map.
+func (s *Store) SessionBytes(peerID, eventType string, rxCum, txCum uint64) (rx, tx uint64) {
+	if s == nil || peerID == "" {
+		return 0, 0
+	}
+	switch eventType {
+	case "connect":
+		s.mu.Lock()
+		s.open[peerID] = cumBytes{rx: rxCum, tx: txCum}
+		s.mu.Unlock()
+		return 0, 0
+	case "disconnect":
+		s.mu.Lock()
+		base, ok := s.open[peerID]
+		delete(s.open, peerID)
+		s.mu.Unlock()
+		if !ok {
+			// No paired connect — controller started mid-session. Don't invent a
+			// delta from a cumulative whose origin we never saw.
+			return 0, 0
+		}
+		return delta(rxCum, base.rx), delta(txCum, base.tx)
+	default:
+		return 0, 0
+	}
+}
+
+// delta returns cumulative − connectCumulative when monotonic; a current below
+// the connect baseline (counter reset / peer re-add) yields 0, never an
+// underflowed wrap.
+func delta(current, connect uint64) uint64 {
+	if current < connect {
+		return 0
+	}
+	return current - connect
 }
 
 // Ingest enqueues a resolved event for persistence. It never blocks: a full

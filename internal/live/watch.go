@@ -28,6 +28,13 @@ type Sink interface {
 	// Ingest persists a resolved session event. It must never block — a slow DB
 	// must not stall the live stream.
 	Ingest(ev monitor.Event)
+	// SessionBytes pairs a peer's connect → disconnect cumulative awg counters
+	// and returns the per-session byte delta. A connect remembers the cumulative
+	// and returns 0,0; a disconnect returns the guarded delta against the
+	// remembered connect (0 when unpaired or on a counter reset), then evicts the
+	// pairing. The same direction convention as the node: rx = node received =
+	// client upload, tx = node sent = client download.
+	SessionBytes(peerID, eventType string, rxCum, txCum uint64) (rx, tx uint64)
 }
 
 // WatchNode holds a node's WatchEvents stream open, publishing every
@@ -154,10 +161,12 @@ func closeOpenSessions(open map[string]Event, hub *Hub, sink Sink) {
 }
 
 // ingest converts a node proto event into a live.Event, enriches it with the
-// resolved device/user/source IP, and persists the session boundary to the
-// sink (connect / disconnect). It returns the enriched event for the hub. A nil
-// sink skips resolution + persistence but still returns the base event, so the
-// live stream is unaffected when history is disabled.
+// resolved device/user/source IP, computes the per-session byte delta by pairing
+// the node's connect/disconnect cumulative counters, and persists the session
+// boundary to the sink. It returns the enriched event (carrying the delta) for
+// the hub. A nil sink skips resolution + persistence + pairing but still returns
+// the base event (with 0 session bytes), so the live stream is unaffected when
+// history is disabled.
 func ingest(ctx context.Context, nodeID string, e *nodev1.Event, sink Sink) Event {
 	ev := eventFrom(nodeID, e)
 	ev.SourceIP = monitor.SourceIP(ev.SourceEndpoint)
@@ -173,10 +182,19 @@ func ingest(ctx context.Context, nodeID string, e *nodev1.Event, sink Sink) Even
 	// change arrives from the node as a fresh PEER_CONNECTED, so it is captured
 	// here too). Handshake keepalives stay ephemeral on the live stream; storing
 	// every rekey would bloat the history without adding session signal.
+	//
+	// The node now reports its RAW CUMULATIVE awg counters on both connect and
+	// disconnect (proto rx/tx). SessionBytes pairs them: a connect remembers the
+	// cumulative and yields 0; a disconnect yields the guarded per-session delta.
+	// Stamp that delta on the live event so the hub/SIEM and the persisted row
+	// both carry real session bytes.
+	rxCum, txCum := nonNegU64(e.GetRxBytes()), nonNegU64(e.GetTxBytes())
 	switch e.GetType() {
 	case nodev1.EventType_EVENT_TYPE_PEER_CONNECTED:
+		ev.RxBytes, ev.TxBytes = sink.SessionBytes(ev.PeerID, "connect", rxCum, txCum)
 		sink.Ingest(record(ev, "connect"))
 	case nodev1.EventType_EVENT_TYPE_PEER_DISCONNECTED:
+		ev.RxBytes, ev.TxBytes = sink.SessionBytes(ev.PeerID, "disconnect", rxCum, txCum)
 		sink.Ingest(record(ev, "disconnect"))
 		// A peer gone for good should not pin a stale resolution forever.
 		if fr, ok := sink.(interface{ Forget(string) }); ok && ev.PeerID != "" {

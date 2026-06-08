@@ -63,23 +63,34 @@ func (n connectThenDropNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream gr
 	})
 }
 
-// disconnectWithBytesNode emits a PEER_DISCONNECTED carrying a session byte
-// delta, then holds the stream open — the steady-state case where a node closes
-// a session and reports the bytes it carried.
-type disconnectWithBytesNode struct {
+// connectDisconnectCumulativeNode emits a PEER_CONNECTED carrying the peer's
+// cumulative awg counters (connectRx/connectTx) then a PEER_DISCONNECTED carrying
+// the later cumulative (disconnectRx/disconnectTx), then holds the stream open —
+// the steady-state case the controller pairs into a per-session delta.
+type connectDisconnectCumulativeNode struct {
 	nodev1.UnimplementedNodeControlServer
-	peer   string
-	rx, tx int64
+	peer                                             string
+	connectRx, connectTx, disconnectRx, disconnectTx int64
 }
 
-func (n disconnectWithBytesNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStreamingServer[nodev1.Event]) error {
+func (n connectDisconnectCumulativeNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStreamingServer[nodev1.Event]) error {
+	if err := stream.Send(&nodev1.Event{
+		Type:           nodev1.EventType_EVENT_TYPE_PEER_CONNECTED,
+		Protocol:       nodev1.Protocol_PROTOCOL_AMNEZIAWG,
+		PeerId:         n.peer,
+		SourceEndpoint: "203.0.113.9:51820",
+		RxBytes:        n.connectRx,
+		TxBytes:        n.connectTx,
+	}); err != nil {
+		return err
+	}
 	if err := stream.Send(&nodev1.Event{
 		Type:           nodev1.EventType_EVENT_TYPE_PEER_DISCONNECTED,
 		Protocol:       nodev1.Protocol_PROTOCOL_AMNEZIAWG,
 		PeerId:         n.peer,
 		SourceEndpoint: "203.0.113.9:51820",
-		RxBytes:        n.rx,
-		TxBytes:        n.tx,
+		RxBytes:        n.disconnectRx,
+		TxBytes:        n.disconnectTx,
 	}); err != nil {
 		return err
 	}
@@ -88,11 +99,15 @@ func (n disconnectWithBytesNode) WatchEvents(_ *nodev1.WatchEventsRequest, strea
 }
 
 // recordingSink captures every event passed to Ingest, for asserting the
-// synthetic stream-lost disconnect is persisted. Resolve is a no-op (the peer
-// is left unresolved; the close-out path does not depend on resolution).
+// persisted session events (the stream-lost disconnect, and the connect→
+// disconnect byte pairing). Resolve is a no-op (the peer is left unresolved;
+// these paths do not depend on resolution). SessionBytes mirrors the controller
+// pairing (monitor.Store.SessionBytes) so the live plane's delta computation is
+// exercised end-to-end: connect remembers the cumulative, disconnect deltas.
 type recordingSink struct {
 	mu     sync.Mutex
 	events []monitor.Event
+	open   map[string][2]uint64 // peer → {connectRxCum, connectTxCum}
 }
 
 func (s *recordingSink) Resolve(context.Context, string) monitor.Resolution {
@@ -103,6 +118,37 @@ func (s *recordingSink) Ingest(ev monitor.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, ev)
+}
+
+func (s *recordingSink) SessionBytes(peerID, eventType string, rxCum, txCum uint64) (uint64, uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.open == nil {
+		s.open = map[string][2]uint64{}
+	}
+	switch eventType {
+	case "connect":
+		s.open[peerID] = [2]uint64{rxCum, txCum}
+		return 0, 0
+	case "disconnect":
+		base, ok := s.open[peerID]
+		delete(s.open, peerID)
+		if !ok {
+			return 0, 0
+		}
+		return sessionDelta(rxCum, base[0]), sessionDelta(txCum, base[1])
+	default:
+		return 0, 0
+	}
+}
+
+// sessionDelta mirrors monitor.delta: current − connect, clamped to 0 on a
+// counter reset.
+func sessionDelta(current, connect uint64) uint64 {
+	if current < connect {
+		return 0
+	}
+	return current - connect
 }
 
 func (s *recordingSink) snapshot() []monitor.Event {
@@ -267,14 +313,21 @@ func TestStreamDropClosesOpenSessions(t *testing.T) {
 	}
 }
 
-// TestDisconnectPersistsSessionBytes proves a node-reported disconnect carrying
-// a session byte delta threads those bytes all the way through: the monitor
-// Event persisted to the history sink carries them, and the live Event fanned to
-// the hub carries them too. This is the fix for sessions persisting 0 rx/tx.
+// TestDisconnectPersistsSessionBytes proves the CONTROLLER pairs the node's raw
+// cumulative counters into a per-session delta: the node emits a connect at
+// cumulative C1 and a disconnect at cumulative C2, and the controller persists
+// (and fans to the hub) the delta C2−C1, not the raw cumulative. The connect row
+// carries 0. This is the robust-bytes design — pairing on the controller, not an
+// in-observer baseline.
 func TestDisconnectPersistsSessionBytes(t *testing.T) {
 	const peer = "peer-with-bytes"
-	const wantRx, wantTx = 123456, 654321
-	addr, dialer := startNodeServer(t, disconnectWithBytesNode{peer: peer, rx: wantRx, tx: wantTx})
+	// Connect cumulative C1; disconnect cumulative C2; expected session delta.
+	const c1Rx, c1Tx = 1_000_000, 2_000_000
+	const c2Rx, c2Tx = 1_123_456, 2_654_321
+	const wantRx, wantTx = c2Rx - c1Rx, c2Tx - c1Tx
+	addr, dialer := startNodeServer(t, connectDisconnectCumulativeNode{
+		peer: peer, connectRx: c1Rx, connectTx: c1Tx, disconnectRx: c2Rx, disconnectTx: c2Tx,
+	})
 
 	hub := NewHub()
 	_, events := hub.Subscribe()
@@ -284,16 +337,23 @@ func TestDisconnectPersistsSessionBytes(t *testing.T) {
 	defer cancel()
 	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_bytes", ControlAddr: addr}, hub, sink)
 
-	// The live hub event must carry the session bytes.
+	// On the hub, the connect must carry 0 and the disconnect the computed delta.
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
 		case e := <-events:
-			if e.Type != "PEER_DISCONNECTED" {
+			switch e.Type {
+			case "PEER_CONNECTED":
+				if e.RxBytes != 0 || e.TxBytes != 0 {
+					t.Errorf("hub connect carried rx=%d tx=%d, want 0/0", e.RxBytes, e.TxBytes)
+				}
 				continue
-			}
-			if e.RxBytes != wantRx || e.TxBytes != wantTx {
-				t.Errorf("hub event bytes rx=%d tx=%d, want %d/%d", e.RxBytes, e.TxBytes, wantRx, wantTx)
+			case "PEER_DISCONNECTED":
+				if e.RxBytes != wantRx || e.TxBytes != wantTx {
+					t.Errorf("hub disconnect delta rx=%d tx=%d, want %d/%d", e.RxBytes, e.TxBytes, wantRx, wantTx)
+				}
+			default:
+				continue
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for disconnect on the hub")
@@ -301,26 +361,34 @@ func TestDisconnectPersistsSessionBytes(t *testing.T) {
 		break
 	}
 
-	// The persisted monitor Event must carry the session bytes too.
+	// The persisted disconnect must carry the delta; the connect row carries 0.
 	deadline = time.After(5 * time.Second)
 	for {
-		var got *monitor.Event
+		var disc, conn *monitor.Event
 		for _, ev := range sink.snapshot() {
-			if ev.EventType == "disconnect" && ev.PeerID == peer {
-				e := ev
-				got = &e
-				break
+			if ev.PeerID != peer {
+				continue
+			}
+			e := ev
+			switch ev.EventType {
+			case "disconnect":
+				disc = &e
+			case "connect":
+				conn = &e
 			}
 		}
-		if got != nil {
-			if got.RxBytes != wantRx || got.TxBytes != wantTx {
-				t.Errorf("persisted event bytes rx=%d tx=%d, want %d/%d", got.RxBytes, got.TxBytes, wantRx, wantTx)
+		if disc != nil && conn != nil {
+			if conn.RxBytes != 0 || conn.TxBytes != 0 {
+				t.Errorf("persisted connect rx=%d tx=%d, want 0/0", conn.RxBytes, conn.TxBytes)
+			}
+			if disc.RxBytes != wantRx || disc.TxBytes != wantTx {
+				t.Errorf("persisted disconnect delta rx=%d tx=%d, want %d/%d", disc.RxBytes, disc.TxBytes, wantRx, wantTx)
 			}
 			return
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for persisted disconnect; got: %+v", sink.snapshot())
+			t.Fatalf("timed out waiting for persisted events; got: %+v", sink.snapshot())
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

@@ -184,10 +184,11 @@ func translate(ev live.Event) (*monitorv1.MonitorEvent, bool) {
 			// so a SIEM consumer sees those dangling sessions close. Empty on a
 			// node-reported disconnect.
 			Reason: ev.Reason,
-			// Session byte deltas: set on a disconnect (the node stamps the totals
-			// at session end), 0 on a connect. The live Event carries them as
-			// uint64; the proto field is int64, so clamp the (practically
-			// impossible) >MaxInt64 case rather than wrapping to a negative.
+			// Session byte deltas: set on a disconnect (the controller pairs the
+			// node's connect/disconnect cumulative counters into a per-session
+			// delta), 0 on a connect. The live Event carries them as uint64; the
+			// proto field is int64, so clamp the (practically impossible)
+			// >MaxInt64 case rather than wrapping to a negative.
 			RxBytes: clampI64(ev.RxBytes),
 			TxBytes: clampI64(ev.TxBytes),
 		}

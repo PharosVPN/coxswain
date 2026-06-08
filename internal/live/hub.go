@@ -34,8 +34,9 @@ type Event struct {
 	SourceIP       string    `json:"source_ip,omitempty"`
 	SourceEndpoint string    `json:"source_endpoint,omitempty"`
 	// RxBytes and TxBytes are the bytes transferred during the session this event
-	// closes — the session delta the node reports on a PEER_DISCONNECTED. A
-	// PEER_CONNECTED and other event types carry 0.
+	// closes — the per-session delta the CONTROLLER computes by pairing the
+	// node's connect/disconnect cumulative counters (see monitor.SessionBytes).
+	// Set on a PEER_DISCONNECTED; a PEER_CONNECTED and other event types carry 0.
 	RxBytes uint64 `json:"rx_bytes,omitempty"`
 	TxBytes uint64 `json:"tx_bytes,omitempty"`
 	// Reason carries extra context for a disconnect — notably "stream-lost" on the
@@ -62,7 +63,10 @@ func (h *Hub) PublishAlert(payload any, deviceID string, at time.Time) {
 }
 
 // eventFrom converts a node proto event from a node into a live.Event. The
-// monitoring fields are filled in by streamNode after peer resolution.
+// monitoring fields are filled in by streamNode after peer resolution; the
+// session byte delta (RxBytes/TxBytes) is computed by ingest pairing the node's
+// connect/disconnect cumulative counters, NOT copied from the node event (whose
+// rx/tx now carry the raw cumulative).
 func eventFrom(nodeID string, e *nodev1.Event) Event {
 	ev := Event{
 		NodeID:         nodeID,
@@ -70,12 +74,6 @@ func eventFrom(nodeID string, e *nodev1.Event) Event {
 		PeerID:         e.GetPeerId(),
 		Message:        e.GetMessage(),
 		SourceEndpoint: e.GetSourceEndpoint(),
-		// Session byte deltas the node stamps on a disconnect. The proto carries
-		// them as int64; the node never emits a negative (its counter-reset guard
-		// clamps to the current value), but clamp defensively so a malformed node
-		// event can never wrap to a huge uint64.
-		RxBytes: nonNegU64(e.GetRxBytes()),
-		TxBytes: nonNegU64(e.GetTxBytes()),
 	}
 	if proto := strings.TrimPrefix(e.GetProtocol().String(), "PROTOCOL_"); proto != "UNSPECIFIED" {
 		ev.Protocol = proto
@@ -87,7 +85,8 @@ func eventFrom(nodeID string, e *nodev1.Event) Event {
 }
 
 // nonNegU64 clamps a (defensively) negative int64 to 0 before widening it to a
-// uint64, so a malformed node event can never wrap a byte count to ~1.8e19.
+// uint64, so a malformed node event can never wrap a cumulative counter to
+// ~1.8e19 before it is paired into a delta.
 func nonNegU64(v int64) uint64 {
 	if v < 0 {
 		return 0

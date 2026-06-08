@@ -247,6 +247,65 @@ func TestPurge(t *testing.T) {
 	}
 }
 
+// TestSessionBytesPairsConnectDisconnect proves the controller pairing: a connect
+// at cumulative C1 remembered, a disconnect at cumulative C2 yields the delta
+// C2−C1. The connect itself yields 0,0.
+func TestSessionBytesPairsConnectDisconnect(t *testing.T) {
+	s := NewStore(nil, nil)
+	const peer = "P="
+
+	if rx, tx := s.SessionBytes(peer, "connect", 1000, 2000); rx != 0 || tx != 0 {
+		t.Errorf("connect returned rx=%d tx=%d, want 0/0", rx, tx)
+	}
+	rx, tx := s.SessionBytes(peer, "disconnect", 6000, 11000)
+	if rx != 5000 || tx != 9000 {
+		t.Errorf("disconnect delta rx=%d tx=%d, want 5000/9000", rx, tx)
+	}
+	// The pairing must be evicted: a second disconnect with no prior connect is 0.
+	if rx, tx := s.SessionBytes(peer, "disconnect", 99999, 99999); rx != 0 || tx != 0 {
+		t.Errorf("second disconnect (no prior connect) rx=%d tx=%d, want 0/0", rx, tx)
+	}
+}
+
+// TestSessionBytesNoPriorConnect proves a disconnect with no remembered connect
+// (the controller started mid-session) yields 0, never the raw cumulative.
+func TestSessionBytesNoPriorConnect(t *testing.T) {
+	s := NewStore(nil, nil)
+	if rx, tx := s.SessionBytes("MIDSESSION=", "disconnect", 50_000_000, 60_000_000); rx != 0 || tx != 0 {
+		t.Errorf("unpaired disconnect rx=%d tx=%d, want 0/0 (no bogus cumulative)", rx, tx)
+	}
+}
+
+// TestSessionBytesCounterReset proves the reset guard: a disconnect cumulative
+// BELOW the connect cumulative (counter reset / peer re-add) yields 0 for that
+// direction, never an underflowed wrap. Each direction is guarded independently.
+func TestSessionBytesCounterReset(t *testing.T) {
+	s := NewStore(nil, nil)
+	const peer = "RESET="
+	s.SessionBytes(peer, "connect", 10_000, 20_000)
+	// rx reset below connect (700 < 10000) → 0; tx grew normally → delta.
+	rx, tx := s.SessionBytes(peer, "disconnect", 700, 25_000)
+	if rx != 0 {
+		t.Errorf("reset rx = %d, want 0 (current below connect)", rx)
+	}
+	if tx != 5000 {
+		t.Errorf("tx delta = %d, want 5000", tx)
+	}
+}
+
+// TestSessionBytesForgetEvictsPairing proves Forget drops an open pairing so a
+// connect that never closes (e.g. a stream-lost close-out) cannot pin a stale
+// connect cumulative: a later disconnect after Forget yields 0.
+func TestSessionBytesForgetEvictsPairing(t *testing.T) {
+	s := NewStore(nil, nil)
+	const peer = "FORGET="
+	s.SessionBytes(peer, "connect", 1000, 2000)
+	s.Forget(peer)
+	if rx, tx := s.SessionBytes(peer, "disconnect", 9000, 9000); rx != 0 || tx != 0 {
+		t.Errorf("disconnect after Forget rx=%d tx=%d, want 0/0", rx, tx)
+	}
+}
+
 // waitForOne blocks until exactly one connection_events row exists (the writer
 // is async) and returns it.
 func waitForOne(t *testing.T, conn *sql.DB) Record {
