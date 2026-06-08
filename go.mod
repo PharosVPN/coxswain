@@ -3,7 +3,7 @@ module github.com/PharosVPN/coxswain
 go 1.25.7
 
 require (
-	github.com/PharosVPN/relay v0.0.0-20260602184239-991f73969a52
+	github.com/PharosVPN/relay v0.0.0-20260608045412-93f6de98e91f
 	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
