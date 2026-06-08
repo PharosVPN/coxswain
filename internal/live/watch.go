@@ -199,5 +199,9 @@ func record(ev Event, eventType string) monitor.Event {
 		EventType:      eventType,
 		SourceIP:       ev.SourceIP,
 		SourceEndpoint: ev.SourceEndpoint,
+		// The node reports the session's byte delta on the disconnect; connect
+		// rows carry 0. Persisting it replaces the hardcoded 0 in connection_events.
+		RxBytes: ev.RxBytes,
+		TxBytes: ev.TxBytes,
 	}
 }

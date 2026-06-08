@@ -63,6 +63,30 @@ func (n connectThenDropNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream gr
 	})
 }
 
+// disconnectWithBytesNode emits a PEER_DISCONNECTED carrying a session byte
+// delta, then holds the stream open — the steady-state case where a node closes
+// a session and reports the bytes it carried.
+type disconnectWithBytesNode struct {
+	nodev1.UnimplementedNodeControlServer
+	peer   string
+	rx, tx int64
+}
+
+func (n disconnectWithBytesNode) WatchEvents(_ *nodev1.WatchEventsRequest, stream grpc.ServerStreamingServer[nodev1.Event]) error {
+	if err := stream.Send(&nodev1.Event{
+		Type:           nodev1.EventType_EVENT_TYPE_PEER_DISCONNECTED,
+		Protocol:       nodev1.Protocol_PROTOCOL_AMNEZIAWG,
+		PeerId:         n.peer,
+		SourceEndpoint: "203.0.113.9:51820",
+		RxBytes:        n.rx,
+		TxBytes:        n.tx,
+	}); err != nil {
+		return err
+	}
+	<-stream.Context().Done()
+	return stream.Context().Err()
+}
+
 // recordingSink captures every event passed to Ingest, for asserting the
 // synthetic stream-lost disconnect is persisted. Resolve is a no-op (the peer
 // is left unresolved; the close-out path does not depend on resolution).
@@ -238,6 +262,65 @@ func TestStreamDropClosesOpenSessions(t *testing.T) {
 		select {
 		case <-deadline:
 			t.Fatalf("timed out waiting for synthetic disconnect; got events: %+v", sink.snapshot())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// TestDisconnectPersistsSessionBytes proves a node-reported disconnect carrying
+// a session byte delta threads those bytes all the way through: the monitor
+// Event persisted to the history sink carries them, and the live Event fanned to
+// the hub carries them too. This is the fix for sessions persisting 0 rx/tx.
+func TestDisconnectPersistsSessionBytes(t *testing.T) {
+	const peer = "peer-with-bytes"
+	const wantRx, wantTx = 123456, 654321
+	addr, dialer := startNodeServer(t, disconnectWithBytesNode{peer: peer, rx: wantRx, tx: wantTx})
+
+	hub := NewHub()
+	_, events := hub.Subscribe()
+	sink := &recordingSink{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go WatchNode(ctx, dialer, fleet.Node{ID: "nod_bytes", ControlAddr: addr}, hub, sink)
+
+	// The live hub event must carry the session bytes.
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case e := <-events:
+			if e.Type != "PEER_DISCONNECTED" {
+				continue
+			}
+			if e.RxBytes != wantRx || e.TxBytes != wantTx {
+				t.Errorf("hub event bytes rx=%d tx=%d, want %d/%d", e.RxBytes, e.TxBytes, wantRx, wantTx)
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for disconnect on the hub")
+		}
+		break
+	}
+
+	// The persisted monitor Event must carry the session bytes too.
+	deadline = time.After(5 * time.Second)
+	for {
+		var got *monitor.Event
+		for _, ev := range sink.snapshot() {
+			if ev.EventType == "disconnect" && ev.PeerID == peer {
+				e := ev
+				got = &e
+				break
+			}
+		}
+		if got != nil {
+			if got.RxBytes != wantRx || got.TxBytes != wantTx {
+				t.Errorf("persisted event bytes rx=%d tx=%d, want %d/%d", got.RxBytes, got.TxBytes, wantRx, wantTx)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for persisted disconnect; got: %+v", sink.snapshot())
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

@@ -33,6 +33,11 @@ type Event struct {
 	User           string    `json:"user,omitempty"`
 	SourceIP       string    `json:"source_ip,omitempty"`
 	SourceEndpoint string    `json:"source_endpoint,omitempty"`
+	// RxBytes and TxBytes are the bytes transferred during the session this event
+	// closes — the session delta the node reports on a PEER_DISCONNECTED. A
+	// PEER_CONNECTED and other event types carry 0.
+	RxBytes uint64 `json:"rx_bytes,omitempty"`
+	TxBytes uint64 `json:"tx_bytes,omitempty"`
 	// Reason carries extra context for a disconnect — notably "stream-lost" on the
 	// synthetic close-out a watcher publishes when a node's stream drops, so the
 	// dashboard feed and the SIEM stream can tell it apart from a node-reported
@@ -65,6 +70,12 @@ func eventFrom(nodeID string, e *nodev1.Event) Event {
 		PeerID:         e.GetPeerId(),
 		Message:        e.GetMessage(),
 		SourceEndpoint: e.GetSourceEndpoint(),
+		// Session byte deltas the node stamps on a disconnect. The proto carries
+		// them as int64; the node never emits a negative (its counter-reset guard
+		// clamps to the current value), but clamp defensively so a malformed node
+		// event can never wrap to a huge uint64.
+		RxBytes: nonNegU64(e.GetRxBytes()),
+		TxBytes: nonNegU64(e.GetTxBytes()),
 	}
 	if proto := strings.TrimPrefix(e.GetProtocol().String(), "PROTOCOL_"); proto != "UNSPECIFIED" {
 		ev.Protocol = proto
@@ -73,6 +84,15 @@ func eventFrom(nodeID string, e *nodev1.Event) Event {
 		ev.At = ts.AsTime()
 	}
 	return ev
+}
+
+// nonNegU64 clamps a (defensively) negative int64 to 0 before widening it to a
+// uint64, so a malformed node event can never wrap a byte count to ~1.8e19.
+func nonNegU64(v int64) uint64 {
+	if v < 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 // Hub fans live events from the node watchers out to WebSocket subscribers.
