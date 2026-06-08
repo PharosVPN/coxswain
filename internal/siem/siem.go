@@ -18,6 +18,7 @@ package siem
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sync/atomic"
 
 	"github.com/PharosVPN/coxswain/internal/analytics"
@@ -183,9 +184,25 @@ func translate(ev live.Event) (*monitorv1.MonitorEvent, bool) {
 			// so a SIEM consumer sees those dangling sessions close. Empty on a
 			// node-reported disconnect.
 			Reason: ev.Reason,
+			// Session byte deltas: set on a disconnect (the node stamps the totals
+			// at session end), 0 on a connect. The live Event carries them as
+			// uint64; the proto field is int64, so clamp the (practically
+			// impossible) >MaxInt64 case rather than wrapping to a negative.
+			RxBytes: clampI64(ev.RxBytes),
+			TxBytes: clampI64(ev.TxBytes),
 		}
 	}
 	return me, true
+}
+
+// clampI64 narrows a uint64 byte count to the int64 the proto field carries,
+// capping at math.MaxInt64 so a (practically impossible) overflow value never
+// wraps to a negative byte count on the wire.
+func clampI64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 // normalKind maps a live.Event.Type to the normalised SIEM kind, or "" for an

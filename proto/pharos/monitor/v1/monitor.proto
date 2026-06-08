@@ -61,6 +61,11 @@ message SessionEvent {
   string source_endpoint = 7;
   // reason carries extra context for synthetic disconnects (e.g. "stream-lost").
   string reason = 8;
+  // rx_bytes / tx_bytes are the session's transferred byte deltas, set on a
+  // "disconnect" event (the node stamps the totals at session end); a "connect"
+  // event carries 0. tx is bytes leaving the client toward the tunnel.
+  int64 rx_bytes = 9;
+  int64 tx_bytes = 10;
 }
 
 // AlertEvent is an analytics anomaly alert (Phase C), flattened for SIEM

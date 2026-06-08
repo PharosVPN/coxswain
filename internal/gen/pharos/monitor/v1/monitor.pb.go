@@ -171,7 +171,12 @@ type SessionEvent struct {
 	// source_endpoint is the client's public ip:port as the node reported it.
 	SourceEndpoint string `protobuf:"bytes,7,opt,name=source_endpoint,json=sourceEndpoint,proto3" json:"source_endpoint,omitempty"`
 	// reason carries extra context for synthetic disconnects (e.g. "stream-lost").
-	Reason        string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	Reason string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	// rx_bytes / tx_bytes are the session's transferred byte deltas, set on a
+	// "disconnect" event (the node stamps the totals at session end); a "connect"
+	// event carries 0. tx is bytes leaving the client toward the tunnel.
+	RxBytes       int64 `protobuf:"varint,9,opt,name=rx_bytes,json=rxBytes,proto3" json:"rx_bytes,omitempty"`
+	TxBytes       int64 `protobuf:"varint,10,opt,name=tx_bytes,json=txBytes,proto3" json:"tx_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -260,6 +265,20 @@ func (x *SessionEvent) GetReason() string {
 		return x.Reason
 	}
 	return ""
+}
+
+func (x *SessionEvent) GetRxBytes() int64 {
+	if x != nil {
+		return x.RxBytes
+	}
+	return 0
+}
+
+func (x *SessionEvent) GetTxBytes() int64 {
+	if x != nil {
+		return x.TxBytes
+	}
+	return 0
 }
 
 // AlertEvent is an analytics anomaly alert (Phase C), flattened for SIEM
@@ -372,7 +391,7 @@ const file_pharos_monitor_v1_monitor_proto_rawDesc = "" +
 	"\x02at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x129\n" +
 	"\asession\x18\x03 \x01(\v2\x1f.pharos.monitor.v1.SessionEventR\asession\x123\n" +
-	"\x05alert\x18\x04 \x01(\v2\x1d.pharos.monitor.v1.AlertEventR\x05alert\"\xf6\x01\n" +
+	"\x05alert\x18\x04 \x01(\v2\x1d.pharos.monitor.v1.AlertEventR\x05alert\"\xac\x02\n" +
 	"\fSessionEvent\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x17\n" +
@@ -382,7 +401,10 @@ const file_pharos_monitor_v1_monitor_proto_rawDesc = "" +
 	"\bprotocol\x18\x05 \x01(\tR\bprotocol\x12\x1b\n" +
 	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12'\n" +
 	"\x0fsource_endpoint\x18\a \x01(\tR\x0esourceEndpoint\x12\x16\n" +
-	"\x06reason\x18\b \x01(\tR\x06reason\"\xc2\x01\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\x12\x19\n" +
+	"\brx_bytes\x18\t \x01(\x03R\arxBytes\x12\x19\n" +
+	"\btx_bytes\x18\n" +
+	" \x01(\x03R\atxBytes\"\xc2\x01\n" +
 	"\n" +
 	"AlertEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +

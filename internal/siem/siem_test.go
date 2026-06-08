@@ -405,6 +405,33 @@ func TestTranslatePassesReason(t *testing.T) {
 	}
 }
 
+// TestTranslatePassesBytes: a disconnect's session byte deltas flow through to
+// SessionEvent.rx_bytes/tx_bytes, so a SIEM consumer sees per-session volume.
+func TestTranslatePassesBytes(t *testing.T) {
+	me, keep := translate(live.Event{
+		Type:    "PEER_DISCONNECTED",
+		NodeID:  "n1",
+		PeerID:  "p1",
+		RxBytes: 8_400_000,
+		TxBytes: 2_100_000,
+	})
+	if !keep {
+		t.Fatal("disconnect event was dropped")
+	}
+	if rx := me.GetSession().GetRxBytes(); rx != 8_400_000 {
+		t.Fatalf("session rx_bytes = %d, want 8400000", rx)
+	}
+	if tx := me.GetSession().GetTxBytes(); tx != 2_100_000 {
+		t.Fatalf("session tx_bytes = %d, want 2100000", tx)
+	}
+
+	// A connect carries 0 bytes (the delta is stamped at session end).
+	me, _ = translate(live.Event{Type: "PEER_CONNECTED", NodeID: "n1"})
+	if rx, tx := me.GetSession().GetRxBytes(), me.GetSession().GetTxBytes(); rx != 0 || tx != 0 {
+		t.Fatalf("connect bytes rx=%d tx=%d, want 0/0", rx, tx)
+	}
+}
+
 // TestStreamClosesOnClientCancel: cancelling the client context tears the stream
 // down and unsubscribes from the hub.
 func TestStreamClosesOnClientCancel(t *testing.T) {
