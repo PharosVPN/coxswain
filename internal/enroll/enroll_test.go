@@ -6,15 +6,100 @@ package enroll_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PharosVPN/coxswain/internal/account"
 	"github.com/PharosVPN/coxswain/internal/db"
 	"github.com/PharosVPN/coxswain/internal/enroll"
 )
+
+// newDB is a migrated throwaway database for a test.
+func newDB(t *testing.T) *sql.DB {
+	t.Helper()
+	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if err := db.Migrate(conn); err != nil {
+		t.Fatalf("db.Migrate: %v", err)
+	}
+	return conn
+}
+
+func TestRedeemTicketOneTime(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	user, err := account.CreateUser(ctx, conn, account.User{Email: "u@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	ticket, token, err := enroll.IssueTicket(ctx, conn, user.ID)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+
+	got, err := enroll.RedeemTicket(ctx, conn, token, "dev_abc")
+	if err != nil {
+		t.Fatalf("RedeemTicket: %v", err)
+	}
+	if got.ID != ticket.ID || got.UserID != user.ID {
+		t.Errorf("redeemed ticket mismatch: %+v", got)
+	}
+	// used_at + used_by_device_id are stamped.
+	var usedBy sql.NullString
+	var usedAt sql.NullTime
+	if err := conn.QueryRowContext(ctx,
+		`SELECT used_at, used_by_device_id FROM enrollment_tickets WHERE id = ?`, ticket.ID,
+	).Scan(&usedAt, &usedBy); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !usedAt.Valid || usedBy.String != "dev_abc" {
+		t.Errorf("not stamped: usedAt=%v usedBy=%q", usedAt.Valid, usedBy.String)
+	}
+
+	// A second redemption of the same token fails (one-time).
+	if _, err := enroll.RedeemTicket(ctx, conn, token, "dev_xyz"); !errors.Is(err, enroll.ErrTicketInvalid) {
+		t.Fatalf("second redeem: got %v want ErrTicketInvalid", err)
+	}
+}
+
+func TestRedeemTicketRejects(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	user, err := account.CreateUser(ctx, conn, account.User{Email: "u@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	// Empty + unknown tokens.
+	if _, err := enroll.RedeemTicket(ctx, conn, "", "d"); !errors.Is(err, enroll.ErrTicketInvalid) {
+		t.Errorf("empty token: got %v want ErrTicketInvalid", err)
+	}
+	if _, err := enroll.RedeemTicket(ctx, conn, "nope", "d"); !errors.Is(err, enroll.ErrTicketInvalid) {
+		t.Errorf("unknown token: got %v want ErrTicketInvalid", err)
+	}
+
+	// Expired ticket.
+	_, token, err := enroll.IssueTicket(ctx, conn, user.ID)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE enrollment_tickets SET expires_at = ?`, time.Now().UTC().Add(-time.Hour),
+	); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	if _, err := enroll.RedeemTicket(ctx, conn, token, "d"); !errors.Is(err, enroll.ErrTicketInvalid) {
+		t.Errorf("expired token: got %v want ErrTicketInvalid", err)
+	}
+}
 
 func TestIssueTicket(t *testing.T) {
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))

@@ -247,6 +247,112 @@ func TestSignNodeCSRRejectsGarbage(t *testing.T) {
 	}
 }
 
+func TestSignDeviceCSR(t *testing.T) {
+	b, err := pki.GenerateBundle()
+	if err != nil {
+		t.Fatalf("GenerateBundle: %v", err)
+	}
+
+	// The device generates its own keypair; only the CSR (and its public key)
+	// crosses to coxswain. Keep the key so we can prove the leaf carries it.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "device-claims-admin"},
+	}, key)
+	if err != nil {
+		t.Fatalf("CreateCertificateRequest: %v", err)
+	}
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+
+	signed, err := pki.SignDeviceCSR(b.Device, csrPEM, "user@example.com")
+	if err != nil {
+		t.Fatalf("SignDeviceCSR: %v", err)
+	}
+
+	// Chains root -> device -> leaf, as a client cert.
+	roots := x509.NewCertPool()
+	roots.AddCert(b.Root.Cert)
+	inter := x509.NewCertPool()
+	inter.AddCert(b.Device.Cert)
+	if _, err := signed.Cert.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: inter,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}); err != nil {
+		t.Fatalf("device leaf does not chain root->device->leaf: %v", err)
+	}
+
+	// Subject is controller-assigned: CN=label, O=PharosVPN Device.
+	if cn := signed.Cert.Subject.CommonName; cn != "user@example.com" {
+		t.Errorf("subject CN: got %q want user@example.com (the label)", cn)
+	}
+	if orgs := signed.Cert.Subject.Organization; len(orgs) != 1 || orgs[0] != "PharosVPN Device" {
+		t.Errorf("subject O: got %v want [PharosVPN Device]", orgs)
+	}
+
+	// Exactly the ClientAuth EKU — a device leaf is a pure client cert.
+	if len(signed.Cert.ExtKeyUsage) != 1 || signed.Cert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth {
+		t.Errorf("EKU: got %v want [ClientAuth] only", signed.Cert.ExtKeyUsage)
+	}
+
+	// The CSR's public key survives onto the leaf (the device keeps the private).
+	leafPub, ok := signed.Cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok || !leafPub.Equal(&key.PublicKey) {
+		t.Errorf("leaf does not carry the CSR's public key")
+	}
+}
+
+// TestSignDeviceCSRDropsRogueSANs is the security regression: a device leaf needs
+// no SANs, and a CSR that smuggles in DNS/IP/email SANs must yield a cert with
+// none of them.
+func TestSignDeviceCSRDropsRogueSANs(t *testing.T) {
+	b, err := pki.GenerateBundle()
+	if err != nil {
+		t.Fatalf("GenerateBundle: %v", err)
+	}
+	rogue := makeCSRWithSANs(t, "rogue-device",
+		[]string{"evil.example", "relay.victim.net"}, []net.IP{net.ParseIP("8.8.8.8")})
+
+	signed, err := pki.SignDeviceCSR(b.Device, rogue, "alias")
+	if err != nil {
+		t.Fatalf("SignDeviceCSR: %v", err)
+	}
+	if len(signed.Cert.DNSNames) != 0 {
+		t.Errorf("rogue DNS SANs leaked onto the device leaf: %v", signed.Cert.DNSNames)
+	}
+	if len(signed.Cert.IPAddresses) != 0 {
+		t.Errorf("rogue IP SANs leaked onto the device leaf: %v", signed.Cert.IPAddresses)
+	}
+	if len(signed.Cert.EmailAddresses) != 0 || len(signed.Cert.URIs) != 0 {
+		t.Errorf("rogue email/URI SANs leaked: email=%v uri=%v", signed.Cert.EmailAddresses, signed.Cert.URIs)
+	}
+	// CN is the controller-assigned label, never the CSR's "rogue-device".
+	if cn := signed.Cert.Subject.CommonName; cn != "alias" {
+		t.Errorf("subject CN: got %q want alias (assigned, not from CSR)", cn)
+	}
+}
+
+func TestSignDeviceCSRRejectsBadInput(t *testing.T) {
+	b, err := pki.GenerateBundle()
+	if err != nil {
+		t.Fatalf("GenerateBundle: %v", err)
+	}
+	// Wrong CA: device leaves sign off the Device CA only.
+	if _, err := pki.SignDeviceCSR(b.Fleet, makeCSR(t, "x"), "l"); err == nil {
+		t.Error("expected SignDeviceCSR to reject the Fleet CA")
+	}
+	if _, err := pki.SignDeviceCSR(b.Root, makeCSR(t, "x"), "l"); err == nil {
+		t.Error("expected SignDeviceCSR to reject the root CA")
+	}
+	// Garbage CSR.
+	if _, err := pki.SignDeviceCSR(b.Device, []byte("not a pem"), "l"); err == nil {
+		t.Error("expected SignDeviceCSR to reject non-PEM input")
+	}
+}
+
 func TestRecordNodeCert(t *testing.T) {
 	conn, err := db.Open(filepath.Join(t.TempDir(), "app.db"))
 	if err != nil {

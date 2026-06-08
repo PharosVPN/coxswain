@@ -70,7 +70,7 @@ func TestEmbeddedRelayRoundTrip(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	srv, err := relayhost.AccountServer(conn, grpcCert, bundle.Fleet.CertPEM)
+	srv, err := relayhost.AccountServer(conn, grpcCert, bundle.Fleet.CertPEM, nil)
 	if err != nil {
 		t.Fatalf("AccountServer: %v", err)
 	}

@@ -27,9 +27,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AccountSync_Authenticate_FullMethodName = "/pharos.account.v1.AccountSync/Authenticate"
-	AccountSync_EnrollKeys_FullMethodName   = "/pharos.account.v1.AccountSync/EnrollKeys"
-	AccountSync_GetProfile_FullMethodName   = "/pharos.account.v1.AccountSync/GetProfile"
+	AccountSync_Authenticate_FullMethodName    = "/pharos.account.v1.AccountSync/Authenticate"
+	AccountSync_EnrollKeys_FullMethodName      = "/pharos.account.v1.AccountSync/EnrollKeys"
+	AccountSync_GetProfile_FullMethodName      = "/pharos.account.v1.AccountSync/GetProfile"
+	AccountSync_ClaimEnrollment_FullMethodName = "/pharos.account.v1.AccountSync/ClaimEnrollment"
 )
 
 // AccountSyncClient is the client API for AccountSync service.
@@ -48,6 +49,14 @@ type AccountSyncClient interface {
 	// GetProfile returns the user's latest sealed profile bundle. The bundle is
 	// ciphertext; only the user's device can decrypt it.
 	GetProfile(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*GetProfileResponse, error)
+	// ClaimEnrollment redeems a one-time enrollment ticket (the token from a
+	// join-link/QR) plus a device-generated CSR into a fully enrolled, provisioned
+	// device. It is TOKEN-authenticated, not cert-authenticated: the device has no
+	// Device-CA leaf yet — this RPC mints it — so unlike every other AccountSync
+	// method it must be reachable over a cert-less relay connection (a later relay
+	// change). The token is the sole credential; a valid token yields a signed leaf
+	// and everything the device needs to assemble its own bundle and sync.
+	ClaimEnrollment(ctx context.Context, in *ClaimEnrollmentRequest, opts ...grpc.CallOption) (*ClaimEnrollmentResponse, error)
 }
 
 type accountSyncClient struct {
@@ -88,6 +97,16 @@ func (c *accountSyncClient) GetProfile(ctx context.Context, in *GetProfileReques
 	return out, nil
 }
 
+func (c *accountSyncClient) ClaimEnrollment(ctx context.Context, in *ClaimEnrollmentRequest, opts ...grpc.CallOption) (*ClaimEnrollmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClaimEnrollmentResponse)
+	err := c.cc.Invoke(ctx, AccountSync_ClaimEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccountSyncServer is the server API for AccountSync service.
 // All implementations must embed UnimplementedAccountSyncServer
 // for forward compatibility.
@@ -104,6 +123,14 @@ type AccountSyncServer interface {
 	// GetProfile returns the user's latest sealed profile bundle. The bundle is
 	// ciphertext; only the user's device can decrypt it.
 	GetProfile(context.Context, *GetProfileRequest) (*GetProfileResponse, error)
+	// ClaimEnrollment redeems a one-time enrollment ticket (the token from a
+	// join-link/QR) plus a device-generated CSR into a fully enrolled, provisioned
+	// device. It is TOKEN-authenticated, not cert-authenticated: the device has no
+	// Device-CA leaf yet — this RPC mints it — so unlike every other AccountSync
+	// method it must be reachable over a cert-less relay connection (a later relay
+	// change). The token is the sole credential; a valid token yields a signed leaf
+	// and everything the device needs to assemble its own bundle and sync.
+	ClaimEnrollment(context.Context, *ClaimEnrollmentRequest) (*ClaimEnrollmentResponse, error)
 	mustEmbedUnimplementedAccountSyncServer()
 }
 
@@ -122,6 +149,9 @@ func (UnimplementedAccountSyncServer) EnrollKeys(context.Context, *EnrollKeysReq
 }
 func (UnimplementedAccountSyncServer) GetProfile(context.Context, *GetProfileRequest) (*GetProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetProfile not implemented")
+}
+func (UnimplementedAccountSyncServer) ClaimEnrollment(context.Context, *ClaimEnrollmentRequest) (*ClaimEnrollmentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClaimEnrollment not implemented")
 }
 func (UnimplementedAccountSyncServer) mustEmbedUnimplementedAccountSyncServer() {}
 func (UnimplementedAccountSyncServer) testEmbeddedByValue()                     {}
@@ -198,6 +228,24 @@ func _AccountSync_GetProfile_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountSync_ClaimEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClaimEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountSyncServer).ClaimEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountSync_ClaimEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountSyncServer).ClaimEnrollment(ctx, req.(*ClaimEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccountSync_ServiceDesc is the grpc.ServiceDesc for AccountSync service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -216,6 +264,10 @@ var AccountSync_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProfile",
 			Handler:    _AccountSync_GetProfile_Handler,
+		},
+		{
+			MethodName: "ClaimEnrollment",
+			Handler:    _AccountSync_ClaimEnrollment_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

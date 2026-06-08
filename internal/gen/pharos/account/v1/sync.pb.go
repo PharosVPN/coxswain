@@ -339,6 +339,173 @@ func (x *GetProfileResponse) GetWrappedPrivateKey() []byte {
 	return nil
 }
 
+type ClaimEnrollmentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// token is the plaintext one-time enrollment token from the join-link/QR. It
+	// is the only credential — the device presents no client certificate.
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// csr_pem is the device-generated PKCS#10 CSR (PEM). The device keeps the
+	// matching private key; coxswain signs only the public key into a leaf.
+	CsrPem []byte `protobuf:"bytes,2,opt,name=csr_pem,json=csrPem,proto3" json:"csr_pem,omitempty"`
+	// device_name is the device's friendly alias, recorded on the device record.
+	DeviceName string `protobuf:"bytes,3,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
+	// platform is the device OS/kind (e.g. "ios", "android", "caravel").
+	Platform      string `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimEnrollmentRequest) Reset() {
+	*x = ClaimEnrollmentRequest{}
+	mi := &file_pharos_account_v1_sync_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimEnrollmentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimEnrollmentRequest) ProtoMessage() {}
+
+func (x *ClaimEnrollmentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_account_v1_sync_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimEnrollmentRequest.ProtoReflect.Descriptor instead.
+func (*ClaimEnrollmentRequest) Descriptor() ([]byte, []int) {
+	return file_pharos_account_v1_sync_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClaimEnrollmentRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ClaimEnrollmentRequest) GetCsrPem() []byte {
+	if x != nil {
+		return x.CsrPem
+	}
+	return nil
+}
+
+func (x *ClaimEnrollmentRequest) GetDeviceName() string {
+	if x != nil {
+		return x.DeviceName
+	}
+	return ""
+}
+
+func (x *ClaimEnrollmentRequest) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+type ClaimEnrollmentResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// device_cert_pem is the signed Device-CA client leaf (PEM). With its kept
+	// private key the device now authenticates to the relay by mTLS.
+	DeviceCertPem []byte `protobuf:"bytes,1,opt,name=device_cert_pem,json=deviceCertPem,proto3" json:"device_cert_pem,omitempty"`
+	// fleet_ca_pem is the Fleet CA (PEM) the device pins to verify the relay.
+	FleetCaPem []byte `protobuf:"bytes,2,opt,name=fleet_ca_pem,json=fleetCaPem,proto3" json:"fleet_ca_pem,omitempty"`
+	// relay_addr is the public relay endpoint the device syncs through.
+	RelayAddr string `protobuf:"bytes,3,opt,name=relay_addr,json=relayAddr,proto3" json:"relay_addr,omitempty"`
+	// relay_server_name is the relay-cert SAN the device verifies (TLS SNI).
+	RelayServerName string `protobuf:"bytes,4,opt,name=relay_server_name,json=relayServerName,proto3" json:"relay_server_name,omitempty"`
+	// ca_fingerprint is the root CA fingerprint the device pins (matches the
+	// enrollment ticket's `ca` parameter).
+	CaFingerprint string `protobuf:"bytes,5,opt,name=ca_fingerprint,json=caFingerprint,proto3" json:"ca_fingerprint,omitempty"`
+	// signing_public_key is coxswain's Ed25519 profile-signing public key, so the
+	// device can verify sealed bundles it later fetches with GetProfile.
+	SigningPublicKey []byte `protobuf:"bytes,6,opt,name=signing_public_key,json=signingPublicKey,proto3" json:"signing_public_key,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ClaimEnrollmentResponse) Reset() {
+	*x = ClaimEnrollmentResponse{}
+	mi := &file_pharos_account_v1_sync_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimEnrollmentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimEnrollmentResponse) ProtoMessage() {}
+
+func (x *ClaimEnrollmentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pharos_account_v1_sync_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimEnrollmentResponse.ProtoReflect.Descriptor instead.
+func (*ClaimEnrollmentResponse) Descriptor() ([]byte, []int) {
+	return file_pharos_account_v1_sync_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ClaimEnrollmentResponse) GetDeviceCertPem() []byte {
+	if x != nil {
+		return x.DeviceCertPem
+	}
+	return nil
+}
+
+func (x *ClaimEnrollmentResponse) GetFleetCaPem() []byte {
+	if x != nil {
+		return x.FleetCaPem
+	}
+	return nil
+}
+
+func (x *ClaimEnrollmentResponse) GetRelayAddr() string {
+	if x != nil {
+		return x.RelayAddr
+	}
+	return ""
+}
+
+func (x *ClaimEnrollmentResponse) GetRelayServerName() string {
+	if x != nil {
+		return x.RelayServerName
+	}
+	return ""
+}
+
+func (x *ClaimEnrollmentResponse) GetCaFingerprint() string {
+	if x != nil {
+		return x.CaFingerprint
+	}
+	return ""
+}
+
+func (x *ClaimEnrollmentResponse) GetSigningPublicKey() []byte {
+	if x != nil {
+		return x.SigningPublicKey
+	}
+	return nil
+}
+
 var File_pharos_account_v1_sync_proto protoreflect.FileDescriptor
 
 const file_pharos_account_v1_sync_proto_rawDesc = "" +
@@ -363,13 +530,29 @@ const file_pharos_account_v1_sync_proto_rawDesc = "" +
 	"ciphertext\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x03R\brevision\x12,\n" +
 	"\x12signing_public_key\x18\x03 \x01(\fR\x10signingPublicKey\x12.\n" +
-	"\x13wrapped_private_key\x18\x04 \x01(\fR\x11wrappedPrivateKey2\xa4\x02\n" +
+	"\x13wrapped_private_key\x18\x04 \x01(\fR\x11wrappedPrivateKey\"\x84\x01\n" +
+	"\x16ClaimEnrollmentRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
+	"\acsr_pem\x18\x02 \x01(\fR\x06csrPem\x12\x1f\n" +
+	"\vdevice_name\x18\x03 \x01(\tR\n" +
+	"deviceName\x12\x1a\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform\"\x83\x02\n" +
+	"\x17ClaimEnrollmentResponse\x12&\n" +
+	"\x0fdevice_cert_pem\x18\x01 \x01(\fR\rdeviceCertPem\x12 \n" +
+	"\ffleet_ca_pem\x18\x02 \x01(\fR\n" +
+	"fleetCaPem\x12\x1d\n" +
+	"\n" +
+	"relay_addr\x18\x03 \x01(\tR\trelayAddr\x12*\n" +
+	"\x11relay_server_name\x18\x04 \x01(\tR\x0frelayServerName\x12%\n" +
+	"\x0eca_fingerprint\x18\x05 \x01(\tR\rcaFingerprint\x12,\n" +
+	"\x12signing_public_key\x18\x06 \x01(\fR\x10signingPublicKey2\x8e\x03\n" +
 	"\vAccountSync\x12_\n" +
 	"\fAuthenticate\x12&.pharos.account.v1.AuthenticateRequest\x1a'.pharos.account.v1.AuthenticateResponse\x12Y\n" +
 	"\n" +
 	"EnrollKeys\x12$.pharos.account.v1.EnrollKeysRequest\x1a%.pharos.account.v1.EnrollKeysResponse\x12Y\n" +
 	"\n" +
-	"GetProfile\x12$.pharos.account.v1.GetProfileRequest\x1a%.pharos.account.v1.GetProfileResponseB\xd0\x01\n" +
+	"GetProfile\x12$.pharos.account.v1.GetProfileRequest\x1a%.pharos.account.v1.GetProfileResponse\x12h\n" +
+	"\x0fClaimEnrollment\x12).pharos.account.v1.ClaimEnrollmentRequest\x1a*.pharos.account.v1.ClaimEnrollmentResponseB\xd0\x01\n" +
 	"\x15com.pharos.account.v1B\tSyncProtoP\x01ZFgithub.com/PharosVPN/coxswain/internal/gen/pharos/account/v1;accountv1\xa2\x02\x03PAX\xaa\x02\x11Pharos.Account.V1\xca\x02\x11Pharos\\Account\\V1\xe2\x02\x1dPharos\\Account\\V1\\GPBMetadata\xea\x02\x13Pharos::Account::V1b\x06proto3"
 
 var (
@@ -384,24 +567,28 @@ func file_pharos_account_v1_sync_proto_rawDescGZIP() []byte {
 	return file_pharos_account_v1_sync_proto_rawDescData
 }
 
-var file_pharos_account_v1_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_pharos_account_v1_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_pharos_account_v1_sync_proto_goTypes = []any{
-	(*AuthenticateRequest)(nil),  // 0: pharos.account.v1.AuthenticateRequest
-	(*AuthenticateResponse)(nil), // 1: pharos.account.v1.AuthenticateResponse
-	(*EnrollKeysRequest)(nil),    // 2: pharos.account.v1.EnrollKeysRequest
-	(*EnrollKeysResponse)(nil),   // 3: pharos.account.v1.EnrollKeysResponse
-	(*GetProfileRequest)(nil),    // 4: pharos.account.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),   // 5: pharos.account.v1.GetProfileResponse
+	(*AuthenticateRequest)(nil),     // 0: pharos.account.v1.AuthenticateRequest
+	(*AuthenticateResponse)(nil),    // 1: pharos.account.v1.AuthenticateResponse
+	(*EnrollKeysRequest)(nil),       // 2: pharos.account.v1.EnrollKeysRequest
+	(*EnrollKeysResponse)(nil),      // 3: pharos.account.v1.EnrollKeysResponse
+	(*GetProfileRequest)(nil),       // 4: pharos.account.v1.GetProfileRequest
+	(*GetProfileResponse)(nil),      // 5: pharos.account.v1.GetProfileResponse
+	(*ClaimEnrollmentRequest)(nil),  // 6: pharos.account.v1.ClaimEnrollmentRequest
+	(*ClaimEnrollmentResponse)(nil), // 7: pharos.account.v1.ClaimEnrollmentResponse
 }
 var file_pharos_account_v1_sync_proto_depIdxs = []int32{
 	0, // 0: pharos.account.v1.AccountSync.Authenticate:input_type -> pharos.account.v1.AuthenticateRequest
 	2, // 1: pharos.account.v1.AccountSync.EnrollKeys:input_type -> pharos.account.v1.EnrollKeysRequest
 	4, // 2: pharos.account.v1.AccountSync.GetProfile:input_type -> pharos.account.v1.GetProfileRequest
-	1, // 3: pharos.account.v1.AccountSync.Authenticate:output_type -> pharos.account.v1.AuthenticateResponse
-	3, // 4: pharos.account.v1.AccountSync.EnrollKeys:output_type -> pharos.account.v1.EnrollKeysResponse
-	5, // 5: pharos.account.v1.AccountSync.GetProfile:output_type -> pharos.account.v1.GetProfileResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	6, // 3: pharos.account.v1.AccountSync.ClaimEnrollment:input_type -> pharos.account.v1.ClaimEnrollmentRequest
+	1, // 4: pharos.account.v1.AccountSync.Authenticate:output_type -> pharos.account.v1.AuthenticateResponse
+	3, // 5: pharos.account.v1.AccountSync.EnrollKeys:output_type -> pharos.account.v1.EnrollKeysResponse
+	5, // 6: pharos.account.v1.AccountSync.GetProfile:output_type -> pharos.account.v1.GetProfileResponse
+	7, // 7: pharos.account.v1.AccountSync.ClaimEnrollment:output_type -> pharos.account.v1.ClaimEnrollmentResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -418,7 +605,7 @@ func file_pharos_account_v1_sync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pharos_account_v1_sync_proto_rawDesc), len(file_pharos_account_v1_sync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

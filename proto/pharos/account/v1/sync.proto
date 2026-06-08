@@ -23,6 +23,15 @@ service AccountSync {
   // GetProfile returns the user's latest sealed profile bundle. The bundle is
   // ciphertext; only the user's device can decrypt it.
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+
+  // ClaimEnrollment redeems a one-time enrollment ticket (the token from a
+  // join-link/QR) plus a device-generated CSR into a fully enrolled, provisioned
+  // device. It is TOKEN-authenticated, not cert-authenticated: the device has no
+  // Device-CA leaf yet — this RPC mints it — so unlike every other AccountSync
+  // method it must be reachable over a cert-less relay connection (a later relay
+  // change). The token is the sole credential; a valid token yields a signed leaf
+  // and everything the device needs to assemble its own bundle and sync.
+  rpc ClaimEnrollment(ClaimEnrollmentRequest) returns (ClaimEnrollmentResponse);
 }
 
 message AuthenticateRequest {
@@ -56,4 +65,35 @@ message GetProfileResponse {
   // wrapped_private_key is the user's passphrase-wrapped X25519 private key,
   // so a new device can unwrap it locally with the account passphrase.
   bytes wrapped_private_key = 4;
+}
+
+message ClaimEnrollmentRequest {
+  // token is the plaintext one-time enrollment token from the join-link/QR. It
+  // is the only credential — the device presents no client certificate.
+  string token = 1;
+  // csr_pem is the device-generated PKCS#10 CSR (PEM). The device keeps the
+  // matching private key; coxswain signs only the public key into a leaf.
+  bytes csr_pem = 2;
+  // device_name is the device's friendly alias, recorded on the device record.
+  string device_name = 3;
+  // platform is the device OS/kind (e.g. "ios", "android", "caravel").
+  string platform = 4;
+}
+
+message ClaimEnrollmentResponse {
+  // device_cert_pem is the signed Device-CA client leaf (PEM). With its kept
+  // private key the device now authenticates to the relay by mTLS.
+  bytes device_cert_pem = 1;
+  // fleet_ca_pem is the Fleet CA (PEM) the device pins to verify the relay.
+  bytes fleet_ca_pem = 2;
+  // relay_addr is the public relay endpoint the device syncs through.
+  string relay_addr = 3;
+  // relay_server_name is the relay-cert SAN the device verifies (TLS SNI).
+  string relay_server_name = 4;
+  // ca_fingerprint is the root CA fingerprint the device pins (matches the
+  // enrollment ticket's `ca` parameter).
+  string ca_fingerprint = 5;
+  // signing_public_key is coxswain's Ed25519 profile-signing public key, so the
+  // device can verify sealed bundles it later fetches with GetProfile.
+  bytes signing_public_key = 6;
 }

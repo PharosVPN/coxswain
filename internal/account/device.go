@@ -30,6 +30,12 @@ type Device struct {
 const deviceColumns = `id, user_id, name, platform, fingerprint, status,
 	version, created_at, updated_at`
 
+// NewDeviceID mints a device id without inserting a row, for callers that need
+// the id before the record exists (e.g. the enrollment claim stamps it onto the
+// ticket's used_by_device_id before CreateDevice runs). CreateDevice mints the
+// same shape when given an empty ID.
+func NewDeviceID() string { return idgen.New("dev") }
+
 // CreateDevice inserts a new device. ID and Status are defaulted if unset.
 func CreateDevice(ctx context.Context, db *sql.DB, d Device) (Device, error) {
 	if d.ID == "" {

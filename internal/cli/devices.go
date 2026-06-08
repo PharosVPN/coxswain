@@ -5,16 +5,19 @@ package cli
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/PharosVPN/coxswain/internal/account"
 	"github.com/PharosVPN/coxswain/internal/config"
 	"github.com/PharosVPN/coxswain/internal/deviceid"
+	"github.com/PharosVPN/coxswain/internal/enroll"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
@@ -31,6 +34,104 @@ func newDevicesCmd() *cobra.Command {
 		Short: "Manage caravel device identities",
 	}
 	cmd.AddCommand(newDevicesIssueCmd())
+	cmd.AddCommand(newDevicesInviteCmd())
+	return cmd
+}
+
+// resolveUser looks a user up by email first, then by id — so `invite` accepts
+// either a user email or a raw user id.
+func resolveUser(cmd *cobra.Command, conn *sql.DB, ref string) (account.User, error) {
+	ctx := cmd.Context()
+	if u, err := account.GetUserByEmail(ctx, conn, ref); err == nil {
+		return u, nil
+	}
+	u, err := account.GetUser(ctx, conn, ref)
+	if err != nil {
+		return account.User{}, fmt.Errorf("no user matching %q (tried email then id): %w", ref, err)
+	}
+	return u, nil
+}
+
+// newDevicesInviteCmd issues a one-time enrollment ticket and renders the
+// join-link + QR a device scans to enrol itself (the online counterpart to
+// `devices issue`, which builds the bundle server-side). The device redeems the
+// token via the ClaimEnrollment RPC: it generates its own key, sends a CSR, and
+// gets back a signed leaf + the relay/CA details to assemble its own .pharosid.
+func newDevicesInviteCmd() *cobra.Command {
+	var cfgPath, relay, out, platform string
+	var ttl time.Duration
+	cmd := &cobra.Command{
+		Use:   "invite <user-email-or-id>",
+		Short: "Issue a join-link/QR enrollment invite for a user",
+		Long: "Issue a one-time enrollment ticket and render it as a join-link plus\n" +
+			"a QR code (DESIGN §9). The user scans it with caravel; the device\n" +
+			"generates its own key, claims the ticket (ClaimEnrollment), and gets a\n" +
+			"signed leaf + provisioned profile — no private key ever leaves the\n" +
+			"device. The invite carries the relay endpoint, a one-time claim token,\n" +
+			"and the CA fingerprint to pin. Single-use; expires (default 24h).",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg, conn, err := openState(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			user, err := resolveUser(cmd, conn, args[0])
+			if err != nil {
+				return err
+			}
+			if relay == "" {
+				relay = cfg.Relay.PublicEndpoint
+			}
+			if relay == "" {
+				return fmt.Errorf("no relay endpoint — set relay.public_endpoint or pass --relay")
+			}
+
+			bundle, _, err := pki.EnsureCA(ctx, conn)
+			if err != nil {
+				return fmt.Errorf("load CA: %w", err)
+			}
+
+			ticket, token, err := enroll.IssueTicketTTL(ctx, conn, user.ID, ttl)
+			if err != nil {
+				auditCLI(ctx, conn, "enroll.invite", "user", user.ID, nil, err)
+				return err
+			}
+			auditCLI(ctx, conn, "enroll.invite", "ticket", ticket.ID,
+				map[string]any{"user_id": user.ID, "platform": platform}, nil)
+
+			link := enroll.TicketURL(relay, token, bundle.Root.Fingerprint())
+			png, err := enroll.QRCode(link)
+			if err != nil {
+				return err
+			}
+			path := out
+			if path == "" {
+				path = user.ID + "-invite.png"
+			}
+			if err := os.WriteFile(path, png, 0o600); err != nil {
+				return fmt.Errorf("write %s: %w", path, err)
+			}
+
+			label := user.Email
+			if label == "" {
+				label = user.ID
+			}
+			fmt.Printf("enrollment invite issued for %s\n", label)
+			fmt.Printf("  ticket    %s\n", ticket.ID)
+			fmt.Printf("  QR        %s\n", path)
+			fmt.Printf("  link      %s\n", link)
+			fmt.Printf("  expires   %s (one-time)\n", ticket.ExpiresAt.Format(time.RFC3339))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&relay, "relay", "", "relay endpoint (defaults to relay.public_endpoint)")
+	cmd.Flags().StringVar(&out, "out", "", "QR output path (default <user-id>-invite.png)")
+	cmd.Flags().StringVar(&platform, "platform", "", "intended device platform (recorded on the audit event)")
+	cmd.Flags().DurationVar(&ttl, "ttl", enroll.TicketTTL, "how long the invite stays redeemable")
 	return cmd
 }
 

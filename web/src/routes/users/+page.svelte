@@ -32,6 +32,13 @@
 	let busyDevice = $state(''); // device id mid-provision/remove
 	let deviceNote = $state<Record<string, string>>({});
 
+	// Enrollment invite (join-link/QR) for the user whose device modal is open.
+	type Invite = { url: string; qr_png_base64: string; expires_at: string };
+	let invite = $state<Invite | null>(null);
+	let inviteBusy = $state(false);
+	let inviteError = $state('');
+	let inviteCopied = $state(false);
+
 	async function loadUsers() {
 		loading = true;
 		loadError = '';
@@ -93,6 +100,9 @@
 		deviceError = '';
 		deviceNote = {};
 		newDeviceName = '';
+		invite = null;
+		inviteError = '';
+		inviteCopied = false;
 		deviceLoading = true;
 		try {
 			deviceList = await api.get<Device[]>(`/api/users/${user.id}/devices`);
@@ -141,6 +151,31 @@
 			deviceNote = { ...deviceNote, [d.id]: errorMessage(e) };
 		}
 		busyDevice = '';
+	}
+
+	// Issue a one-time enrollment invite (join-link + QR) the user scans to enrol
+	// a device — the device generates its own key and claims the ticket.
+	async function issueInvite() {
+		if (!devicesFor) return;
+		inviteBusy = true;
+		inviteError = '';
+		inviteCopied = false;
+		try {
+			invite = await api.post<Invite>(`/api/users/${devicesFor.id}/invite`);
+		} catch (e) {
+			inviteError = errorMessage(e);
+		}
+		inviteBusy = false;
+	}
+
+	async function copyInvite() {
+		if (!invite) return;
+		try {
+			await navigator.clipboard.writeText(invite.url);
+			inviteCopied = true;
+		} catch {
+			inviteCopied = false;
+		}
 	}
 </script>
 
@@ -296,6 +331,40 @@
 				>
 			</div>
 			{#if deviceError}<p class="field-error" role="alert">{deviceError}</p>{/if}
+
+			<!-- Enrollment invite: a join-link/QR the user scans to enrol a device. -->
+			<div class="mt-6 border-t border-line pt-4">
+				<div class="flex items-center justify-between gap-2">
+					<div>
+						<div class="text-sm font-medium text-ink">Invite a device</div>
+						<p class="text-xs text-ink-3">
+							Single-use, expires in 24h. The device generates its own key.
+						</p>
+					</div>
+					<button class="btn btn-secondary btn-sm" disabled={inviteBusy} onclick={issueInvite}>
+						{inviteBusy ? 'Issuing…' : 'Invite'}
+					</button>
+				</div>
+				{#if inviteError}<p class="field-error" role="alert">{inviteError}</p>{/if}
+				{#if invite}
+					<div class="mt-3 rounded-md border border-line p-3">
+						<img
+							class="mx-auto block h-44 w-44"
+							src={`data:image/png;base64,${invite.qr_png_base64}`}
+							alt="Enrollment QR code"
+						/>
+						<div class="mt-3 flex items-center gap-2">
+							<input class="input text-xs" readonly value={invite.url} />
+							<button class="btn btn-secondary btn-sm" onclick={copyInvite}>
+								{inviteCopied ? 'Copied' : 'Copy'}
+							</button>
+						</div>
+						<p class="mt-2 text-xs text-ink-3">
+							Single-use · expires {new Date(invite.expires_at).toLocaleString()}
+						</p>
+					</div>
+				{/if}
+			</div>
 		{/if}
 
 		<div class="mt-6 flex justify-end">

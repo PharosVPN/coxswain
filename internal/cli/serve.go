@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/accountsvc"
 	"github.com/PharosVPN/coxswain/internal/analytics"
 	"github.com/PharosVPN/coxswain/internal/api"
 	"github.com/PharosVPN/coxswain/internal/audit"
@@ -160,6 +161,9 @@ func newServeCmd() *cobra.Command {
 			// Only when a trusted TLS-terminating proxy is declared do we honour
 			// X-Forwarded-Proto for the session cookie's Secure attribute.
 			srv.SetBehindTLSProxy(cfg.UI.BehindTLSProxy)
+			// The public relay endpoint baked into enrollment invites (the join-link
+			// + QR the user scans). Empty leaves the invite route returning 409.
+			srv.SetRelayEndpoint(cfg.Relay.PublicEndpoint)
 			// The node-push primitive backs the reconcile route + push-on-provision.
 			// cli owns the config + routed dialers, so it supplies the closure.
 			cfgCopy := cfg
@@ -371,7 +375,27 @@ func startRelayRelay(ctx context.Context, cfg config.Config, conn *sql.DB, remot
 		fmt.Printf("  warning: relay disabled — relay cert: %v\n", err)
 		return nil
 	}
-	srv, err := relayhost.AccountServer(conn, grpcCert, bundle.Fleet.CertPEM)
+	// Build the ClaimConfig that enables the join-link/QR ClaimEnrollment RPC:
+	// the Device CA to sign the device's CSR, the provisioning policy to attach
+	// its egress data-plane, and the relay/bundle details the claimed device pins.
+	// Best-effort — a missing signing key just leaves claim unconfigured (the RPC
+	// then returns Unimplemented), never blocking the relay.
+	var claim *accountsvc.ClaimConfig
+	if signing, _, sErr := profile.EnsureSigningKey(ctx, conn); sErr != nil {
+		fmt.Printf("  warning: enrollment claim disabled — signing key: %v\n", sErr)
+	} else {
+		claim = &accountsvc.ClaimConfig{
+			DeviceCA:         bundle.Device,
+			ProvisionOpts:    provisionOptions(cfg),
+			FleetCAPEM:       bundle.Fleet.CertPEM,
+			RelayAddr:        cfg.Relay.PublicEndpoint,
+			RelayServerName:  relaySAN,
+			CAFingerprint:    bundle.Root.Fingerprint(),
+			SigningPublicKey: signing.Public,
+		}
+	}
+
+	srv, err := relayhost.AccountServer(conn, grpcCert, bundle.Fleet.CertPEM, claim)
 	if err != nil {
 		fmt.Printf("  warning: relay disabled — gRPC server: %v\n", err)
 		return nil

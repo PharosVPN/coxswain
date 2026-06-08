@@ -9,15 +9,24 @@ package accountsvc
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"net"
 
 	"github.com/PharosVPN/coxswain/internal/account"
+	"github.com/PharosVPN/coxswain/internal/audit"
 	"github.com/PharosVPN/coxswain/internal/auth"
+	"github.com/PharosVPN/coxswain/internal/enroll"
 	accountv1 "github.com/PharosVPN/coxswain/internal/gen/pharos/account/v1"
+	"github.com/PharosVPN/coxswain/internal/pki"
 	"github.com/PharosVPN/coxswain/internal/profile"
+	"github.com/PharosVPN/coxswain/internal/provision"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -31,16 +40,41 @@ const sessionMetadataKey = "pharos-session"
 // (relay/core.deviceFPMetadataKey) and the pki/relay fingerprint shape.
 const deviceFPMetadataKey = "x-pharos-device-fp"
 
+// ClaimConfig carries the controller-side dependencies ClaimEnrollment needs to
+// turn a redeemed ticket + CSR into an enrolled, provisioned device and hand the
+// device everything it needs to assemble its own bundle. It is optional: a
+// Service built without it (SetClaimConfig never called) still serves the
+// cert-authenticated RPCs, but ClaimEnrollment returns Unimplemented.
+type ClaimConfig struct {
+	// DeviceCA signs the device's CSR into its client leaf.
+	DeviceCA pki.Authority
+	// ProvisionOpts is the fleet policy ProvisionDevice applies (the egress
+	// data-plane attach step).
+	ProvisionOpts provision.Options
+	// The fields the device pins to reach + verify the relay and bundles.
+	FleetCAPEM       []byte // the Fleet CA the device pins to verify the relay leaf
+	RelayAddr        string
+	RelayServerName  string
+	CAFingerprint    string
+	SigningPublicKey []byte
+}
+
 // Service implements accountv1.AccountSyncServer.
 type Service struct {
 	accountv1.UnimplementedAccountSyncServer
-	db *sql.DB
+	db    *sql.DB
+	claim *ClaimConfig
 }
 
 // New builds the account/sync service.
 func New(db *sql.DB) *Service {
 	return &Service{db: db}
 }
+
+// SetClaimConfig enables the ClaimEnrollment RPC by supplying the device CA,
+// provisioning policy, and the relay/bundle details the claimed device pins.
+// Call before serving. Without it ClaimEnrollment is Unimplemented.
+func (s *Service) SetClaimConfig(cfg ClaimConfig) { s.claim = &cfg }
 
 // Authenticate verifies an account passphrase and opens a session.
 // Authenticate opens a session. With no email it is cert-auth: the device proves
@@ -133,6 +167,151 @@ func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest
 		SigningPublicKey:  signing.Public,
 		WrappedPrivateKey: wrapped,
 	}, nil
+}
+
+// ClaimEnrollment redeems a one-time enrollment ticket + a device-generated CSR
+// into a fully enrolled, provisioned device, and returns everything the device
+// needs to assemble its own .pharosid locally and sync.
+//
+// AUTHORIZATION — by TICKET, never by CERTIFICATE. Every other AccountSync RPC
+// identifies its caller through the relay-forwarded device fingerprint
+// (x-pharos-device-fp) or a session token. This one deliberately does NEITHER:
+// the device has no Device-CA leaf yet (this RPC mints it), so it cannot present
+// one, and the relay will allow a cert-less connection for just this method (a
+// later relay change). The plaintext enrollment token is the sole credential —
+// RedeemTicket validates and one-time-claims it. We never call s.caller()/the
+// fingerprint path here; a fingerprint, if somehow present, is ignored.
+//
+// The flow separates DEVICE IDENTITY from EGRESS DATA-PLANE POLICY:
+//  1. sign the CSR → the device's leaf + fingerprint (identity);
+//  2. create the device → fleet membership keyed to that fingerprint (identity,
+//     data-plane-agnostic);
+//  3. ProvisionDevice → allocate the tunnel + node peers + seal the profile
+//     (attach the egress data-plane policy — a mesh policy would slot in here).
+func (s *Service) ClaimEnrollment(ctx context.Context, req *accountv1.ClaimEnrollmentRequest) (*accountv1.ClaimEnrollmentResponse, error) {
+	if s.claim == nil {
+		return nil, status.Error(codes.Unimplemented, "enrollment claim is not enabled on this controller")
+	}
+	if req.GetToken() == "" {
+		return nil, status.Error(codes.InvalidArgument, "an enrollment token is required")
+	}
+	if len(req.GetCsrPem()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "a device CSR is required")
+	}
+
+	name := req.GetDeviceName()
+	if name == "" {
+		name = "caravel device"
+	}
+	platform := req.GetPlatform()
+	if platform == "" {
+		platform = "caravel"
+	}
+
+	// Sign the device leaf from the supplied CSR (the device keeps its key). A bad
+	// or rogue-SAN CSR fails here with InvalidArgument — never a panic. The Subject
+	// and SANs are assigned by SignDeviceCSR, not copied from the CSR.
+	signed, err := pki.SignDeviceCSR(s.claim.DeviceCA, req.GetCsrPem(), name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid device CSR: %v", err)
+	}
+	fingerprint := deviceFingerprint(signed.Cert.Raw)
+
+	// Redeem the ticket FIRST and atomically (one-time guard) so a replayed token
+	// cannot create a second device; only then do we commit the device + provision
+	// against the user it names. used_by_device_id is stamped with the id we are
+	// about to create, so the claim is auditable end-to-end.
+	deviceID := account.NewDeviceID()
+	ticket, err := enroll.RedeemTicket(ctx, s.db, req.GetToken(), deviceID)
+	if errors.Is(err, enroll.ErrTicketInvalid) {
+		s.auditClaim(ctx, "", deviceID, err)
+		// Unauthenticated: the token is the credential, and it did not authenticate.
+		return nil, status.Error(codes.Unauthenticated, "enrollment ticket invalid, expired, or already used")
+	}
+	if err != nil {
+		s.auditClaim(ctx, "", deviceID, err)
+		return nil, status.Error(codes.Internal, "failed to redeem enrollment ticket")
+	}
+
+	// (1) Device identity — fleet membership keyed to the leaf fingerprint, the
+	// same value the relay forwards as x-pharos-device-fp. Data-plane-agnostic.
+	device, err := account.CreateDevice(ctx, s.db, account.Device{
+		ID:          deviceID,
+		UserID:      ticket.UserID,
+		Name:        name,
+		Platform:    platform,
+		Fingerprint: fingerprint,
+		Status:      account.StatusActive,
+	})
+	if err != nil {
+		s.auditClaim(ctx, ticket.UserID, deviceID, err)
+		return nil, status.Error(codes.Internal, "failed to create device")
+	}
+
+	// (2) Attach the egress data-plane policy — allocate the tunnel IP + per-node
+	// peers and seal the device's profile. This is the separable step a future mesh
+	// policy would replace/extend; device identity above does not depend on it.
+	if _, err := provision.ProvisionDevice(ctx, s.db, device.ID, s.claim.ProvisionOpts); err != nil {
+		// The device + claim are already committed; surface the failure but leave
+		// the enrolled identity in place so a re-provision can heal it.
+		s.auditClaim(ctx, ticket.UserID, device.ID, err)
+		if errors.Is(err, profile.ErrNoEncryptionKey) {
+			return nil, status.Error(codes.FailedPrecondition, "the account has not enrolled an encryption key yet")
+		}
+		return nil, status.Error(codes.Internal, "device enrolled but provisioning failed")
+	}
+
+	s.auditClaim(ctx, ticket.UserID, device.ID, nil)
+	return &accountv1.ClaimEnrollmentResponse{
+		DeviceCertPem:    signed.CertPEM,
+		FleetCaPem:       s.claim.FleetCAPEM,
+		RelayAddr:        s.claim.RelayAddr,
+		RelayServerName:  s.claim.RelayServerName,
+		CaFingerprint:    s.claim.CAFingerprint,
+		SigningPublicKey: s.claim.SigningPublicKey,
+	}, nil
+}
+
+// auditClaim records an enroll.claim event. actor is the enrolled user (empty
+// when the ticket never resolved); target is the device id; the source IP comes
+// from the gRPC peer (the relay/tunnel endpoint — we never trust client headers).
+func (s *Service) auditClaim(ctx context.Context, userID, deviceID string, err error) {
+	actor := userID
+	if actor == "" {
+		actor = "enrollment-ticket"
+	}
+	_ = audit.Log(ctx, s.db, audit.Entry{
+		Actor:      actor,
+		ActorKind:  audit.KindToken, // a one-time enrollment token, not a session/cert
+		Action:     "enroll.claim",
+		TargetType: "device",
+		TargetID:   deviceID,
+		SourceIP:   peerIP(ctx),
+		Err:        err,
+	})
+}
+
+// peerIP returns the gRPC peer's IP (the relay/tunnel endpoint), or "" — the
+// trusted source for the audit trail, since client-set metadata is not trusted.
+func peerIP(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.Addr == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(p.Addr.String())
+	if err != nil {
+		return p.Addr.String()
+	}
+	return host
+}
+
+// deviceFingerprint is the device-leaf fingerprint coxswain stores and the relay
+// forwards: "sha256:" + hex(sha256(PEM(cert))). Must match the offline
+// `.pharosid` flow (cli.deviceFingerprint) and relay/core.certFingerprint.
+func deviceFingerprint(der []byte) string {
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	sum := sha256.Sum256(pemBytes)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // caller resolves who is calling. The relay-verified device fingerprint

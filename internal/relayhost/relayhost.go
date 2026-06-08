@@ -29,7 +29,12 @@ import (
 // the coxswain-grpc leaf and requires a client cert chaining to the Fleet CA — the
 // relay's cert. The same server value is served on the embedded pipe and on
 // remote-tunnel substreams.
-func AccountServer(db *sql.DB, grpcCert pki.ServiceCert, fleetCAPEM []byte) (*grpc.Server, error) {
+//
+// A non-nil claim enables the ClaimEnrollment RPC (the join-link/QR device
+// enrollment). The token-authenticated claim still rides this mTLS leg between
+// the relay and coxswain; it is the relay↔device leg that the relay must later
+// allow cert-less for that one method.
+func AccountServer(db *sql.DB, grpcCert pki.ServiceCert, fleetCAPEM []byte, claim *accountsvc.ClaimConfig) (*grpc.Server, error) {
 	cert, err := tls.X509KeyPair(grpcCert.CertPEM, grpcCert.KeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("relayhost: gRPC cert: %w", err)
@@ -44,7 +49,11 @@ func AccountServer(db *sql.DB, grpcCert pki.ServiceCert, fleetCAPEM []byte) (*gr
 		ClientCAs:    roots,
 		MinVersion:   tls.VersionTLS13,
 	})))
-	accountv1.RegisterAccountSyncServer(srv, accountsvc.New(db))
+	svc := accountsvc.New(db)
+	if claim != nil {
+		svc.SetClaimConfig(*claim)
+	}
+	accountv1.RegisterAccountSyncServer(srv, svc)
 	return srv, nil
 }
 

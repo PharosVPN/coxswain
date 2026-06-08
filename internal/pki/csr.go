@@ -164,3 +164,71 @@ func SignRelayCSR(fleet Authority, csrPEM []byte, hostname string) (SignedCert, 
 		CertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
 	}, nil
 }
+
+// SignDeviceCSR signs a caravel device's certificate request with the Device CA,
+// yielding the one-year client leaf the device presents in mTLS to the relay
+// (the online enrollment-token flow, the counterpart to IssueDeviceCert's offline
+// key-generating flow). The device generated and keeps its private key; only the
+// CSR's public key survives.
+//
+// Like SignNodeCSR/SignRelayCSR this is strict: coxswain is the sole authority on
+// the device's identity, so it ASSIGNS a controller-controlled Subject (CN =
+// label, Organization = the device Org) and the ClientAuth EKU, and DROPS the
+// CSR's own Subject and SANs entirely. A device leaf is a pure client cert and
+// needs no SANs — account sync authorizes on the relay-verified fingerprint and
+// the session token, never on the certificate's subject or SANs — so a CSR that
+// smuggles in a rogue SAN or CN cannot mint a cert carrying it. label is recorded
+// as the CN for auditing (the device name or the user's email); it carries no
+// authority.
+func SignDeviceCSR(deviceCA Authority, csrPEM []byte, label string) (SignedCert, error) {
+	if deviceCA.Role != RoleDevice {
+		return SignedCert{}, fmt.Errorf("SignDeviceCSR: expected device CA, got %q", deviceCA.Role)
+	}
+	if label == "" {
+		label = "caravel-device"
+	}
+
+	block, _ := pem.Decode(csrPEM)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return SignedCert{}, errors.New("SignDeviceCSR: not a CERTIFICATE REQUEST PEM block")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return SignedCert{}, fmt.Errorf("SignDeviceCSR: parse CSR: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return SignedCert{}, fmt.Errorf("SignDeviceCSR: CSR self-signature invalid: %w", err)
+	}
+
+	serial, err := newSerial()
+	if err != nil {
+		return SignedCert{}, err
+	}
+	now := time.Now()
+	// Assign the Subject + EKU; the CSR's Subject and SANs (DNSNames, IPAddresses,
+	// EmailAddresses, URIs) are deliberately not copied onto the template, so the
+	// leaf carries none of them.
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: label, Organization: []string{deviceOrg}},
+		NotBefore:             now.Add(-5 * time.Minute),
+		NotAfter:              now.Add(leafValidity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, deviceCA.Cert, csr.PublicKey, deviceCA.Key)
+	if err != nil {
+		return SignedCert{}, fmt.Errorf("SignDeviceCSR: sign: %w", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return SignedCert{}, err
+	}
+	return SignedCert{
+		Serial:  serial.String(),
+		Cert:    cert,
+		CertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+	}, nil
+}

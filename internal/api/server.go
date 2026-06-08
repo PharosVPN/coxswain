@@ -46,8 +46,14 @@ type Server struct {
 	drops          DropCounter     // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
 	siemDrops      SIEMDropCounter // SIEM slow-consumer drop counter (nil = listener disabled)
 	behindTLSProxy bool            // trust X-Forwarded-Proto for the cookie Secure attribute
+	relayEndpoint  string          // public relay endpoint baked into enrollment invites (empty = invites disabled)
 	http           *http.Server
 }
+
+// SetRelayEndpoint records the public relay endpoint enrollment invites embed in
+// their join-link/QR (the address the claimed device syncs through). Call before
+// Run; empty leaves the invite route returning 409 (no relay configured).
+func (s *Server) SetRelayEndpoint(ep string) { s.relayEndpoint = ep }
 
 // DropCounter reports how many connection events were shed because the history
 // ingest queue fell behind. *monitor.Store satisfies it. The analytics status
@@ -156,6 +162,8 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("GET /api/users", readonly(s.handleListUsers))
 	mux.HandleFunc("POST /api/users", admin(s.handleCreateUser))
 	mux.HandleFunc("DELETE /api/users/{id}", admin(s.handleDeleteUser))
+	// Issue a one-time device-enrollment invite (join-link + QR) for a user.
+	mux.HandleFunc("POST /api/users/{id}/invite", admin(s.handleInviteUser))
 
 	// Devices and provisioning.
 	mux.HandleFunc("GET /api/users/{id}/devices", readonly(s.handleListDevices))
