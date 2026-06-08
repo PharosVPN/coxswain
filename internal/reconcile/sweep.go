@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
 	"github.com/PharosVPN/coxswain/internal/noderoute"
@@ -116,6 +117,12 @@ func SweepOnce(ctx context.Context, cfg *config.Config, conn *sql.DB, logf Logf,
 			continue
 		}
 
+		// Record the AmneziaWG/XRay identity the node reports (from its persisted
+		// first-run keypair, available before any push). This is what makes a
+		// freshly-onboarded node provisionable automatically — no manual
+		// `cox nodes status`. Zero extra RPC cost: st is already in hand.
+		recordNodeIdentity(ctx, conn, node, st, logf)
+
 		push, stale, reason := needsReconcile(st, node.ConfigRevision)
 		if !push {
 			// Healthy + in sync: clear any prior unreachable/error status.
@@ -144,6 +151,32 @@ func SweepOnce(ctx context.Context, cfg *config.Config, conn *sql.DB, logf Logf,
 		healed++
 	}
 	return healed
+}
+
+// recordNodeIdentity persists the AmneziaWG + XRay server identity a node reports
+// in its live status, so a node becomes provisionable on the first sweep that
+// reaches it — without an operator running `cox nodes status`. node is the source
+// of truth (DESIGN §3). The write is skipped when the reported values already
+// match what's stored, so a stable node never churns its version every pass.
+func recordNodeIdentity(ctx context.Context, conn *sql.DB, node fleet.Node, st *nodev1.GetStatusResponse, logf Logf) {
+	log := func(format string, args ...any) {
+		if logf != nil {
+			logf(format, args...)
+		}
+	}
+	if pubKey, obf := control.AmneziaWGFromStatus(st); pubKey != "" &&
+		(pubKey != node.WGPublicKey || obf != node.Obfuscation) {
+		if err := fleet.SetNodeAmneziaWG(ctx, conn, node.ID, pubKey, obf); err != nil {
+			log("reconcile: %s record amneziawg identity failed: %v", node.Name, err)
+		} else {
+			log("reconcile: %s recorded amneziawg identity", node.Name)
+		}
+	}
+	if xpk := control.XRayFromStatus(st); xpk != "" && xpk != node.XRayPublicKey {
+		if err := fleet.SetNodeXRayReality(ctx, conn, node.ID, xpk); err != nil {
+			log("reconcile: %s record xray identity failed: %v", node.Name, err)
+		}
+	}
 }
 
 // nodeStatus dials a node over its persisted route and returns its GetStatus.

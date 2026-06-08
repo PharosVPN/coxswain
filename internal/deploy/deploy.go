@@ -38,6 +38,33 @@ const (
 	cmdVersion = nodeBinaryPath + " version"
 )
 
+// cmdEnsureDataPlane installs the AmneziaWG data plane (the awg kernel module +
+// awg / awg-quick userspace tools) and persists IP forwarding, so `node run` can
+// bring up awg0 on a fresh droplet. It is idempotent: a node already carrying awg
+// (prepped via cloud-init user-data, or a re-onboard) skips the slow apt path.
+// It mirrors node/deploy/cloud-init.sh — coxswain still pushes the per-node
+// network policy (decision 16); this only lays the data-plane base. The trailing
+// `command -v awg` under `set -e` makes the whole step fail loudly if the install
+// did not yield the tools, instead of surfacing as a runtime awg-quick error.
+const cmdEnsureDataPlane = `set -e
+if ! command -v awg >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y software-properties-common curl ca-certificates
+  add-apt-repository -y ppa:amnezia/ppa
+  apt-get update
+  apt-get install -y "linux-headers-$(uname -r)" amneziawg amneziawg-tools
+fi
+cat >/etc/sysctl.d/99-pharos.conf <<'PHEOF'
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
+PHEOF
+sysctl --system >/dev/null
+modprobe amneziawg || true
+command -v awg >/dev/null 2>&1`
+
 const systemdUnit = `[Unit]
 Description=PharosVPN node agent
 After=network-online.target
@@ -139,6 +166,11 @@ func AddNode(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 
 // onboard runs the install/sign/start sequence against an existing node record.
 func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, node *fleet.Node, p AddParams) (AddResult, error) {
+	// Lay the data-plane base (AmneziaWG module + tools + forwarding) before the
+	// agent starts; a fresh droplet otherwise can't bring up awg0. Idempotent.
+	if err := ensureDataPlane(ctx, remote); err != nil {
+		return AddResult{}, err
+	}
 	if err := installBinary(ctx, remote, p.Install, nodeBinaryPath); err != nil {
 		return AddResult{}, err
 	}
@@ -221,6 +253,16 @@ func Service(ctx context.Context, remote Remote, action string) error {
 	}
 	if _, err := remote.Run(ctx, "systemctl "+action+" node", nil); err != nil {
 		return fmt.Errorf("deploy: %s node: %w", action, err)
+	}
+	return nil
+}
+
+// ensureDataPlane installs AmneziaWG and enables forwarding on a node before the
+// agent starts, so a fresh droplet can serve the data plane without a separate
+// cloud-init step. Idempotent and safe to re-run (a re-onboard skips the install).
+func ensureDataPlane(ctx context.Context, remote Remote) error {
+	if _, err := remote.Run(ctx, cmdEnsureDataPlane, nil); err != nil {
+		return fmt.Errorf("deploy: install amneziawg data plane: %w", err)
 	}
 	return nil
 }

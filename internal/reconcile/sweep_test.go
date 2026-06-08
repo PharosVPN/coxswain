@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PharosVPN/coxswain/internal/config"
+	"github.com/PharosVPN/coxswain/internal/control"
 	"github.com/PharosVPN/coxswain/internal/db"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	nodev1 "github.com/PharosVPN/coxswain/internal/gen/pharos/node/v1"
@@ -178,5 +179,81 @@ func TestSweepOnceMarksUnreachable(t *testing.T) {
 	}
 	if got.Status != fleet.StatusUnreachable {
 		t.Errorf("unreachable node status = %q, want %q", got.Status, fleet.StatusUnreachable)
+	}
+}
+
+// TestRecordNodeIdentity covers gap #2: the sweep auto-records a node's reported
+// AmneziaWG + XRay identity (so a fresh node becomes provisionable with no manual
+// `cox nodes status`), and is idempotent — an unchanged identity does not churn
+// the node's version on every pass.
+func TestRecordNodeIdentity(t *testing.T) {
+	ctx := context.Background()
+	conn := newDB(t)
+
+	// A freshly-onboarded node that has not yet reported its data-plane identity.
+	node, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "fresh", Region: "r", ControlAddr: "203.0.113.5:8444", PublicIP: "203.0.113.5",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if node.WGPublicKey != "" || !node.Obfuscation.IsZero() {
+		t.Fatalf("setup: node should start with no identity, got %q / %+v", node.WGPublicKey, node.Obfuscation)
+	}
+
+	obf := validObf()
+	st := &nodev1.GetStatusResponse{
+		Amneziawg: &nodev1.AmneziaWGInfo{
+			PublicKey:   "NODEWGPUB=",
+			Obfuscation: control.AmneziaWGToProto(obf),
+		},
+		Xray: &nodev1.XRayRealityInfo{PublicKey: "NODEXRAYPUB="},
+	}
+
+	recordNodeIdentity(ctx, conn, node, st, nil)
+
+	got, err := fleet.GetNode(ctx, conn, node.ID)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.WGPublicKey != "NODEWGPUB=" {
+		t.Errorf("wg public key = %q, want NODEWGPUB=", got.WGPublicKey)
+	}
+	if got.Obfuscation != obf {
+		t.Errorf("obfuscation = %+v, want %+v", got.Obfuscation, obf)
+	}
+	if got.XRayPublicKey != "NODEXRAYPUB=" {
+		t.Errorf("xray public key = %q, want NODEXRAYPUB=", got.XRayPublicKey)
+	}
+	// The node is now provisionable (the readiness predicate, provision/device.go).
+	if got.WGPublicKey == "" || got.Obfuscation.IsZero() {
+		t.Error("node should be AmneziaWG-ready after identity recording")
+	}
+
+	// Idempotency: recording the SAME identity again must not bump the version.
+	versionBefore := got.Version
+	recordNodeIdentity(ctx, conn, got, st, nil)
+	again, err := fleet.GetNode(ctx, conn, node.ID)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if again.Version != versionBefore {
+		t.Errorf("unchanged identity churned version: %d -> %d", versionBefore, again.Version)
+	}
+
+	// A changed obfuscation IS recorded (node is the source of truth).
+	obf2 := obf
+	obf2.Jc = obf.Jc + 1
+	st.Amneziawg.Obfuscation = control.AmneziaWGToProto(obf2)
+	recordNodeIdentity(ctx, conn, again, st, nil)
+	final, err := fleet.GetNode(ctx, conn, node.ID)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if final.Obfuscation != obf2 {
+		t.Errorf("changed obfuscation not recorded: got %+v want %+v", final.Obfuscation, obf2)
+	}
+	if final.Version == again.Version {
+		t.Error("a real identity change should bump the version")
 	}
 }

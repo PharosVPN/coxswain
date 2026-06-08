@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PharosVPN/coxswain/internal/db"
@@ -122,6 +123,18 @@ func TestAddNode(t *testing.T) {
 		if _, ok := remote.uploads[want]; !ok {
 			t.Errorf("expected upload of %s", want)
 		}
+	}
+
+	// The AmneziaWG data plane is installed before the agent starts (gap #1): a
+	// fresh droplet otherwise has no awg kernel module / tools to bring up awg0.
+	var ranInstall bool
+	for _, c := range remote.commands {
+		if strings.Contains(c, "ppa:amnezia/ppa") && strings.Contains(c, "amneziawg") {
+			ranInstall = true
+		}
+	}
+	if !ranInstall {
+		t.Error("onboard did not install the AmneziaWG data plane")
 	}
 
 	// The signed cert really chains to the CA.
