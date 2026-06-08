@@ -171,6 +171,83 @@ func TestIssuePerDevice(t *testing.T) {
 	}
 }
 
+// TestIssueSealsToDeviceKey guards per-device sealing: a device created with its
+// own X25519 encryption key gets its profile sealed to THAT key — it opens with
+// the device's private key and does NOT open with the user's account key. This
+// is the passphrase-less join-link recipient resolution.
+func TestIssueSealsToDeviceKey(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, userKP := enrolledUser(t, conn, "pw")
+
+	// A device with its OWN encryption key (the join-link shape).
+	devKP, err := e2e.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dev, err := account.CreateDevice(ctx, conn, account.Device{
+		UserID: userID, Name: "joined", EncryptionPubkey: devKP.Public,
+	})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+
+	if _, err := profile.Issue(ctx, conn, userID, dev.ID, profile.Profile{FleetID: "f"}); err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID, dev.ID)
+	if err != nil {
+		t.Fatalf("LatestCiphertext: %v", err)
+	}
+	signing, _, err := profile.EnsureSigningKey(ctx, conn)
+	if err != nil {
+		t.Fatalf("EnsureSigningKey: %v", err)
+	}
+	var bundle e2e.SealedBundle
+	if err := json.Unmarshal(ciphertext, &bundle); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+	// Opens with the device key.
+	if _, err := e2e.Open(bundle, devKP.Private, signing.Public); err != nil {
+		t.Fatalf("bundle must open with the device key: %v", err)
+	}
+	// Does NOT open with the user's account key — it was sealed to the device.
+	if _, err := e2e.Open(bundle, userKP.Private, signing.Public); err == nil {
+		t.Error("bundle opened with the user's account key — it should be sealed to the device")
+	}
+}
+
+// TestIssueDeviceWithoutKeyFallsBackToAccountKey guards the legacy path: a device
+// with NO per-device key seals to the user's account key (unchanged behaviour).
+func TestIssueDeviceWithoutKeyFallsBackToAccountKey(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, userKP := enrolledUser(t, conn, "pw")
+
+	dev, err := account.CreateDevice(ctx, conn, account.Device{UserID: userID, Name: "legacy"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	if _, err := profile.Issue(ctx, conn, userID, dev.ID, profile.Profile{FleetID: "f"}); err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID, dev.ID)
+	if err != nil {
+		t.Fatalf("LatestCiphertext: %v", err)
+	}
+	signing, _, err := profile.EnsureSigningKey(ctx, conn)
+	if err != nil {
+		t.Fatalf("EnsureSigningKey: %v", err)
+	}
+	var bundle e2e.SealedBundle
+	if err := json.Unmarshal(ciphertext, &bundle); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+	if _, err := e2e.Open(bundle, userKP.Private, signing.Public); err != nil {
+		t.Fatalf("legacy device bundle must open with the account key: %v", err)
+	}
+}
+
 func TestIssueWithoutEncryptionKey(t *testing.T) {
 	conn := newDB(t)
 	ctx := context.Background()

@@ -30,13 +30,16 @@ var (
 // (so a device's profile is independent of the user's other devices). A blank
 // deviceID stores a legacy per-user profile (device_id NULL). Returns the new
 // revision number.
+//
+// The sealing RECIPIENT is resolved per device: a device that enrolled with its
+// own X25519 key (the passphrase-less join-link flow) gets its bundle sealed to
+// THAT key, so it decrypts with its own private half — no account passphrase.
+// A legacy account-sync device (or the per-user device_id="" profile) seals to
+// the user's account encryption key (users.public_key). See resolveRecipient.
 func Issue(ctx context.Context, db *sql.DB, userID, deviceID string, p Profile) (int64, error) {
-	recipient, _, err := account.GetEncryptionKey(ctx, db, userID)
+	recipient, err := resolveRecipient(ctx, db, userID, deviceID)
 	if err != nil {
 		return 0, err
-	}
-	if len(recipient) == 0 {
-		return 0, ErrNoEncryptionKey
 	}
 	signing, _, err := EnsureSigningKey(ctx, db)
 	if err != nil {
@@ -83,6 +86,33 @@ func Issue(ctx context.Context, db *sql.DB, userID, deviceID string, p Profile) 
 		return 0, fmt.Errorf("profile: store: %w", err)
 	}
 	return p.Revision, nil
+}
+
+// resolveRecipient returns the X25519 public key a device's profile bundle is
+// sealed to. A device that enrolled with its own encryption key (the
+// passphrase-less join-link flow) is sealed to THAT per-device key, so it
+// decrypts with the private half it already holds — no account passphrase.
+// Otherwise (a legacy account-sync device, or the per-user device_id="" row) it
+// falls back to the user's account encryption key. ErrNoEncryptionKey when no
+// recipient resolves at all.
+func resolveRecipient(ctx context.Context, db *sql.DB, userID, deviceID string) ([]byte, error) {
+	if deviceID != "" {
+		dev, err := account.GetDevice(ctx, db, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if dev.HasEncryptionKey() {
+			return dev.EncryptionPubkey, nil
+		}
+	}
+	recipient, _, err := account.GetEncryptionKey(ctx, db, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(recipient) == 0 {
+		return nil, ErrNoEncryptionKey
+	}
+	return recipient, nil
 }
 
 // LatestCiphertext returns the most recent sealed profile bundle for a user's

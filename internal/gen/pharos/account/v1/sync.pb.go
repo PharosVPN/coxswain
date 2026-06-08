@@ -274,8 +274,12 @@ type GetProfileResponse struct {
 	// signing_public_key is coxswain's Ed25519 profile-signing key — the device
 	// verifies the bundle against it.
 	SigningPublicKey []byte `protobuf:"bytes,3,opt,name=signing_public_key,json=signingPublicKey,proto3" json:"signing_public_key,omitempty"`
-	// wrapped_private_key is the user's passphrase-wrapped X25519 private key,
-	// so a new device can unwrap it locally with the account passphrase.
+	// wrapped_private_key is the user's passphrase-wrapped X25519 private key, so
+	// a legacy account-sync device can unwrap it locally with the account
+	// passphrase. It is EMPTY for a per-device-keyed device (one enrolled via the
+	// passphrase-less join-link flow): that device's bundle is sealed to the
+	// device's own X25519 key, which it already holds, so there is nothing to
+	// unwrap.
 	WrappedPrivateKey []byte `protobuf:"bytes,4,opt,name=wrapped_private_key,json=wrappedPrivateKey,proto3" json:"wrapped_private_key,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -350,9 +354,15 @@ type ClaimEnrollmentRequest struct {
 	// device_name is the device's friendly alias, recorded on the device record.
 	DeviceName string `protobuf:"bytes,3,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
 	// platform is the device OS/kind (e.g. "ios", "android", "caravel").
-	Platform      string `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Platform string `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
+	// encryption_pubkey is a 32-byte X25519 public key the device generates
+	// on-device (separate from the CSR's mTLS key). coxswain seals this device's
+	// profile bundle to it, so the device decrypts with its OWN private key —
+	// no account passphrase. The private half never leaves the device. The join
+	// flow requires it: a missing or non-32-byte key is rejected.
+	EncryptionPubkey []byte `protobuf:"bytes,5,opt,name=encryption_pubkey,json=encryptionPubkey,proto3" json:"encryption_pubkey,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ClaimEnrollmentRequest) Reset() {
@@ -411,6 +421,13 @@ func (x *ClaimEnrollmentRequest) GetPlatform() string {
 		return x.Platform
 	}
 	return ""
+}
+
+func (x *ClaimEnrollmentRequest) GetEncryptionPubkey() []byte {
+	if x != nil {
+		return x.EncryptionPubkey
+	}
+	return nil
 }
 
 type ClaimEnrollmentResponse struct {
@@ -530,13 +547,14 @@ const file_pharos_account_v1_sync_proto_rawDesc = "" +
 	"ciphertext\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x03R\brevision\x12,\n" +
 	"\x12signing_public_key\x18\x03 \x01(\fR\x10signingPublicKey\x12.\n" +
-	"\x13wrapped_private_key\x18\x04 \x01(\fR\x11wrappedPrivateKey\"\x84\x01\n" +
+	"\x13wrapped_private_key\x18\x04 \x01(\fR\x11wrappedPrivateKey\"\xb1\x01\n" +
 	"\x16ClaimEnrollmentRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
 	"\acsr_pem\x18\x02 \x01(\fR\x06csrPem\x12\x1f\n" +
 	"\vdevice_name\x18\x03 \x01(\tR\n" +
 	"deviceName\x12\x1a\n" +
-	"\bplatform\x18\x04 \x01(\tR\bplatform\"\x83\x02\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform\x12+\n" +
+	"\x11encryption_pubkey\x18\x05 \x01(\fR\x10encryptionPubkey\"\x83\x02\n" +
 	"\x17ClaimEnrollmentResponse\x12&\n" +
 	"\x0fdevice_cert_pem\x18\x01 \x01(\fR\rdeviceCertPem\x12 \n" +
 	"\ffleet_ca_pem\x18\x02 \x01(\fR\n" +

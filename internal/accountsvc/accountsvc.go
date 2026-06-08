@@ -40,6 +40,10 @@ const sessionMetadataKey = "pharos-session"
 // (relay/core.deviceFPMetadataKey) and the pki/relay fingerprint shape.
 const deviceFPMetadataKey = "x-pharos-device-fp"
 
+// x25519KeySize is the byte length of an X25519 public key — the size the
+// device's join-link encryption pubkey must be (Curve25519 point).
+const x25519KeySize = 32
+
 // ClaimConfig carries the controller-side dependencies ClaimEnrollment needs to
 // turn a redeemed ticket + CSR into an enrolled, provisioned device and hand the
 // device everything it needs to assemble its own bundle. It is optional: a
@@ -137,6 +141,15 @@ func (s *Service) EnrollKeys(ctx context.Context, req *accountv1.EnrollKeysReque
 // GetProfile returns the calling device's latest sealed profile bundle. When the
 // relay forwards the device fingerprint, this is the device's own profile (its
 // keys + path); otherwise it falls back to the legacy per-user profile.
+//
+// The bundle's sealing RECIPIENT differs by device, and so does what the device
+// needs to open it:
+//   - A per-device-keyed device (the passphrase-less join-link flow) has its
+//     bundle sealed to its OWN X25519 key, which it already holds. The response
+//     carries an EMPTY wrapped_private_key — there is nothing to unwrap.
+//   - A legacy account-sync device's bundle is sealed to the user's account key,
+//     so the response carries the user's passphrase-wrapped private key for the
+//     device to unwrap locally with the account passphrase.
 func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest) (*accountv1.GetProfileResponse, error) {
 	userID, deviceID, err := s.caller(ctx)
 	if err != nil {
@@ -157,16 +170,40 @@ func (s *Service) GetProfile(ctx context.Context, _ *accountv1.GetProfileRequest
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to load profile")
 	}
-	_, wrapped, err := account.GetEncryptionKey(ctx, s.db, userID)
-	if err != nil {
+
+	// Only a device that decrypts with the ACCOUNT key needs the wrapped account
+	// private key. A per-device-keyed device already holds its own key, so we omit
+	// it (and never even read the account key for that device).
+	var wrapped []byte
+	if perDevice, derr := s.deviceHasOwnKey(ctx, deviceID); derr != nil {
 		return nil, status.Error(codes.Internal, "failed to load profile")
+	} else if !perDevice {
+		if _, wrapped, err = account.GetEncryptionKey(ctx, s.db, userID); err != nil {
+			return nil, status.Error(codes.Internal, "failed to load profile")
+		}
 	}
+
 	return &accountv1.GetProfileResponse{
 		Ciphertext:        ciphertext,
 		Revision:          revision,
 		SigningPublicKey:  signing.Public,
 		WrappedPrivateKey: wrapped,
 	}, nil
+}
+
+// deviceHasOwnKey reports whether the named device carries its own per-device
+// X25519 encryption key (the passphrase-less join-link case), in which case its
+// bundle is sealed to that key and the account wrapped-key is irrelevant. A
+// blank deviceID (the legacy per-user caller) is never per-device.
+func (s *Service) deviceHasOwnKey(ctx context.Context, deviceID string) (bool, error) {
+	if deviceID == "" {
+		return false, nil
+	}
+	dev, err := account.GetDevice(ctx, s.db, deviceID)
+	if err != nil {
+		return false, err
+	}
+	return dev.HasEncryptionKey(), nil
 }
 
 // ClaimEnrollment redeems a one-time enrollment ticket + a device-generated CSR
@@ -197,6 +234,13 @@ func (s *Service) ClaimEnrollment(ctx context.Context, req *accountv1.ClaimEnrol
 	}
 	if len(req.GetCsrPem()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "a device CSR is required")
+	}
+	// The join flow is passphrase-less: the device MUST present its own 32-byte
+	// X25519 encryption public key, which coxswain seals the device's profile to
+	// so the device decrypts with its own private half — no account passphrase.
+	if len(req.GetEncryptionPubkey()) != x25519KeySize {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"a %d-byte device encryption public key is required", x25519KeySize)
 	}
 
 	name := req.GetDeviceName()
@@ -242,6 +286,10 @@ func (s *Service) ClaimEnrollment(ctx context.Context, req *accountv1.ClaimEnrol
 		Platform:    platform,
 		Fingerprint: fingerprint,
 		Status:      account.StatusActive,
+		// The device's own X25519 encryption key — ProvisionDevice seals this
+		// device's profile to it, so the device opens its bundle with no account
+		// passphrase (the passphrase-less join-link flow).
+		EncryptionPubkey: req.GetEncryptionPubkey(),
 	})
 	if err != nil {
 		s.auditClaim(ctx, ticket.UserID, deviceID, err)

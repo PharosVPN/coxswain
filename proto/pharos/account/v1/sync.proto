@@ -62,8 +62,12 @@ message GetProfileResponse {
   // signing_public_key is coxswain's Ed25519 profile-signing key — the device
   // verifies the bundle against it.
   bytes signing_public_key = 3;
-  // wrapped_private_key is the user's passphrase-wrapped X25519 private key,
-  // so a new device can unwrap it locally with the account passphrase.
+  // wrapped_private_key is the user's passphrase-wrapped X25519 private key, so
+  // a legacy account-sync device can unwrap it locally with the account
+  // passphrase. It is EMPTY for a per-device-keyed device (one enrolled via the
+  // passphrase-less join-link flow): that device's bundle is sealed to the
+  // device's own X25519 key, which it already holds, so there is nothing to
+  // unwrap.
   bytes wrapped_private_key = 4;
 }
 
@@ -78,6 +82,12 @@ message ClaimEnrollmentRequest {
   string device_name = 3;
   // platform is the device OS/kind (e.g. "ios", "android", "caravel").
   string platform = 4;
+  // encryption_pubkey is a 32-byte X25519 public key the device generates
+  // on-device (separate from the CSR's mTLS key). coxswain seals this device's
+  // profile bundle to it, so the device decrypts with its OWN private key —
+  // no account passphrase. The private half never leaves the device. The join
+  // flow requires it: a missing or non-32-byte key is rejected.
+  bytes encryption_pubkey = 5;
 }
 
 message ClaimEnrollmentResponse {

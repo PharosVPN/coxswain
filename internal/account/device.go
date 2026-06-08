@@ -25,10 +25,21 @@ type Device struct {
 	Version     int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// EncryptionPubkey is the device's own X25519 public key, generated on-device
+	// during passphrase-less join-link enrollment (ClaimEnrollment). When set,
+	// the device's profile is sealed to THIS key — the device decrypts with its
+	// own private half, no account passphrase. Nil for legacy account-sync devices
+	// (their profiles seal to the user's account key instead).
+	EncryptionPubkey []byte
 }
 
+// HasEncryptionKey reports whether the device carries its own per-device X25519
+// encryption key (the passphrase-less join-link case). When false, the device's
+// profile seals to the user's account key (legacy account-sync).
+func (d Device) HasEncryptionKey() bool { return len(d.EncryptionPubkey) > 0 }
+
 const deviceColumns = `id, user_id, name, platform, fingerprint, status,
-	version, created_at, updated_at`
+	version, created_at, updated_at, encryption_pubkey`
 
 // NewDeviceID mints a device id without inserting a row, for callers that need
 // the id before the record exists (e.g. the enrollment claim stamps it onto the
@@ -48,10 +59,16 @@ func CreateDevice(ctx context.Context, db *sql.DB, d Device) (Device, error) {
 	d.Version = 1
 	d.CreatedAt, d.UpdatedAt = now, now
 
+	// Store NULL (not an empty blob) when the device has no per-device key, so a
+	// legacy device reads back as nil and HasEncryptionKey is false.
+	var pubkey any
+	if len(d.EncryptionPubkey) > 0 {
+		pubkey = d.EncryptionPubkey
+	}
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO devices (`+deviceColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO devices (`+deviceColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.UserID, d.Name, d.Platform, d.Fingerprint, d.Status,
-		d.Version, d.CreatedAt, d.UpdatedAt)
+		d.Version, d.CreatedAt, d.UpdatedAt, pubkey)
 	if err != nil {
 		return Device{}, fmt.Errorf("create device: %w", err)
 	}
@@ -64,7 +81,7 @@ func GetDevice(ctx context.Context, db *sql.DB, id string) (Device, error) {
 	err := db.QueryRowContext(ctx,
 		`SELECT `+deviceColumns+` FROM devices WHERE id = ?`, id,
 	).Scan(&d.ID, &d.UserID, &d.Name, &d.Platform, &d.Fingerprint, &d.Status,
-		&d.Version, &d.CreatedAt, &d.UpdatedAt)
+		&d.Version, &d.CreatedAt, &d.UpdatedAt, &d.EncryptionPubkey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Device{}, ErrNotFound
 	}
@@ -85,7 +102,7 @@ func GetDeviceByFingerprint(ctx context.Context, db *sql.DB, fingerprint string)
 	err := db.QueryRowContext(ctx,
 		`SELECT `+deviceColumns+` FROM devices WHERE fingerprint = ?`, fingerprint,
 	).Scan(&d.ID, &d.UserID, &d.Name, &d.Platform, &d.Fingerprint, &d.Status,
-		&d.Version, &d.CreatedAt, &d.UpdatedAt)
+		&d.Version, &d.CreatedAt, &d.UpdatedAt, &d.EncryptionPubkey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Device{}, ErrNotFound
 	}
@@ -108,7 +125,7 @@ func ListDevicesByUser(ctx context.Context, db *sql.DB, userID string) ([]Device
 	for rows.Next() {
 		var d Device
 		if err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.Platform, &d.Fingerprint,
-			&d.Status, &d.Version, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			&d.Status, &d.Version, &d.CreatedAt, &d.UpdatedAt, &d.EncryptionPubkey); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

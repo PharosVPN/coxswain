@@ -211,6 +211,100 @@ func TestProvisionDevice(t *testing.T) {
 	}
 }
 
+// TestProvisionDeviceSealsToDeviceKey guards the passphrase-less join path at the
+// provisioning layer: a device that enrolled with its own X25519 key gets its
+// provisioned bundle sealed to THAT key (opens with the device key, not the
+// user's account key) — and provisioning succeeds even though the account here
+// still has its own key (the recipient is resolved per device).
+func TestProvisionDeviceSealsToDeviceKey(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	userID, userKP := enrolledUser(t, conn)
+
+	devKP, err := e2e.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	device, err := account.CreateDevice(ctx, conn, account.Device{
+		UserID: userID, Name: "joined", EncryptionPubkey: devKP.Public,
+	})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	if _, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "ams-1", Region: "eu", PublicIP: "203.0.113.7",
+		WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation,
+	}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	if _, err := provision.ProvisionDevice(ctx, conn, device.ID, opts); err != nil {
+		t.Fatalf("ProvisionDevice: %v", err)
+	}
+
+	// The sealed bundle opens with the DEVICE key (decryptProfile uses that key)…
+	prof := decryptProfile(t, ctx, conn, userID, device.ID, devKP)
+	if prof.User != userID {
+		t.Errorf("decrypted profile user: got %q want %q", prof.User, userID)
+	}
+	// …and NOT with the user's account key — it was sealed to the device.
+	ciphertext, _, err := profile.LatestCiphertext(ctx, conn, userID, device.ID)
+	if err != nil {
+		t.Fatalf("LatestCiphertext: %v", err)
+	}
+	signing, _, err := profile.EnsureSigningKey(ctx, conn)
+	if err != nil {
+		t.Fatalf("EnsureSigningKey: %v", err)
+	}
+	var bundle e2e.SealedBundle
+	if err := json.Unmarshal(ciphertext, &bundle); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+	if _, err := e2e.Open(bundle, userKP.Private, signing.Public); err == nil {
+		t.Error("provisioned bundle opened with the account key — it should seal to the device")
+	}
+}
+
+// TestProvisionDeviceNoAccountKeySucceeds is the passphrase-less FIRST-device
+// case at the provisioning layer: a user with NO account encryption key, but a
+// device WITH its own key, provisions successfully (the pre-change behaviour
+// failed here with ErrNoEncryptionKey).
+func TestProvisionDeviceNoAccountKeySucceeds(t *testing.T) {
+	conn := newDB(t)
+	ctx := context.Background()
+	// A user with NO account encryption key at all.
+	u, err := account.CreateUser(ctx, conn, account.User{Email: "nokey@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	devKP, err := e2e.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	device, err := account.CreateDevice(ctx, conn, account.Device{
+		UserID: u.ID, Name: "first", EncryptionPubkey: devKP.Public,
+	})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	if _, err := fleet.CreateNode(ctx, conn, fleet.Node{
+		Name: "ams-1", Region: "eu", PublicIP: "203.0.113.7",
+		WGPublicKey: "bm9kZS1hbXMtd2cta2V5LWJhc2U2NA==", Obfuscation: testObfuscation,
+	}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	if _, err := provision.ProvisionDevice(ctx, conn, device.ID, opts); err != nil {
+		t.Fatalf("provision with no account key but a device key should succeed: %v", err)
+	}
+	// The bundle opens with the device's own key — no account passphrase exists.
+	prof := decryptProfile(t, ctx, conn, u.ID, device.ID, devKP)
+	if prof.User != u.ID {
+		t.Errorf("decrypted profile user: got %q want %q", prof.User, u.ID)
+	}
+}
+
 // TestProvisionDeviceIdempotent guards that re-provisioning a device keeps its
 // tunnel IP and does not accumulate stale peers — a churned IP orphans the
 // device's cascade fwmark (the live-test regression), and stale peers pile up on
