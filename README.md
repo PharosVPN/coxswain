@@ -11,7 +11,9 @@
 
 **`coxswain` is the PharosVPN controller / management plane.** It is the source of
 truth for the fleet, the admin Web UI, the certificate authority, the account &
-profile-sync service, and the engine that drives every VPN node.
+profile-sync service, and the engine that drives every VPN node. It is always-on:
+it continuously reconciles the fleet, heals drift, and pushes config to nodes when
+a profile or device changes.
 
 Part of the [PharosVPN](https://github.com/PharosVPN) platform — see
 [`docs/DESIGN.md`](https://github.com/PharosVPN/docs/blob/main/DESIGN.md) for the
@@ -21,14 +23,27 @@ full architecture.
 
 - **Private, behind NAT — zero inbound ports.** Every connection is
   coxswain-initiated *outbound*. The controller never appears in public DNS.
-- **Drives the fleet.** Holds a long-lived mTLS/gRPC connection to each `node`
-  node: pushes config and peers, receives a live event stream.
+- **Drives the fleet.** Holds a long-lived mTLS/gRPC connection to each `node`:
+  pushes config and peers, receives a live event stream.
+- **Always-on & self-healing.** A reconcile sweep checks every node on an
+  interval and auto-heals drift (stale config) and stalled data planes;
+  creating/removing a profile or device pushes to the affected nodes
+  automatically; a controller restart re-reconciles the whole fleet.
+- **Management API + audit.** Token-authenticated API with scoped, expiring,
+  hashed-at-rest tokens (`readonly`/`monitor`/`admin`), plus a hash-chained,
+  tamper-evident audit log of every CLI and API action (`cox audit verify`).
+- **Monitoring & analytics.** Live connect/disconnect monitoring over a gRPC
+  stream with persisted session history (per-session rx/tx), and an in-process
+  anomaly engine (leaked-profile, impossible-travel, and more) raising alerts
+  with severity + evidence. *(Per-session byte totals and the exfil rule are
+  experimental / best-effort.)*
 - **Issues credentials.** Holds the in-repo CA; mints node, relay, and
   per-user/device certificates.
-- **Serves admins.** Embedded SvelteKit admin UI on localhost, live-updating
+- **Serves admins.** Embedded SvelteKit dashboard on localhost — fleet, paths,
+  profiles, live sessions, alerts, audit log, and API tokens — live-updating
   over WebSocket, multi-admin safe via optimistic concurrency.
 - **Serves users.** Account login + end-to-end-encrypted profile sync, reached
-  by clients only through a `relay` relay (embedded by default).
+  by clients only through a `relay` (embedded by default).
 
 ## Reaching the dashboard
 
@@ -52,12 +67,17 @@ port.
 
 ## Stack
 
-Go · SQLite (Goose migrations) · gRPC over mTLS · embedded SvelteKit 2 / Svelte 5
-admin UI · SSH-based `node` agent onboarding.
+Go · SQLite by default, optional pure-Go Postgres (pgx, selected by DSN) · gRPC
+over mTLS · embedded SvelteKit 2 / Svelte 5 dashboard · SSH-based `node` agent
+onboarding. One static binary (`CGO_ENABLED=0`, pure-Go incl. SQLite).
 
 ## Status
 
-🚧 Pre-alpha — scaffolding. See [BUILD.md](BUILD.md) for the build plan.
+Pre-alpha platform; the controller is the most mature component. The always-on
+reconcile, scoped tokens, tamper-evident audit log, live monitoring + session
+history, anomaly alerts, the gRPC SIEM stream, the dashboard, and the optional
+Postgres backend are shipped and live-tested on a real fleet. Per-session byte
+totals and the exfil rule are experimental. See [BUILD.md](BUILD.md).
 
 ## License
 
