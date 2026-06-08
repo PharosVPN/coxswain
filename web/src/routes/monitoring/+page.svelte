@@ -26,6 +26,21 @@
 		return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
 	}
 
+	// fmtBytes renders a byte count in binary units (B/KiB/MiB/GiB/TiB). 0 (a
+	// connect row, or a disconnect that moved nothing) shows as a dash so the
+	// column reads cleanly. Fractional units get one decimal; bytes stay whole.
+	function fmtBytes(n: number): string {
+		if (!n || n <= 0) return '—';
+		const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+		let v = n;
+		let i = 0;
+		while (v >= 1024 && i < units.length - 1) {
+			v /= 1024;
+			i++;
+		}
+		return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+	}
+
 	// connect → green, disconnect → gray, anything else (e.g. alert) → warning.
 	function eventBadge(type: string): string {
 		if (type === 'connect') return 'badge-success';
@@ -211,6 +226,7 @@
 					<tr>
 						<th>Time</th><th>Event</th><th>Device</th><th>User</th>
 						<th>Node</th><th>Source IP</th><th>Protocol</th>
+						<th class="text-right">Rx</th><th class="text-right">Tx</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -223,6 +239,8 @@
 							<td class="text-ink-2">{s.node_id || '—'}</td>
 							<td class="tnum text-ink-2">{s.source_ip || '—'}</td>
 							<td class="text-ink-2">{s.protocol || '—'}</td>
+							<td class="tnum whitespace-nowrap text-right text-ink-2">{fmtBytes(s.rx_bytes)}</td>
+							<td class="tnum whitespace-nowrap text-right text-ink-2">{fmtBytes(s.tx_bytes)}</td>
 						</tr>
 					{/each}
 				</tbody>
