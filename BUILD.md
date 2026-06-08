@@ -17,8 +17,8 @@ It does **not** run a data plane and opens **no inbound ports**.
 
 ## Prior art to port
 
-The current `amnezia-travelvpn` repo (`/Users/khalefa/Projects/amnezia-travelvpn`)
-is a working single-controller version. Port forward, do not copy blindly:
+An earlier single-controller version exists as prior art. Port forward, do not
+copy blindly:
 
 - **Keep:** SQLite + Goose migrations, YAML snapshot projections, JWT + Argon2id
   auth, the koanf config loader, the AmneziaWG/XRay profile model, the
