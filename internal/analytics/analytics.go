@@ -46,6 +46,7 @@ const (
 	KindDormantThenActive    = "dormant_then_active"
 	KindOffHoursAccess       = "off_hours_access"
 	KindFleetHealth          = "fleet_health"
+	KindDataVolumeExfil      = "data_volume_exfil"
 )
 
 // Status values for an alert row.
@@ -125,6 +126,24 @@ const (
 	// fraction of all prior connects is a clear outlier. 0.02 = under 2% of the
 	// device's history, i.e. roughly never.
 	offHoursMaxShare = 0.02
+
+	// dataVolumeFloorBytes is the absolute lower bound a single session's OUTBOUND
+	// (tx) bytes must clear before it can be flagged as a possible exfiltration.
+	// Below this floor even a wild multiple of a tiny baseline is not enough data
+	// to be worth surfacing — a few hundred MB leaving is ordinary. 1 GiB.
+	dataVolumeFloorBytes = 1 << 30
+	// dataVolumeFactor is how many times the device's historical MEDIAN session
+	// tx_bytes a single session must exceed to be flagged. A heavy user whose
+	// median is already large needs a proportionally larger session to trip this,
+	// so a normal big download by a high-volume device does not alert (its median
+	// is high). 10× the median is a stark departure from the device's own norm.
+	dataVolumeFactor = 10
+	// dataVolumeMinSessions is the minimum number of prior COMPLETED (disconnect,
+	// tx_bytes-bearing) sessions a device must have before a median is trusted and
+	// the rule may fire. A thin-history device has no stable baseline — one or two
+	// sessions make any later session look like a multiple — so it is never
+	// flagged. 20 sessions give a median with some weight.
+	dataVolumeMinSessions = 20
 )
 
 // Finding is one rule detection, before it is persisted. Sweep turns each
@@ -176,6 +195,7 @@ var rules = []rule{
 	ruleRevokedProfileActive,
 	ruleDormantThenActive,
 	ruleOffHoursAccess,
+	ruleDataVolumeExfil,
 }
 
 // globalRule is a detector that reasons over the whole fleet, not one device —

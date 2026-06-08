@@ -21,6 +21,10 @@ type event struct {
 	Protocol  string
 	EventType string // "connect" | "disconnect" | "handshake"
 	SourceIP  string
+	// RxBytes/TxBytes are the session's transferred byte deltas, stamped on the
+	// disconnect row (connect rows carry 0). The data_volume rule reads TxBytes.
+	RxBytes uint64
+	TxBytes uint64
 }
 
 // deviceWindow is one device's recent events, oldest-first, ready for the rules.
@@ -38,7 +42,7 @@ type deviceWindow struct {
 // them.
 func loadDeviceWindows(ctx context.Context, db *sql.DB, since, now time.Time) ([]deviceWindow, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT at, node_id, device_id, user_id, protocol, event_type, source_ip
+		SELECT at, node_id, device_id, user_id, protocol, event_type, source_ip, rx_bytes, tx_bytes
 		FROM connection_events
 		WHERE device_id IS NOT NULL AND device_id != ''
 		  AND at >= ? AND at <= ?
@@ -57,7 +61,7 @@ func loadDeviceWindows(ctx context.Context, db *sql.DB, since, now time.Time) ([
 			userID sql.NullString
 		)
 		if err := rows.Scan(&e.At, &e.NodeID, &e.DeviceID, &userID,
-			&e.Protocol, &e.EventType, &e.SourceIP); err != nil {
+			&e.Protocol, &e.EventType, &e.SourceIP, &e.RxBytes, &e.TxBytes); err != nil {
 			return nil, err
 		}
 		e.UserID = userID.String
