@@ -204,9 +204,17 @@
 	let deployBusy = $state(false);
 	let deployError = $state('');
 
+	// A server hosts at most one node and one relay; offer only the roles it
+	// doesn't already have so "Deploy component" never re-offers a deployed role.
+	const deployCard = $derived(deployFor ? cards.find((c) => c.server.id === deployFor!.id) : undefined);
+	const deployHasNode = $derived((deployCard?.nodes.length ?? 0) > 0);
+	const deployHasRelay = $derived((deployCard?.relays.length ?? 0) > 0);
+
 	function openDeploy(s: Server) {
 		deployFor = s;
-		deployRole = 'node';
+		const card = cards.find((c) => c.server.id === s.id);
+		// Default to the first role that isn't already deployed.
+		deployRole = (card?.nodes.length ?? 0) > 0 ? 'relay' : 'node';
 		deployRegion = s.region;
 		deployEgress = true;
 		deployOnion = true;
@@ -340,7 +348,12 @@
 						{/if}
 					</div>
 					<div class="flex flex-none gap-2">
-						<button class="btn btn-secondary btn-sm" onclick={() => openDeploy(c.server)}>Deploy component</button>
+						<button
+							class="btn btn-secondary btn-sm"
+							disabled={c.nodes.length > 0 && c.relays.length > 0}
+							title={c.nodes.length > 0 && c.relays.length > 0 ? 'A node and a relay are already deployed here' : ''}
+							onclick={() => openDeploy(c.server)}>Deploy component</button>
+
 						{#if !c.server.is_self}
 							<button class="btn btn-text btn-sm" onclick={() => openEditRoute(c.server)}>Route</button>
 							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; }}>Remove</button>
@@ -482,8 +495,8 @@
 	<Modal title="Deploy onto {deployFor.name || deployFor.ssh_host}" onclose={() => (deployFor = null)}>
 		<label class="label" for="d-role">Role</label>
 		<select id="d-role" class="input" bind:value={deployRole}>
-			<option value="node">Node — egress server</option>
-			<option value="relay">Relay — control-plane hop</option>
+			{#if !deployHasNode}<option value="node">Node — egress server</option>{/if}
+			{#if !deployHasRelay}<option value="relay">Relay — control-plane hop</option>{/if}
 		</select>
 		<p class="mt-2 text-xs text-ink-3">Deploys onto {deployFor.ssh_host}; location is resolved from its IP.</p>
 		{#if deployRole === 'relay'}
