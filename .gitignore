@@ -8,6 +8,10 @@
 *.db-wal
 *.db-shm
 
+# IP-geolocation databases — fetched at runtime, never committed (license: MaxMind
+# GeoLite2 is non-redistributable; DB-IP Lite is fetched by `cox geoip update`).
+*.mmdb
+
 # Operator config written by `cox init`
 /coxswain.yaml
 

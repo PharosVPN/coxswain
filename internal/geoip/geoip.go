@@ -128,7 +128,11 @@ func (r *Resolver) Lookup(host string) (Location, bool) {
 		Latitude:    rec.Location.Latitude,
 		Longitude:   rec.Location.Longitude,
 	}
-	if loc.Latitude == 0 && loc.Longitude == 0 && loc.CountryCode == "" {
+	// A country-only record (no city coordinates) decodes to lat/lon 0,0 — that is
+	// the Gulf of Guinea, not a real location. Reject any record without usable
+	// coordinates so the UI falls back to its region-code centroid instead of
+	// pinning the host on null island (matches the guard in cli/profiles.go).
+	if loc.Latitude == 0 && loc.Longitude == 0 {
 		return Location{}, false
 	}
 	return loc, true

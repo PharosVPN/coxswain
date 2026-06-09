@@ -6,6 +6,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import FleetMap from '$lib/components/FleetMap.svelte';
+	import GeoCredit from '$lib/components/GeoCredit.svelte';
 	import { regionOptions } from '$lib/geo';
 	import type { Node, Relay, Self, Site, Path, LiveEvent } from '$lib/types';
 
@@ -19,8 +20,6 @@
 	let relays = $state<Relay[]>([]);
 	let paths = $state<Path[]>([]);
 	let controller = $state<Self | null>(null);
-	// Attribution the active IP-geolocation DB's license requires, shown on the map.
-	let geoCredit = $state<{ text: string; url: string } | null>(null);
 	let loading = $state(true);
 	let loadError = $state('');
 
@@ -89,13 +88,6 @@
 				relays = [];
 				paths = [];
 				controller = null;
-			}
-			// The geo-source credit is best-effort (older controllers lack the route).
-			try {
-				const g = await api.get<{ attribution: { text: string; url: string } }>('/api/geoip');
-				geoCredit = g.attribution?.text ? g.attribution : null;
-			} catch {
-				geoCredit = null;
 			}
 		} catch (e) {
 			loadError = errorMessage(e);
@@ -219,9 +211,7 @@
 {#if !loading && !loadError}
 	<div class="mt-6">
 		<FleetMap {nodes} {relays} {paths} {controller} selectedKey={editing?.public_ip ?? ''} onselect={selectSite} />
-		{#if geoCredit}
-			<p class="geo-credit"><a href={geoCredit.url} target="_blank" rel="noopener noreferrer">{geoCredit.text}</a></p>
-		{/if}
+		<GeoCredit />
 	</div>
 {/if}
 
@@ -331,9 +321,9 @@
 			{#each regions as r (r.code)}<option value={r.code}>{r.label}</option>{/each}
 		</datalist>
 		<p class="mt-1 text-xs text-ink-3">
-			Where this node pins on the map. Pick a cloud-region code or type any. Override only changes
-			the map — never routing. When a GeoIP database is configured, the IP-resolved city takes
-			precedence.
+			Where this node pins on the map — visual only, never routing. A recognized cloud-region code
+			wins even when a GeoIP database is loaded; with no override, a configured GeoIP database places
+			the node by its IP, otherwise the region code does.
 		</p>
 
 		<label class="label mt-4" for="node-endpoints">Entry IP pool</label>
@@ -452,19 +442,6 @@
 {/if}
 
 <style>
-	.geo-credit {
-		margin-top: 6px;
-		text-align: right;
-		font-size: 11px;
-		color: var(--c-gray-300);
-	}
-	.geo-credit a {
-		color: inherit;
-		text-decoration: none;
-	}
-	.geo-credit a:hover {
-		text-decoration: underline;
-	}
 	.toggle-row {
 		display: flex;
 		align-items: center;

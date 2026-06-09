@@ -6,6 +6,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import RoleGlyph from '$lib/components/RoleGlyph.svelte';
+	import GeoCredit from '$lib/components/GeoCredit.svelte';
 	import type { Node, Relay, Server } from '$lib/types';
 
 	let servers = $state<Server[]>([]);
@@ -409,6 +410,7 @@
 			</div>
 		{/each}
 	</div>
+	<GeoCredit />
 {/if}
 
 <!-- Add server -->
