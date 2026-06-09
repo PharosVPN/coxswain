@@ -181,6 +181,7 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Version     int      `json:"version"`
 		Name        string   `json:"name"`
+		Region      string   `json:"region"`
 		Forwarding  bool     `json:"forwarding"`
 		Masquerade  bool     `json:"masquerade"`
 		Isolation   bool     `json:"isolation"`
@@ -220,6 +221,7 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	node.Name = req.Name
+	node.Region = req.Region // manual region override (map placement only — purely visual)
 	node.Forwarding = req.Forwarding
 	node.Masquerade = req.Masquerade
 	node.Isolation = req.Isolation

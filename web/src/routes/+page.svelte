@@ -6,6 +6,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import FleetMap from '$lib/components/FleetMap.svelte';
+	import { regionOptions } from '$lib/geo';
 	import type { Node, Relay, Self, Site, Path, LiveEvent } from '$lib/types';
 
 	interface Rules {
@@ -27,7 +28,9 @@
 	// Node settings modal — name + network policy.
 	let editing = $state<Node | null>(null);
 	let editName = $state('');
+	let editRegion = $state('');
 	let editEndpoints = $state('');
+	const regions = regionOptions();
 	let fwd = $state(true);
 	let masq = $state(true);
 	let iso = $state(false);
@@ -133,6 +136,7 @@
 	function openEdit(n: Node) {
 		editing = n;
 		editName = n.name;
+		editRegion = n.region;
 		editEndpoints = (n.endpoint_ips ?? []).join(', ');
 		fwd = n.forwarding;
 		masq = n.masquerade;
@@ -167,6 +171,7 @@
 			const updated = await api.patch<Node>(`/api/nodes/${editing.id}`, {
 				version: editing.version,
 				name: editName,
+				region: editRegion.trim(),
 				endpoint_ips: editEndpoints.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
 				forwarding: fwd,
 				masquerade: masq,
@@ -300,6 +305,24 @@
 	<Modal title="Node settings" onclose={() => (editing = null)}>
 		<label class="label" for="node-name">Node name</label>
 		<input id="node-name" class="input" bind:value={editName} />
+
+		<label class="label mt-4" for="node-region">Region <span class="text-ink-3">(map placement — visual only)</span></label>
+		<input
+			id="node-region"
+			class="input"
+			list="region-codes"
+			bind:value={editRegion}
+			placeholder="e.g. sgp1, fra1, nyc1"
+			autocomplete="off"
+		/>
+		<datalist id="region-codes">
+			{#each regions as r (r.code)}<option value={r.code}>{r.label}</option>{/each}
+		</datalist>
+		<p class="mt-1 text-xs text-ink-3">
+			Where this node pins on the map. Pick a cloud-region code or type any. Override only changes
+			the map — never routing. When a GeoIP database is configured, the IP-resolved city takes
+			precedence.
+		</p>
 
 		<label class="label mt-4" for="node-endpoints">Entry IP pool</label>
 		<input

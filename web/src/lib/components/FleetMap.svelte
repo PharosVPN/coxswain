@@ -12,7 +12,7 @@
 	import { feature } from 'topojson-client';
 	import landTopo from 'world-atlas/land-110m.json';
 	import type { Node, Relay, Path, Server, Self, Site } from '$lib/types';
-	import { locate } from '$lib/geo';
+	import { locate, hasRegion } from '$lib/geo';
 	import { ROLES, STATUSES, statusColor, dominantStatus, type Role } from '$lib/roles';
 	import RoleGlyph from './RoleGlyph.svelte';
 
@@ -109,10 +109,13 @@
 		return sites
 			.map((s) => {
 				const loc = locate(s.region);
-				// Prefer the IP-resolved coordinates when present; fall back to the
-				// region-code map for legacy records.
-				const lon = s.location ? s.location.longitude : loc.lon;
-				const lat = s.location ? s.location.latitude : loc.lat;
+				// A recognized region code is an explicit pin choice (the manual
+				// override), so it wins over IP geolocation. Otherwise prefer the
+				// IP-resolved coordinates, falling back to the region map (auto-detected
+				// regions are country codes not in the table, so IP still wins for them).
+				const override = hasRegion(s.region);
+				const lon = override ? loc.lon : s.location ? s.location.longitude : loc.lon;
+				const lat = override ? loc.lat : s.location ? s.location.latitude : loc.lat;
 				const xy = projection([lon, lat]);
 				return { site: s, loc, xy };
 			})
@@ -236,8 +239,13 @@
 		return count * (CHIP * 2) + (count - 1) * GAP;
 	}
 
-	// cityLabel prefers the IP-resolved city/country; falls back to the region map.
+	// cityLabel: a manual region override wins (matches the pin); otherwise the
+	// IP-resolved city/country, falling back to the region map.
 	function cityLabel(site: Site): string {
+		if (hasRegion(site.region)) {
+			const loc = locate(site.region);
+			return `${loc.flag} ${loc.city}`.trim();
+		}
 		if (site.location) {
 			return [site.location.city, site.location.country_code].filter(Boolean).join(', ');
 		}
