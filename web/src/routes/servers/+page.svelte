@@ -250,6 +250,44 @@
 		}
 		removeBusy = false;
 	}
+
+	// ───────── Component version actions (Update / Remove) ─────────
+	// busyId marks the in-flight component row; actionError surfaces a failed
+	// update at the top of the list.
+	let busyId = $state('');
+	let actionError = $state('');
+
+	// doUpdate re-installs the configured binary in place (the version-aware
+	// Update, offered only when a newer build is available).
+	async function doUpdate(kind: 'node' | 'relay', id: string, name: string) {
+		busyId = id;
+		actionError = '';
+		try {
+			await api.post(`/api/${kind}s/${id}/update-agent`, {});
+			await load();
+		} catch (e) {
+			actionError = `Update ${name}: ${errorMessage(e)}`;
+		}
+		busyId = '';
+	}
+
+	let removingComp = $state<{ kind: 'node' | 'relay'; id: string; name: string } | null>(null);
+	let compRemoveBusy = $state(false);
+	let compRemoveError = $state('');
+
+	async function confirmRemoveComp() {
+		if (!removingComp) return;
+		compRemoveBusy = true;
+		compRemoveError = '';
+		try {
+			await api.del(`/api/${removingComp.kind}s/${removingComp.id}`);
+			removingComp = null;
+			await load();
+		} catch (e) {
+			compRemoveError = errorMessage(e);
+		}
+		compRemoveBusy = false;
+	}
 </script>
 
 <svelte:head><title>Servers — coxswain</title></svelte:head>
@@ -261,6 +299,13 @@
 	</div>
 	<button class="btn btn-primary" onclick={openAdd}>Add server</button>
 </div>
+
+{#if actionError}
+	<div class="mt-4 card flex items-center justify-between gap-3 p-3 text-sm" style="color: var(--c-danger)">
+		<span>{actionError}</span>
+		<button class="btn btn-text btn-sm" onclick={() => (actionError = '')}>Dismiss</button>
+	</div>
+{/if}
 
 {#if loading}
 	<div class="mt-6 card p-6 text-sm text-ink-3">Loading servers…</div>
@@ -314,7 +359,17 @@
 									<span class="comp-icon" style="color: var(--c-success)"><RoleGlyph role="node" size={16} /></span>
 									<span class="comp-name">{n.name}</span>
 									<span class="badge {statusBadge(n.status)}"><span class="dot"></span>{n.status}</span>
+									{#if n.version_display}<span class="comp-ver" title="Deployed build">{n.version_display}</span>{/if}
+									{#if n.update_available}<span class="badge badge-warning" title="A newer build is available">update</span>{/if}
 									<span class="comp-detail">{nodeDetail(n)}</span>
+									<span class="comp-actions">
+										{#if n.update_available}
+											<button class="btn btn-secondary btn-sm" disabled={busyId === n.id} onclick={() => doUpdate('node', n.id, n.name)}>
+												{busyId === n.id ? 'Updating…' : `Update → ${n.available_version}`}
+											</button>
+										{/if}
+										<button class="btn btn-text btn-sm" style="color: var(--c-danger)" disabled={busyId === n.id} onclick={() => (removingComp = { kind: 'node', id: n.id, name: n.name })}>Remove</button>
+									</span>
 								</div>
 							{/each}
 							{#each c.relays as r (r.id)}
@@ -322,7 +377,17 @@
 									<span class="comp-icon" style="color: var(--c-brand-200)"><RoleGlyph role="relay" size={16} /></span>
 									<span class="comp-name">{r.name}</span>
 									<span class="badge {statusBadge(r.status)}"><span class="dot"></span>{r.status}</span>
+									{#if r.version_display}<span class="comp-ver" title="Deployed build">{r.version_display}</span>{/if}
+									{#if r.update_available}<span class="badge badge-warning" title="A newer build is available">update</span>{/if}
 									<span class="comp-detail">{relayDetail(r)}</span>
+									<span class="comp-actions">
+										{#if r.update_available}
+											<button class="btn btn-secondary btn-sm" disabled={busyId === r.id} onclick={() => doUpdate('relay', r.id, r.name)}>
+												{busyId === r.id ? 'Updating…' : `Update → ${r.available_version}`}
+											</button>
+										{/if}
+										<button class="btn btn-text btn-sm" style="color: var(--c-danger)" disabled={busyId === r.id} onclick={() => (removingComp = { kind: 'relay', id: r.id, name: r.name })}>Remove</button>
+									</span>
 								</div>
 							{/each}
 						</div>
@@ -511,6 +576,23 @@
 	</Modal>
 {/if}
 
+<!-- Remove a component (node / relay) -->
+{#if removingComp}
+	<Modal title="Remove {removingComp.kind}" onclose={() => (removingComp = null)}>
+		<p class="text-sm text-ink-2">
+			Remove <span class="font-medium text-ink">{removingComp.name}</span> from the fleet?
+			This forgets it from coxswain — it doesn't uninstall the agent on the machine.
+		</p>
+		{#if compRemoveError}<p class="field-error" role="alert">{compRemoveError}</p>{/if}
+		<div class="mt-6 flex justify-end gap-3">
+			<button class="btn btn-secondary" onclick={() => (removingComp = null)}>Cancel</button>
+			<button class="btn btn-danger" onclick={confirmRemoveComp} disabled={compRemoveBusy}>
+				{compRemoveBusy ? 'Removing…' : 'Remove'}
+			</button>
+		</div>
+	</Modal>
+{/if}
+
 <style>
 	.comp-row {
 		display: flex;
@@ -527,10 +609,22 @@
 		color: var(--c-gray-50);
 		min-width: 0;
 	}
+	.comp-ver {
+		font-family: ui-monospace, monospace;
+		font-size: 11px;
+		color: var(--c-gray-300);
+		white-space: nowrap;
+	}
 	.comp-detail {
 		font-size: 12px;
 		color: var(--c-gray-300);
+	}
+	.comp-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
 		margin-left: auto;
+		flex: none;
 	}
 	.toggle-row {
 		display: flex;

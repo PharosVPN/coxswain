@@ -39,6 +39,12 @@ export interface Node {
 	ssh_host: string;
 	control_addr: string;
 	agent_version: string;
+	// version_display is the human-friendly deployed version; available_version is
+	// the configured candidate binary's version; update_available is true only when
+	// the candidate is strictly newer than the deployed build.
+	version_display: string;
+	available_version: string;
+	update_available: boolean;
 	endpoint_ips: string[];
 	forwarding: boolean;
 	masquerade: boolean;
@@ -57,6 +63,10 @@ export interface Relay {
 	region: string;
 	status: string;
 	host: string;
+	agent_version: string;
+	version_display: string;
+	available_version: string;
+	update_available: boolean;
 	egress: boolean;
 	egress_hop: number;
 	onion: boolean;
