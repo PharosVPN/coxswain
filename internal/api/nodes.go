@@ -122,6 +122,32 @@ func (s *Server) handlePushNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// handleUpdateNodeAgent re-installs the configured node binary on a node in
+// place — the dashboard's Update action. Offered when a newer build is
+// available, it returns the refreshed node (with its new version).
+func (s *Server) handleUpdateNodeAgent(w http.ResponseWriter, r *http.Request) {
+	if s.deployer == nil {
+		writeError(w, http.StatusServiceUnavailable, "component deploy unavailable")
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := fleet.GetNode(r.Context(), s.db, id); errors.Is(err, fleet.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load node")
+		return
+	}
+	updated, err := s.deployer.UpdateNodeAgent(r.Context(), id)
+	if err != nil {
+		s.audited(r, "node.update-agent", "node", id, nil, err)
+		writeError(w, http.StatusBadGateway, "update failed: "+err.Error())
+		return
+	}
+	s.audited(r, "node.update-agent", "node", id, map[string]any{"agent_version": updated.AgentVersion}, nil)
+	writeJSON(w, http.StatusOK, s.nodeView(updated, s.availableNodeVersion()))
+}
+
 // pushDetail extracts the applied/AmneziaWG-revision context from a push result
 // for the audit row, without coupling the api package to the reconcile result
 // type — it round-trips the result through JSON and keeps whatever subset of the

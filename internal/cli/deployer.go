@@ -156,6 +156,54 @@ func (d cliDeployer) DeployRelay(ctx context.Context, serverID string, req api.R
 	return res.Relay, err
 }
 
+// UpdateNodeAgent re-installs the configured node binary on a node and restarts
+// it (the API-driven counterpart of `cox nodes update`). The binary comes from
+// node.binary_path / node.node_binary_url; the node is reached the same way the
+// CLI reaches it (its stored route, or direct SSH).
+func (d cliDeployer) UpdateNodeAgent(ctx context.Context, nodeID string) (fleet.Node, error) {
+	node, err := fleet.GetNode(ctx, d.conn, nodeID)
+	if err != nil {
+		return fleet.Node{}, err
+	}
+	spec, err := installSpec(d.cfg.Node.BinaryPath, "", d.cfg.Node.NodeBinaryURL, "node.binary_path or node.node_binary_url")
+	if err != nil {
+		return fleet.Node{}, err
+	}
+	sshConn, err := dialNode(ctx, d.conn, node)
+	if err != nil {
+		return fleet.Node{}, err
+	}
+	defer sshConn.Close()
+	return deploy.UpdateAgent(ctx, d.conn, sshConn, node, spec)
+}
+
+// UpdateRelayAgent re-installs the configured relay binary on a remote relay and
+// restarts its services. The embedded relay has no server to reach over SSH and
+// is upgraded with coxswain itself, so it is rejected here.
+func (d cliDeployer) UpdateRelayAgent(ctx context.Context, relayID string) (fleet.Relay, error) {
+	relay, err := fleet.GetRelay(ctx, d.conn, relayID)
+	if err != nil {
+		return fleet.Relay{}, err
+	}
+	if relay.ServerID == "" {
+		return fleet.Relay{}, fmt.Errorf("relay %s has no server to update over SSH (the embedded relay is upgraded with coxswain)", relayID)
+	}
+	spec, err := installSpec(d.cfg.Relay.BinaryPath, "", d.cfg.Relay.BinaryURL, "relay.binary_path or relay.binary_url")
+	if err != nil {
+		return fleet.Relay{}, err
+	}
+	srv, _, id, dialer, err := d.deployContext(ctx, relay.ServerID)
+	if err != nil {
+		return fleet.Relay{}, err
+	}
+	remote, err := server.DialServer(ctx, id, srv, dialer)
+	if err != nil {
+		return fleet.Relay{}, err
+	}
+	defer remote.Close()
+	return deploy.UpdateRelayAgent(ctx, d.conn, remote, relay, spec)
+}
+
 // deployContext resolves a server and the shared CA/identity/dialer a deploy
 // needs.
 func (d cliDeployer) deployContext(ctx context.Context, serverID string) (fleet.Server, pki.Bundle, ssh.Identity, server.Dialer, error) {

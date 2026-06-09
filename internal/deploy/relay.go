@@ -275,6 +275,26 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 	return RelayResult{Relay: updated, CertSerial: signed.Serial, AgentVersion: agentVersion}, nil
 }
 
+// UpdateRelayAgent re-installs the relay binary on a relay's host and restarts
+// whichever relay services are running, then records the new agent version. It
+// is the relay counterpart of UpdateAgent: certs and reverse-tunnel topology are
+// untouched, so it is a pure in-place binary upgrade. `try-restart` cycles only
+// the units that are active (a relay runs some subset of ingress/egress/onion),
+// leaving inactive ones alone and erroring on none.
+func UpdateRelayAgent(ctx context.Context, db *sql.DB, remote Remote, relay fleet.Relay, spec InstallSpec) (fleet.Relay, error) {
+	if err := spec.validate(); err != nil {
+		return fleet.Relay{}, err
+	}
+	if err := installBinary(ctx, remote, spec, relayBinaryPath); err != nil {
+		return fleet.Relay{}, err
+	}
+	if _, err := remote.Run(ctx, "systemctl try-restart relay relay-egress relay-onion", nil); err != nil {
+		return fleet.Relay{}, fmt.Errorf("deploy: restart relay services: %w", err)
+	}
+	relay.AgentVersion = resolveAgentVersion(ctx, remote, spec, cmdRelayVersion)
+	return fleet.UpdateRelay(ctx, db, relay)
+}
+
 func generateRelayName() string {
 	suffix := idgen.New("r")
 	if len(suffix) > 6 {

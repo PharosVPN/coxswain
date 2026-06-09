@@ -147,10 +147,15 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	// Reconcile a node — deliver coxswain's current peer set (the Phase 2 push
 	// primitive), so the web UI can heal a node, which it could not do before.
 	mux.HandleFunc("POST /api/nodes/{id}/push", admin(s.handlePushNode))
+	// In-place agent upgrade — re-install the configured node binary (the Update
+	// action; offered when a newer build is available).
+	mux.HandleFunc("POST /api/nodes/{id}/update-agent", admin(s.handleUpdateNodeAgent))
 	mux.HandleFunc("POST /api/network-policy/preview", readonly(s.handleNetworkPolicyPreview))
 
 	// Relays — relays in the egress / onion chain (for the fleet map's roles).
 	mux.HandleFunc("GET /api/relays", readonly(s.handleListRelays))
+	mux.HandleFunc("DELETE /api/relays/{id}", admin(s.handleDeleteRelay))
+	mux.HandleFunc("POST /api/relays/{id}/update-agent", admin(s.handleUpdateRelayAgent))
 	// Cascade edges — entry→exit inner links (for the map's route arcs).
 	mux.HandleFunc("GET /api/node-links", readonly(s.handleListNodeLinks))
 

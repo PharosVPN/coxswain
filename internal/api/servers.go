@@ -65,6 +65,10 @@ type Deployer interface {
 	Bootstrap(ctx context.Context, req BootstrapRequest) (fleet.Server, error)
 	DeployNode(ctx context.Context, serverID, name, region string) (fleet.Node, error)
 	DeployRelay(ctx context.Context, serverID string, req RelayDeployRequest) (fleet.Relay, error)
+	// UpdateNodeAgent / UpdateRelayAgent re-install the configured component binary
+	// in place (the dashboard's Update action), returning the refreshed record.
+	UpdateNodeAgent(ctx context.Context, nodeID string) (fleet.Node, error)
+	UpdateRelayAgent(ctx context.Context, relayID string) (fleet.Relay, error)
 }
 
 // BootstrapRequest is the POST /api/servers body.

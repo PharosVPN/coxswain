@@ -4,6 +4,7 @@
 package api
 
 import (
+	"errors"
 	"net"
 	"net/http"
 
@@ -94,4 +95,48 @@ func (s *Server) handleListRelays(w http.ResponseWriter, r *http.Request) {
 		views = append(views, s.relayView(rl, available))
 	}
 	writeJSON(w, http.StatusOK, views)
+}
+
+// handleDeleteRelay removes a relay from the fleet (the dashboard's Remove
+// action). Like node removal, this drops coxswain's record; it does not uninstall
+// the remote agent.
+func (s *Server) handleDeleteRelay(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := fleet.DeleteRelay(r.Context(), s.db, id)
+	if errors.Is(err, fleet.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "relay not found")
+		return
+	}
+	if err != nil {
+		s.audited(r, "relay.rm", "relay", id, nil, err)
+		writeError(w, http.StatusInternalServerError, "failed to delete relay")
+		return
+	}
+	s.audited(r, "relay.rm", "relay", id, nil, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUpdateRelayAgent re-installs the configured relay binary on a remote
+// relay in place — the dashboard's Update action. Returns the refreshed relay.
+func (s *Server) handleUpdateRelayAgent(w http.ResponseWriter, r *http.Request) {
+	if s.deployer == nil {
+		writeError(w, http.StatusServiceUnavailable, "component deploy unavailable")
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := fleet.GetRelay(r.Context(), s.db, id); errors.Is(err, fleet.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "relay not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load relay")
+		return
+	}
+	updated, err := s.deployer.UpdateRelayAgent(r.Context(), id)
+	if err != nil {
+		s.audited(r, "relay.update-agent", "relay", id, nil, err)
+		writeError(w, http.StatusBadGateway, "update failed: "+err.Error())
+		return
+	}
+	s.audited(r, "relay.update-agent", "relay", id, map[string]any{"agent_version": updated.AgentVersion}, nil)
+	writeJSON(w, http.StatusOK, s.relayView(updated, s.availableRelayVersion()))
 }
