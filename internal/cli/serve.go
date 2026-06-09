@@ -113,11 +113,20 @@ func newServeCmd() *cobra.Command {
 			// Resolve server locations from their IPs (auto-region). The mmdb is
 			// large + licensed, so it's loaded from a path, not embedded; absent
 			// is fine — the UI falls back to its region-code map.
+			// MaxMind GeoLite2 (BYO, if the admin has a license) is preferred for
+			// accuracy; the redistributable DB-IP City Lite (CC-BY, fetched by
+			// `cox geoip update`) is the shippable default. Absent both, the UI
+			// falls back to its region-code map.
 			geo := geoip.Open(cfg.GeoIPDatabase,
-				filepath.Join(cfg.StateDir, "GeoLite2-City.mmdb"), "GeoLite2-City.mmdb")
+				filepath.Join(cfg.StateDir, "GeoLite2-City.mmdb"), "GeoLite2-City.mmdb",
+				filepath.Join(cfg.StateDir, "dbip-city-lite.mmdb"), "dbip-city-lite.mmdb")
 			defer geo.Close()
 			if geo.Available() {
-				fmt.Println("  geoip:   GeoLite2-City loaded — server regions auto-resolved")
+				if a := geo.Attribution(); a.Text != "" {
+					fmt.Printf("  geoip:   %s loaded — %s (%s)\n", geo.Source(), a.Text, a.URL)
+				} else {
+					fmt.Printf("  geoip:   %s loaded\n", geo.Source())
+				}
 			}
 
 			// The controller's public IP places it on the map (best-effort; an

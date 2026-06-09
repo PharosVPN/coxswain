@@ -56,6 +56,24 @@ func (s *Server) locate(host string) *geoip.Location {
 	return nil
 }
 
+// handleGeoIP reports the active IP-geolocation source and the attribution its
+// license requires, so the UI can credit it on the map (DB-IP Lite and MaxMind
+// GeoLite2 both require visible attribution). Empty when no database is loaded —
+// the UI then uses its region-code map and shows no credit.
+func (s *Server) handleGeoIP(w http.ResponseWriter, r *http.Request) {
+	resp := struct {
+		Available   bool              `json:"available"`
+		Source      string            `json:"source"`
+		Attribution geoip.Attribution `json:"attribution"`
+	}{}
+	if s.geo != nil {
+		resp.Available = s.geo.Available()
+		resp.Source = s.geo.Source()
+		resp.Attribution = s.geo.Attribution()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // Deployer onboards servers (machines) and deploys node/relay roles onto them.
 // It is implemented in the CLI layer (serve.go), which holds the CA, SSH
 // identity, and egress dialer the API package deliberately doesn't import.

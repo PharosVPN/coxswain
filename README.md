@@ -71,6 +71,21 @@ Go · SQLite by default, optional pure-Go Postgres (pgx, selected by DSN) · gRP
 over mTLS · embedded SvelteKit 2 / Svelte 5 dashboard · SSH-based `node` agent
 onboarding. One static binary (`CGO_ENABLED=0`, pure-Go incl. SQLite).
 
+## Map locations (optional GeoIP)
+
+The dashboard map places each host by city. This is best-effort and **needs no
+database**: without one, hosts are pinned from their cloud-region code (set per
+node in the UI, or auto-derived), and you can override a node's region by hand.
+
+For city-level accuracy, load an MMDB database — coxswain prefers them in this
+order, falling back to the region map:
+
+1. **MaxMind GeoLite2-City** — bring your own (set `node.geoip_db`). Used under
+   MaxMind's GeoLite2 EULA; not shipped by this project.
+2. **DB-IP IP-to-City Lite** — run `cox geoip update` to fetch it into the state
+   dir. Free and redistributable under **CC BY 4.0**; coxswain shows the required
+   "IP Geolocation by DB-IP" credit on the map while it's in use. See [`NOTICE`](NOTICE).
+
 ## Status
 
 Pre-alpha platform; the controller is the most mature component. The always-on

@@ -167,6 +167,9 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 
 	// The controller itself — its public IP + resolved location, for the map.
 	mux.HandleFunc("GET /api/self", readonly(s.handleSelf))
+	// Active IP-geolocation source + the attribution its license requires (the UI
+	// credits it on the map; empty = region-map fallback).
+	mux.HandleFunc("GET /api/geoip", readonly(s.handleGeoIP))
 
 	// Servers — machines cox owns; onboard by key or password, then deploy roles.
 	mux.HandleFunc("GET /api/ssh-key", readonly(s.handleSSHKey))

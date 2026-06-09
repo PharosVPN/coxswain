@@ -19,6 +19,8 @@
 	let relays = $state<Relay[]>([]);
 	let paths = $state<Path[]>([]);
 	let controller = $state<Self | null>(null);
+	// Attribution the active IP-geolocation DB's license requires, shown on the map.
+	let geoCredit = $state<{ text: string; url: string } | null>(null);
 	let loading = $state(true);
 	let loadError = $state('');
 
@@ -87,6 +89,13 @@
 				relays = [];
 				paths = [];
 				controller = null;
+			}
+			// The geo-source credit is best-effort (older controllers lack the route).
+			try {
+				const g = await api.get<{ attribution: { text: string; url: string } }>('/api/geoip');
+				geoCredit = g.attribution?.text ? g.attribution : null;
+			} catch {
+				geoCredit = null;
 			}
 		} catch (e) {
 			loadError = errorMessage(e);
@@ -210,6 +219,9 @@
 {#if !loading && !loadError}
 	<div class="mt-6">
 		<FleetMap {nodes} {relays} {paths} {controller} selectedKey={editing?.public_ip ?? ''} onselect={selectSite} />
+		{#if geoCredit}
+			<p class="geo-credit"><a href={geoCredit.url} target="_blank" rel="noopener noreferrer">{geoCredit.text}</a></p>
+		{/if}
 	</div>
 {/if}
 
@@ -440,6 +452,19 @@
 {/if}
 
 <style>
+	.geo-credit {
+		margin-top: 6px;
+		text-align: right;
+		font-size: 11px;
+		color: var(--c-gray-300);
+	}
+	.geo-credit a {
+		color: inherit;
+		text-decoration: none;
+	}
+	.geo-credit a:hover {
+		text-decoration: underline;
+	}
 	.toggle-row {
 		display: flex;
 		align-items: center;

@@ -42,6 +42,7 @@ func newRootCmd() *cobra.Command {
 		newTokensCmd(),
 		newAuditCmd(),
 		newAlertsCmd(),
+		newGeoIPCmd(),
 		newServeCmd(),
 		newVersionCmd(),
 	)

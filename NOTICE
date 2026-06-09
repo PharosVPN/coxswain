@@ -1,0 +1,26 @@
+coxswain (PharosVPN controller)
+Copyright (C) 2026 The PharosVPN Authors
+
+Licensed under the Apache License, Version 2.0 (the "LICENSE" file).
+
+================================================================================
+Third-party data attributions
+================================================================================
+
+IP geolocation (optional, for placing fleet hosts on the admin map)
+
+coxswain can resolve a host's IP to a city using one of two interchangeable
+MMDB databases. Neither is bundled in this repository; each is obtained by the
+operator and loaded at runtime. coxswain displays the required attribution on
+the map whenever a database is in use.
+
+  • DB-IP IP-to-City Lite — the redistributable default, fetched with
+    `cox geoip update`. Licensed under the Creative Commons Attribution 4.0
+    International License (CC BY 4.0).
+        IP Geolocation by DB-IP — https://db-ip.com
+
+  • MaxMind GeoLite2-City — optional, operator-supplied (node.geoip_db). Used
+    under the MaxMind GeoLite2 End User License Agreement; not redistributed
+    by this project.
+        This product includes GeoLite2 data created by MaxMind, available from
+        https://www.maxmind.com

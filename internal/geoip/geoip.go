@@ -10,6 +10,7 @@ package geoip
 
 import (
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/oschwald/geoip2-golang"
@@ -24,16 +25,26 @@ type Location struct {
 	Longitude   float64 `json:"longitude"`
 }
 
-// Resolver looks up IP locations against an open GeoLite2-City database. A nil
-// or unavailable Resolver is safe to use — Lookup just returns ok=false.
-type Resolver struct {
-	mu sync.RWMutex
-	db *geoip2.Reader
+// Attribution is the credit a database's license requires the product to show
+// wherever it displays lookup results (empty when none is loaded). DB-IP Lite
+// (CC-BY-4.0) and MaxMind GeoLite2's EULA both mandate visible attribution.
+type Attribution struct {
+	Text string `json:"text"`
+	URL  string `json:"url"`
 }
 
-// Open returns a Resolver backed by the first readable GeoLite2-City.mmdb among
-// paths (empty paths are skipped). It never errors: if none open, the Resolver
-// is unavailable and Lookup reports ok=false.
+// Resolver looks up IP locations against an open City database (MaxMind GeoLite2
+// or DB-IP City Lite — both MMDB). A nil or unavailable Resolver is safe to use:
+// Lookup just returns ok=false.
+type Resolver struct {
+	mu     sync.RWMutex
+	db     *geoip2.Reader
+	source string // the DB's metadata DatabaseType, e.g. "GeoLite2-City" / "DBIP-City-Lite"
+}
+
+// Open returns a Resolver backed by the first readable City MMDB among paths
+// (empty paths are skipped). It never errors: if none open, the Resolver is
+// unavailable and Lookup reports ok=false.
 func Open(paths ...string) *Resolver {
 	r := &Resolver{}
 	for _, p := range paths {
@@ -42,10 +53,38 @@ func Open(paths ...string) *Resolver {
 		}
 		if db, err := geoip2.Open(p); err == nil {
 			r.db = db
+			r.source = db.Metadata().DatabaseType
 			break
 		}
 	}
 	return r
+}
+
+// Source reports the loaded database's MMDB DatabaseType, or "" when none.
+func (r *Resolver) Source() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.source
+}
+
+// Attribution returns the credit the loaded database's license requires (empty
+// when none is loaded). The product must display it wherever it shows results;
+// the API hands it to the UI, which renders it on the map.
+func (r *Resolver) Attribution() Attribution {
+	src := strings.ToLower(r.Source())
+	switch {
+	case src == "":
+		return Attribution{}
+	case strings.Contains(src, "dbip") || strings.Contains(src, "db-ip"):
+		return Attribution{Text: "IP Geolocation by DB-IP", URL: "https://db-ip.com"}
+	case strings.Contains(src, "geolite") || strings.Contains(src, "geoip"):
+		return Attribution{Text: "GeoLite2 data created by MaxMind", URL: "https://www.maxmind.com"}
+	default:
+		return Attribution{}
+	}
 }
 
 // Available reports whether a database is loaded.
