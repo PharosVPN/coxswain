@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/agentver"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/netpolicy"
@@ -17,44 +18,53 @@ import (
 
 // nodeView is the API representation of a fleet node.
 type nodeView struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Region       string          `json:"region"`
-	Status       string          `json:"status"`
-	PublicIP     string          `json:"public_ip"`
-	SSHHost      string          `json:"ssh_host"`
-	ControlAddr  string          `json:"control_addr"`
-	AgentVersion string          `json:"agent_version"`
-	EndpointIPs  []string        `json:"endpoint_ips"`
-	Forwarding   bool            `json:"forwarding"`
-	Masquerade   bool            `json:"masquerade"`
-	Isolation    bool            `json:"isolation"`
-	ServerID     string          `json:"server_id"`
-	Location     *geoip.Location `json:"location,omitempty"`
-	Version      int             `json:"version"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Region       string `json:"region"`
+	Status       string `json:"status"`
+	PublicIP     string `json:"public_ip"`
+	SSHHost      string `json:"ssh_host"`
+	ControlAddr  string `json:"control_addr"`
+	AgentVersion string `json:"agent_version"`
+	// VersionDisplay is the human-friendly deployed version; AvailableVersion is
+	// the configured candidate binary's version (both via agentver.Display, "" =
+	// unknown); UpdateAvailable is true only when the candidate is strictly newer.
+	VersionDisplay   string          `json:"version_display"`
+	AvailableVersion string          `json:"available_version"`
+	UpdateAvailable  bool            `json:"update_available"`
+	EndpointIPs      []string        `json:"endpoint_ips"`
+	Forwarding       bool            `json:"forwarding"`
+	Masquerade       bool            `json:"masquerade"`
+	Isolation        bool            `json:"isolation"`
+	ServerID         string          `json:"server_id"`
+	Location         *geoip.Location `json:"location,omitempty"`
+	Version          int             `json:"version"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
-func (s *Server) nodeView(n fleet.Node) nodeView {
+func (s *Server) nodeView(n fleet.Node, available string) nodeView {
 	return nodeView{
-		ID:           n.ID,
-		Name:         n.Name,
-		Region:       n.Region,
-		Status:       n.Status,
-		PublicIP:     n.PublicIP,
-		SSHHost:      n.SSHHost,
-		ControlAddr:  n.ControlAddr,
-		AgentVersion: n.AgentVersion,
-		EndpointIPs:  n.EndpointIPs,
-		Forwarding:   n.Forwarding,
-		Masquerade:   n.Masquerade,
-		Isolation:    n.Isolation,
-		ServerID:     n.ServerID,
-		Location:     s.locate(n.PublicIP),
-		Version:      n.Version,
-		CreatedAt:    n.CreatedAt,
-		UpdatedAt:    n.UpdatedAt,
+		ID:               n.ID,
+		Name:             n.Name,
+		Region:           n.Region,
+		Status:           n.Status,
+		PublicIP:         n.PublicIP,
+		SSHHost:          n.SSHHost,
+		ControlAddr:      n.ControlAddr,
+		AgentVersion:     n.AgentVersion,
+		VersionDisplay:   agentver.Display(n.AgentVersion),
+		AvailableVersion: agentver.Display(available),
+		UpdateAvailable:  agentver.UpdateAvailable(n.AgentVersion, available),
+		EndpointIPs:      n.EndpointIPs,
+		Forwarding:       n.Forwarding,
+		Masquerade:       n.Masquerade,
+		Isolation:        n.Isolation,
+		ServerID:         n.ServerID,
+		Location:         s.locate(n.PublicIP),
+		Version:          n.Version,
+		CreatedAt:        n.CreatedAt,
+		UpdatedAt:        n.UpdatedAt,
 	}
 }
 
@@ -64,9 +74,10 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list nodes")
 		return
 	}
+	available := s.availableNodeVersion()
 	views := make([]nodeView, 0, len(nodes))
 	for _, n := range nodes {
-		views = append(views, s.nodeView(n))
+		views = append(views, s.nodeView(n, available))
 	}
 	writeJSON(w, http.StatusOK, views)
 }
@@ -81,7 +92,7 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load node")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.nodeView(n))
+	writeJSON(w, http.StatusOK, s.nodeView(n, s.availableNodeVersion()))
 }
 
 // handlePushNode reconciles a node — delivers coxswain's current peer set over
@@ -203,7 +214,7 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audited(r, "node.update", "node", updated.ID, map[string]any{"name": updated.Name}, nil)
-	writeJSON(w, http.StatusOK, s.nodeView(updated))
+	writeJSON(w, http.StatusOK, s.nodeView(updated, s.availableNodeVersion()))
 }
 
 func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {

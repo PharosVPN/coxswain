@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PharosVPN/coxswain/internal/agentver"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/idgen"
 	"github.com/PharosVPN/coxswain/internal/pki"
@@ -215,7 +216,7 @@ func onboard(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundle, 
 		return AddResult{}, fmt.Errorf("deploy: start node service: %w", err)
 	}
 
-	agentVersion := readVersion(ctx, remote, cmdVersion)
+	agentVersion := resolveAgentVersion(ctx, remote, p.Install, cmdVersion)
 
 	node.ControlAddr = net.JoinHostPort(p.SSHHost, strconv.Itoa(ControlPort))
 	node.AgentVersion = agentVersion
@@ -239,7 +240,7 @@ func UpdateAgent(ctx context.Context, db *sql.DB, remote Remote, node fleet.Node
 	if _, err := remote.Run(ctx, "systemctl restart node", nil); err != nil {
 		return fleet.Node{}, fmt.Errorf("deploy: restart node: %w", err)
 	}
-	node.AgentVersion = readVersion(ctx, remote, cmdVersion)
+	node.AgentVersion = resolveAgentVersion(ctx, remote, spec, cmdVersion)
 	return fleet.UpdateNode(ctx, db, node)
 }
 
@@ -288,6 +289,19 @@ func installBinary(ctx context.Context, remote Remote, spec InstallSpec, binaryP
 		return fmt.Errorf("deploy: install binary: %w", err)
 	}
 	return nil
+}
+
+// resolveAgentVersion determines the version of the agent just installed. It
+// prefers the build version embedded in the binary coxswain uploaded (read from
+// the bytes — accurate, and produced the same way as the "available" version of
+// the configured candidate binary, so the two compare cleanly). It falls back to
+// whatever the running agent reports via its `version` subcommand when coxswain
+// installed from a URL and so has no local bytes to inspect.
+func resolveAgentVersion(ctx context.Context, remote Remote, spec InstallSpec, versionCmd string) string {
+	if v := agentver.FromBinary(spec.Binary); v != "" {
+		return v
+	}
+	return readVersion(ctx, remote, versionCmd)
 }
 
 // readVersion best-effort reads an installed agent's version via versionCmd.

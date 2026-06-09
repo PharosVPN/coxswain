@@ -164,6 +164,9 @@ func newServeCmd() *cobra.Command {
 			// The public relay endpoint baked into enrollment invites (the join-link
 			// + QR the user scans). Empty leaves the invite route returning 409.
 			srv.SetRelayEndpoint(cfg.Relay.PublicEndpoint)
+			// The configured candidate binaries back the components API's available
+			// version + Update-when-newer offer. Empty paths leave it unknown.
+			srv.SetAgentBinaries(cfg.Node.BinaryPath, cfg.Relay.BinaryPath)
 			// The node-push primitive backs the reconcile route + push-on-provision.
 			// cli owns the config + routed dialers, so it supplies the closure.
 			cfgCopy := cfg

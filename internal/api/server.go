@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PharosVPN/coxswain/internal/agentver"
 	"github.com/PharosVPN/coxswain/internal/authn"
 	"github.com/PharosVPN/coxswain/internal/geoip"
 	"github.com/PharosVPN/coxswain/internal/live"
@@ -34,21 +35,38 @@ type NodePusher func(ctx context.Context, nodeID string) (any, error)
 
 // Server is the admin HTTP server.
 type Server struct {
-	db             *sql.DB
-	hub            *live.Hub
-	provOpts       provision.Options
-	deployer       Deployer
-	paths          PathCoordinator
-	geo            *geoip.Resolver
-	controllerHost string
-	pusher         NodePusher
-	backend        string          // state-store kind ("sqlite"|"postgres"); drives the analytics warning
-	drops          DropCounter     // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
-	siemDrops      SIEMDropCounter // SIEM slow-consumer drop counter (nil = listener disabled)
-	behindTLSProxy bool            // trust X-Forwarded-Proto for the cookie Secure attribute
-	relayEndpoint  string          // public relay endpoint baked into enrollment invites (empty = invites disabled)
-	http           *http.Server
+	db              *sql.DB
+	hub             *live.Hub
+	provOpts        provision.Options
+	deployer        Deployer
+	paths           PathCoordinator
+	geo             *geoip.Resolver
+	controllerHost  string
+	pusher          NodePusher
+	backend         string          // state-store kind ("sqlite"|"postgres"); drives the analytics warning
+	drops           DropCounter     // ingest-loss counter surfaced by /api/analytics/status (nil = unknown)
+	siemDrops       SIEMDropCounter // SIEM slow-consumer drop counter (nil = listener disabled)
+	behindTLSProxy  bool            // trust X-Forwarded-Proto for the cookie Secure attribute
+	relayEndpoint   string          // public relay endpoint baked into enrollment invites (empty = invites disabled)
+	nodeBinaryPath  string          // configured node.binary_path — the candidate the "available" node version is read from (empty = unknown)
+	relayBinaryPath string          // configured relay.binary_path — the candidate the "available" relay version is read from (empty = unknown)
+	http            *http.Server
 }
+
+// SetAgentBinaries records the configured candidate binary paths
+// (node.binary_path / relay.binary_path) so the components API can report each
+// agent's available version and whether an update is offered. Call before Run;
+// an empty path leaves that component's available version unknown (no Update
+// prompt). The files are read on demand, so swapping a binary on disk is picked
+// up without restarting coxswain.
+func (s *Server) SetAgentBinaries(nodePath, relayPath string) {
+	s.nodeBinaryPath, s.relayBinaryPath = nodePath, relayPath
+}
+
+// availableNodeVersion / availableRelayVersion read the configured candidate
+// binary's build version (or "" when none is configured / unreadable).
+func (s *Server) availableNodeVersion() string  { return agentver.FromFile(s.nodeBinaryPath) }
+func (s *Server) availableRelayVersion() string { return agentver.FromFile(s.relayBinaryPath) }
 
 // SetRelayEndpoint records the public relay endpoint enrollment invites embed in
 // their join-link/QR (the address the claimed device syncs through). Call before

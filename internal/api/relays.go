@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/PharosVPN/coxswain/internal/agentver"
 	"github.com/PharosVPN/coxswain/internal/fleet"
 	"github.com/PharosVPN/coxswain/internal/geoip"
 )
@@ -20,6 +21,14 @@ type relayView struct {
 	Kind   string `json:"kind"`
 	Region string `json:"region"`
 	Status string `json:"status"`
+	// AgentVersion is the relay build deployed on this relay (mirrors the node
+	// view). Empty for the embedded relay and until first recorded. VersionDisplay
+	// / AvailableVersion are the human forms; UpdateAvailable is true only when the
+	// configured candidate relay binary is strictly newer than the deployed build.
+	AgentVersion     string `json:"agent_version"`
+	VersionDisplay   string `json:"version_display"`
+	AvailableVersion string `json:"available_version"`
+	UpdateAvailable  bool   `json:"update_available"`
 	// Host is the relay's IP/hostname (the endpoint minus its port), so the map
 	// can merge a relay onto a node that shares the same box.
 	Host string `json:"host"`
@@ -53,19 +62,23 @@ func relayHost(r fleet.Relay) string {
 	return ""
 }
 
-func (s *Server) relayView(r fleet.Relay) relayView {
+func (s *Server) relayView(r fleet.Relay, available string) relayView {
 	return relayView{
-		ID:        r.ID,
-		Name:      r.Name,
-		Kind:      r.Kind,
-		Region:    r.Region,
-		Status:    r.Status,
-		Host:      relayHost(r),
-		Egress:    r.EgressEndpoint != "",
-		EgressHop: r.EgressHop,
-		Onion:     r.OnionEndpoint != "" && r.OnionPubKey != "",
-		ServerID:  r.ServerID,
-		Location:  s.locate(relayHost(r)),
+		ID:               r.ID,
+		Name:             r.Name,
+		Kind:             r.Kind,
+		Region:           r.Region,
+		Status:           r.Status,
+		AgentVersion:     r.AgentVersion,
+		VersionDisplay:   agentver.Display(r.AgentVersion),
+		AvailableVersion: agentver.Display(available),
+		UpdateAvailable:  agentver.UpdateAvailable(r.AgentVersion, available),
+		Host:             relayHost(r),
+		Egress:           r.EgressEndpoint != "",
+		EgressHop:        r.EgressHop,
+		Onion:            r.OnionEndpoint != "" && r.OnionPubKey != "",
+		ServerID:         r.ServerID,
+		Location:         s.locate(relayHost(r)),
 	}
 }
 
@@ -75,9 +88,10 @@ func (s *Server) handleListRelays(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list relays")
 		return
 	}
+	available := s.availableRelayVersion()
 	views := make([]relayView, 0, len(relays))
 	for _, rl := range relays {
-		views = append(views, s.relayView(rl))
+		views = append(views, s.relayView(rl, available))
 	}
 	writeJSON(w, http.StatusOK, views)
 }

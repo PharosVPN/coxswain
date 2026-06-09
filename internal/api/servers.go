@@ -279,7 +279,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audited(r, "node.add", "node", node.ID, map[string]any{"name": node.Name, "server_id": id}, nil)
-		writeJSON(w, http.StatusCreated, s.nodeView(node))
+		writeJSON(w, http.StatusCreated, s.nodeView(node, s.availableNodeVersion()))
 	case "relay":
 		relay, err := s.deployer.DeployRelay(r.Context(), id, RelayDeployRequest{
 			Name:       req.Name,
@@ -295,7 +295,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audited(r, "relay.add", "relay", relay.ID, map[string]any{"name": relay.Name, "server_id": id}, nil)
-		writeJSON(w, http.StatusCreated, s.relayView(relay))
+		writeJSON(w, http.StatusCreated, s.relayView(relay, s.availableRelayVersion()))
 	default:
 		writeError(w, http.StatusBadRequest, "role must be \"node\" or \"relay\"")
 	}

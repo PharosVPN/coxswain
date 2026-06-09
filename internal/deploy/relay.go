@@ -264,9 +264,10 @@ func enrolRelay(ctx context.Context, db *sql.DB, remote Remote, bundle pki.Bundl
 		relay.OnionEndpoint = p.OnionEndpoint
 	}
 
-	agentVersion := readVersion(ctx, remote, cmdRelayVersion)
+	agentVersion := resolveAgentVersion(ctx, remote, p.Install, cmdRelayVersion)
 
 	relay.Status = fleet.StatusActive
+	relay.AgentVersion = agentVersion
 	updated, err := fleet.UpdateRelay(ctx, db, *relay)
 	if err != nil {
 		return RelayResult{}, err
