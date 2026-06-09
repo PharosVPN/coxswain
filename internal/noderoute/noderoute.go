@@ -198,35 +198,20 @@ func chainTunnel(ctx context.Context, conn *sql.DB, chain []fleet.Relay) (*egres
 	return egress.NewChain(hops)
 }
 
-// ServerRoute returns a server's provision route (ordered relay-id hops), or nil
-// (direct) for the empty server id or a missing server.
-func ServerRoute(ctx context.Context, conn *sql.DB, serverID string) []string {
-	if serverID == "" {
-		return nil
-	}
-	if s, err := fleet.GetServer(ctx, conn, serverID); err == nil {
-		return s.Route
-	}
-	return nil
+// NodeRoute returns the route coxswain reaches a node's control plane through —
+// the fleet-wide ACTIVE control path's relay hops, or nil (direct) when none is
+// active. The route no longer depends on which server the node was deployed onto:
+// control paths are first-class and swappable (DESIGN §3), so changing the active
+// path reroutes the whole control plane at once, no re-onboard. The node arg is
+// retained so call sites read naturally and a future per-node override can slot
+// in here.
+func NodeRoute(ctx context.Context, conn *sql.DB, _ fleet.Node) []string {
+	return fleet.ActiveControlPathHops(ctx, conn)
 }
 
-// NodeRoute returns the route coxswain reaches a node through — its server's
-// route, or nil (direct) for a node with no server.
-func NodeRoute(ctx context.Context, conn *sql.DB, node fleet.Node) []string {
-	return ServerRoute(ctx, conn, node.ServerID)
-}
-
-// RouteForControlAddr maps a node's control address to its server's route, for
-// per-target control-plane dialing. An unknown address yields nil (direct).
-func RouteForControlAddr(ctx context.Context, conn *sql.DB, addr string) []string {
-	nodes, err := fleet.ListNodes(ctx, conn)
-	if err != nil {
-		return nil
-	}
-	for _, n := range nodes {
-		if n.ControlAddr == addr {
-			return ServerRoute(ctx, conn, n.ServerID)
-		}
-	}
-	return nil
+// RouteForControlAddr returns the control-plane route for any node's control
+// address — the active control path. It is address-independent today (one
+// fleet-wide active path); the arg is kept for the per-target dialer contract.
+func RouteForControlAddr(ctx context.Context, conn *sql.DB, _ string) []string {
+	return fleet.ActiveControlPathHops(ctx, conn)
 }
