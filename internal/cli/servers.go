@@ -78,8 +78,9 @@ func newServersAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Direct by default; --via routes the onboard (and this server's later
-			// deploy/RPC dials) through the named relay hops.
+			// Direct by default; --via routes only THIS onboard SSH through the named
+			// relay hops. The route is transient — not stored on the server (control
+			// routing uses the active control path; later deploys pass their own --via).
 			route := splitCSV(via)
 			dialer, err := egressDialerForRoute(ctx, conn, route)
 			if err != nil {
@@ -93,7 +94,6 @@ func newServersAddCmd() *cobra.Command {
 				User:     user,
 				Port:     port,
 				Password: password,
-				Route:    route,
 				Dialer:   dialer,
 			})
 			if err != nil {
@@ -106,7 +106,7 @@ func newServersAddCmd() *cobra.Command {
 			fmt.Printf("  server id   %s\n", srv.ID)
 			fmt.Printf("  ssh         %s@%s:%d\n", srv.SSHUser, srv.SSHHost, srv.SSHPort)
 			fmt.Printf("  region      %s\n", dash(srv.Region))
-			fmt.Printf("  route       %s\n", routeLabel(srv.Route))
+			fmt.Printf("  onboard via %s\n", routeLabel(route))
 			fmt.Printf("  status      %s\n", srv.Status)
 			fmt.Printf("  cox's SSH key is installed; deploy a role with `cox nodes add --server %s`\n", srv.ID)
 			return nil
@@ -119,7 +119,7 @@ func newServersAddCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "SSH port (defaults to node.ssh_port)")
 	cmd.Flags().StringVar(&password, "password", "", "one-time SSH password (prompted if omitted; never stored)")
 	cmd.Flags().BoolVar(&useKey, "key", false, "use coxswain's SSH key (already installed on the host) instead of a password")
-	cmd.Flags().StringVar(&via, "via", "", "ordered relay-id hops to route this server through, comma-separated (empty = direct)")
+	cmd.Flags().StringVar(&via, "via", "", "transient relay-id hops to SSH this onboard through, comma-separated (not stored; empty = direct)")
 	return cmd
 }
 
@@ -149,14 +149,14 @@ func newServersListCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tNAME\tREGION\tSTATUS\tSSH-HOST\tROUTE\tSELF")
+			fmt.Fprintln(tw, "ID\tNAME\tREGION\tSTATUS\tSSH-HOST\tSELF")
 			for _, s := range servers {
 				self := ""
 				if s.IsSelf {
 					self = "yes"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					s.ID, dash(s.Name), dash(s.Region), s.Status, dash(s.SSHHost), routeLabel(s.Route), self)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					s.ID, dash(s.Name), dash(s.Region), s.Status, dash(s.SSHHost), self)
 			}
 			return tw.Flush()
 		},

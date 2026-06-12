@@ -68,10 +68,6 @@
 		if (!r) return id;
 		return `${r.name || r.host} (${r.onion ? 'onion' : 'egress'})`;
 	}
-	function routeText(route: string[]): string {
-		if (!route || route.length === 0) return 'direct';
-		return 'via ' + route.map(relayLabel).join(' → ');
-	}
 
 	function statusBadge(s: string): string {
 		if (s === 'active') return 'badge-success';
@@ -163,39 +159,6 @@
 		addBusy = false;
 	}
 
-	// ───────── Edit route (re-route an existing server) ─────────
-	let editingRoute = $state<Server | null>(null);
-	let erRoute = $state<string[]>([]);
-	let erPick = $state('');
-	let erBusy = $state(false);
-	let erError = $state('');
-
-	function openEditRoute(s: Server) {
-		editingRoute = s;
-		erRoute = [...(s.route ?? [])];
-		erPick = '';
-		erError = '';
-	}
-	function addErHop() {
-		if (erPick && erRoute.length < MAX_ROUTE_HOPS && !erRoute.includes(erPick)) {
-			erRoute = [...erRoute, erPick];
-			erPick = '';
-		}
-	}
-	async function submitEditRoute() {
-		if (!editingRoute) return;
-		erBusy = true;
-		erError = '';
-		try {
-			await api.patch(`/api/servers/${editingRoute.id}/route`, { route: erRoute });
-			editingRoute = null;
-			await load();
-		} catch (e) {
-			erError = errorMessage(e);
-		}
-		erBusy = false;
-	}
-
 	// ───────── Deploy a component onto a server ─────────
 	let deployFor = $state<Server | null>(null);
 	let deployRole = $state<'node' | 'relay'>('node');
@@ -204,6 +167,9 @@
 	let deployOnion = $state(true);
 	let deployBusy = $state(false);
 	let deployError = $state('');
+	// Transient per-deploy SSH route (relay hops, empty = direct) — not stored.
+	let deployRoute = $state<string[]>([]);
+	let deployRoutePick = $state('');
 
 	// A server hosts at most one node and one relay; offer only the roles it
 	// doesn't already have so "Deploy component" never re-offers a deployed role.
@@ -219,7 +185,16 @@
 		deployRegion = s.region;
 		deployEgress = true;
 		deployOnion = true;
+		deployRoute = [];
+		deployRoutePick = '';
 		deployError = '';
+	}
+
+	function addDeployHop() {
+		if (deployRoutePick && deployRoute.length < MAX_ROUTE_HOPS && !deployRoute.includes(deployRoutePick)) {
+			deployRoute = [...deployRoute, deployRoutePick];
+			deployRoutePick = '';
+		}
 	}
 
 	async function submitDeploy() {
@@ -227,7 +202,7 @@
 		deployBusy = true;
 		deployError = '';
 		try {
-			const body: Record<string, unknown> = { role: deployRole, region: deployRegion };
+			const body: Record<string, unknown> = { role: deployRole, region: deployRegion, route: deployRoute };
 			if (deployRole === 'relay') {
 				body.egress = deployEgress;
 				body.onion = deployOnion;
@@ -344,9 +319,6 @@
 						<div class="mt-1 text-sm text-ink-3">
 							<span class="tnum">{c.server.ssh_host}</span>{#if locLabel(c.server)} · {locLabel(c.server)}{/if}
 						</div>
-						{#if !c.server.is_self}
-							<div class="mt-1 text-xs text-ink-3">Route: {routeText(c.server.route)}</div>
-						{/if}
 					</div>
 					<div class="flex flex-none gap-2">
 						<button
@@ -356,7 +328,6 @@
 							onclick={() => openDeploy(c.server)}>Deploy component</button>
 
 						{#if !c.server.is_self}
-							<button class="btn btn-text btn-sm" onclick={() => openEditRoute(c.server)}>Route</button>
 							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; }}>Remove</button>
 						{/if}
 					</div>
@@ -453,10 +424,11 @@
 		{/if}
 		<p class="mt-3 text-xs text-ink-3">The region is resolved automatically from the IP — no need to type it.</p>
 
-		<p class="overline mt-5">Route</p>
+		<p class="overline mt-5">Route (this onboard only)</p>
 		<p class="text-xs text-ink-3">
-			How coxswain reaches this machine. <b>Direct</b> (default): your controller dials it itself.
-			Add relay hops to reach it through them — the machine then never sees the controller.
+			How coxswain SSHes in to onboard this machine. <b>Direct</b> (default): your controller dials
+			it itself. Add relay hops to reach it through them so it never sees the controller. Transient —
+			not saved; later deploys pick their own route.
 		</p>
 		<div class="mt-2 flex flex-col gap-2">
 			{#each sRoute as id, i (id)}
@@ -521,6 +493,34 @@
 				<Switch checked={deployOnion} />
 			</button>
 		{/if}
+		{#if !deployFor.is_self}
+			<p class="overline mt-4">Route (this deploy only)</p>
+			<p class="text-xs text-ink-3">
+				How coxswain SSHes in for this deploy. <b>Direct</b> by default; add relay hops to reach the
+				host through them. Transient — not saved on the server.
+			</p>
+			<div class="mt-2 flex flex-col gap-2">
+				{#each deployRoute as id, i (id)}
+					<div class="hop-row">
+						<span class="hop-kind">Hop {i + 1}</span>
+						<span class="hop-name grow">{relayLabel(id)}</span>
+						<button class="icon-btn" aria-label="Remove hop" onclick={() => (deployRoute = deployRoute.filter((_, j) => j !== i))}>✕</button>
+					</div>
+				{/each}
+				{#if deployRoute.length === 0}<div class="text-sm text-ink-3">Direct — no relay hops.</div>{/if}
+			</div>
+			{#if deployRoute.length < MAX_ROUTE_HOPS && routableRelays.filter((r) => !deployRoute.includes(r.id)).length > 0}
+				<div class="mt-2 flex gap-2">
+					<select class="input grow" bind:value={deployRoutePick}>
+						<option value="" disabled>Add a relay hop…</option>
+						{#each routableRelays.filter((r) => !deployRoute.includes(r.id)) as r (r.id)}
+							<option value={r.id}>{r.name || r.host} — {r.region || 'unknown'} ({r.onion ? 'onion' : 'egress'})</option>
+						{/each}
+					</select>
+					<button class="btn btn-secondary" onclick={addDeployHop} disabled={!deployRoutePick}>Add hop</button>
+				</div>
+			{/if}
+		{/if}
 		{#if deployError}<p class="field-error" role="alert">{deployError}</p>{/if}
 		<div class="mt-6 flex justify-end gap-3">
 			<button class="btn btn-secondary" onclick={() => (deployFor = null)}>Cancel</button>
@@ -531,43 +531,6 @@
 	</Modal>
 {/if}
 
-<!-- Edit route -->
-{#if editingRoute}
-	<Modal title="Route to {editingRoute.name || editingRoute.ssh_host}" onclose={() => (editingRoute = null)}>
-		<p class="text-xs text-ink-3">
-			<b>Direct</b>: your controller dials this machine itself (its logs see the controller).
-			Add relay hops to reach it through them instead. Applies to future deploys and the node's control plane.
-		</p>
-		<div class="mt-3 flex flex-col gap-2">
-			{#each erRoute as id, i (id)}
-				<div class="hop-row">
-					<span class="hop-kind">Hop {i + 1}</span>
-					<span class="hop-name grow">{relayLabel(id)}</span>
-					<button class="icon-btn" aria-label="Remove hop" onclick={() => (erRoute = erRoute.filter((_, j) => j !== i))}>✕</button>
-				</div>
-			{/each}
-			{#if erRoute.length === 0}<div class="text-sm text-ink-3">Direct — no relay hops.</div>{/if}
-		</div>
-		{#if erRoute.length < MAX_ROUTE_HOPS && routableRelays.filter((r) => !erRoute.includes(r.id)).length > 0}
-			<div class="mt-2 flex gap-2">
-				<select class="input grow" bind:value={erPick}>
-					<option value="" disabled>Add a relay hop…</option>
-					{#each routableRelays.filter((r) => !erRoute.includes(r.id)) as r (r.id)}
-						<option value={r.id}>{r.name || r.host} — {r.region || 'unknown'} ({r.onion ? 'onion' : 'egress'})</option>
-					{/each}
-				</select>
-				<button class="btn btn-secondary" onclick={addErHop} disabled={!erPick}>Add hop</button>
-			</div>
-		{:else if routableRelays.length === 0}
-			<p class="mt-1 text-xs text-ink-3">No relays to route through yet.</p>
-		{/if}
-		{#if erError}<p class="field-error" role="alert">{erError}</p>{/if}
-		<div class="mt-6 flex justify-end gap-3">
-			<button class="btn btn-secondary" onclick={() => (editingRoute = null)}>Cancel</button>
-			<button class="btn btn-primary" onclick={submitEditRoute} disabled={erBusy}>{erBusy ? 'Saving…' : 'Save route'}</button>
-		</div>
-	</Modal>
-{/if}
 
 <!-- Remove server -->
 {#if removing}

@@ -81,7 +81,10 @@ type Deployer interface {
 	// Bootstrap SSHes in with the one-time password, installs cox's key, and
 	// records the server. The password is used once and never stored.
 	Bootstrap(ctx context.Context, req BootstrapRequest) (fleet.Server, error)
-	DeployNode(ctx context.Context, serverID, name, region string) (fleet.Node, error)
+	// DeployNode / DeployRelay install a role onto a server over SSH. route is a
+	// transient, per-deploy choice (ordered relay-id hops, empty = direct) — it is
+	// used only for this deploy's SSH dial and never persisted on the server.
+	DeployNode(ctx context.Context, serverID, name, region string, route []string) (fleet.Node, error)
 	DeployRelay(ctx context.Context, serverID string, req RelayDeployRequest) (fleet.Relay, error)
 	// UpdateNodeAgent / UpdateRelayAgent re-install the configured component binary
 	// in place (the dashboard's Update action), returning the refreshed record.
@@ -110,6 +113,9 @@ type RelayDeployRequest struct {
 	Onion      bool
 	EgressPort int
 	OnionPort  int
+	// Route is the transient per-deploy SSH route (relay-id hops, empty = direct);
+	// used only for this deploy's dial, never persisted.
+	Route []string
 }
 
 type serverView struct {
@@ -119,7 +125,6 @@ type serverView struct {
 	SSHHost  string          `json:"ssh_host"`
 	IsSelf   bool            `json:"is_self"`
 	Status   string          `json:"status"`
-	Route    []string        `json:"route"`
 	Location *geoip.Location `json:"location,omitempty"`
 	Version  int             `json:"version"`
 }
@@ -132,43 +137,9 @@ func (s *Server) serverView(srv fleet.Server) serverView {
 		SSHHost:  srv.SSHHost,
 		IsSelf:   srv.IsSelf,
 		Status:   srv.Status,
-		Route:    srv.Route,
 		Location: s.locate(srv.SSHHost),
 		Version:  srv.Version,
 	}
-}
-
-// handleSetServerRoute replaces a server's provision route — the ordered relay
-// hops it is reached through (empty = direct) — without re-onboarding. The
-// change applies to subsequent onboard/deploy SSH and node control-plane dials.
-func (s *Server) handleSetServerRoute(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if _, err := fleet.GetServer(r.Context(), s.db, id); errors.Is(err, fleet.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "server not found")
-		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load server")
-		return
-	}
-	var req struct {
-		Route []string `json:"route"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := fleet.SetServerRoute(r.Context(), s.db, id, req.Route); err != nil {
-		s.audited(r, "server.route", "server", id, map[string]any{"route": req.Route, "hops": len(req.Route)}, err)
-		writeError(w, http.StatusInternalServerError, "failed to set route")
-		return
-	}
-	s.audited(r, "server.route", "server", id, map[string]any{"route": req.Route, "hops": len(req.Route)}, nil)
-	srv, err := fleet.GetServer(r.Context(), s.db, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reload server")
-		return
-	}
-	writeJSON(w, http.StatusOK, s.serverView(srv))
 }
 
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
@@ -279,13 +250,14 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Role       string `json:"role"`
-		Name       string `json:"name"`
-		Region     string `json:"region"`
-		Egress     bool   `json:"egress"`
-		Onion      bool   `json:"onion"`
-		EgressPort int    `json:"egress_port"`
-		OnionPort  int    `json:"onion_port"`
+		Role       string   `json:"role"`
+		Name       string   `json:"name"`
+		Region     string   `json:"region"`
+		Egress     bool     `json:"egress"`
+		Onion      bool     `json:"onion"`
+		EgressPort int      `json:"egress_port"`
+		OnionPort  int      `json:"onion_port"`
+		Route      []string `json:"route"` // transient per-deploy SSH route (empty = direct)
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -294,7 +266,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch req.Role {
 	case "node":
-		node, err := s.deployer.DeployNode(r.Context(), id, req.Name, req.Region)
+		node, err := s.deployer.DeployNode(r.Context(), id, req.Name, req.Region, req.Route)
 		if err != nil {
 			s.audited(r, "node.add", "server", id, map[string]any{"name": req.Name, "region": req.Region}, err)
 			writeError(w, http.StatusBadGateway, "deploy node failed: "+err.Error())
@@ -310,6 +282,7 @@ func (s *Server) handleDeployServer(w http.ResponseWriter, r *http.Request) {
 			Onion:      req.Onion,
 			EgressPort: req.EgressPort,
 			OnionPort:  req.OnionPort,
+			Route:      req.Route,
 		})
 		if err != nil {
 			s.audited(r, "relay.add", "server", id, map[string]any{"name": req.Name, "region": req.Region}, err)

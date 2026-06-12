@@ -153,47 +153,6 @@ func TestLogoutWritesAuditRow(t *testing.T) {
 	}
 }
 
-// TestSetServerRouteWritesAuditRow: PATCH /api/servers/{id}/route writes a
-// server.route audit row carrying the new route (HIGH-4).
-func TestSetServerRouteWritesAuditRow(t *testing.T) {
-	ts, client, conn := setup(t)
-	login(t, ts, client)
-
-	srv, err := fleet.CreateServer(context.Background(), conn, fleet.Server{
-		Name: "edge", SSHHost: "10.0.0.9", SSHUser: "root", Status: fleet.StatusActive,
-	})
-	if err != nil {
-		t.Fatalf("seed server: %v", err)
-	}
-
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/servers/"+srv.ID+"/route",
-		strings.NewReader(`{"route":["rel_a","rel_b"]}`))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("patch route: %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("patch route: status %d want 200", resp.StatusCode)
-	}
-
-	records, err := audit.Query(context.Background(), conn, audit.Filter{Action: "server.route"})
-	if err != nil {
-		t.Fatalf("audit query: %v", err)
-	}
-	if len(records) != 1 {
-		t.Fatalf("server.route rows: got %d want 1", len(records))
-	}
-	r := records[0]
-	if r.TargetID != srv.ID || r.Result != audit.ResultOK {
-		t.Errorf("row: %+v", r)
-	}
-	if r.Detail["hops"] == nil {
-		t.Errorf("detail should record the hop count: %+v", r.Detail)
-	}
-}
-
 // fakePushResult JSON-encodes the fields pushDetail extracts.
 type fakePushResult struct {
 	PushedRevision  int64 `json:"PushedRevision"`

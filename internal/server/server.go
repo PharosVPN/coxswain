@@ -27,12 +27,11 @@ type Dialer = func(ctx context.Context, network, addr string) (net.Conn, error)
 type BootstrapParams struct {
 	Name     string // generated from Host if empty
 	Region   string
-	Host     string   // required — IP/hostname to SSH into (and the server's address)
-	User     string   // required — SSH login user
-	Port     int      // 0 means 22
-	Password string   // optional — a one-time password; empty means key auth (cox's key already installed). Never persisted.
-	Route    []string // optional — ordered relay-id hops this server is reached through; empty = direct. Persisted and reused for deploy/RPC.
-	Dialer   Dialer   // optional egress dialer (built from Route by the caller)
+	Host     string // required — IP/hostname to SSH into (and the server's address)
+	User     string // required — SSH login user
+	Port     int    // 0 means 22
+	Password string // optional — a one-time password; empty means key auth (cox's key already installed). Never persisted.
+	Dialer   Dialer // optional egress dialer for a transient onboard route (built by the caller; nil = direct). The route is not stored.
 }
 
 // Bootstrap onboards a raw machine and records it as a Server, by one of two
@@ -99,7 +98,6 @@ func Bootstrap(ctx context.Context, db *sql.DB, identity ssh.Identity, p Bootstr
 		existing.SSHPort = p.Port
 		existing.SSHHostKey = hostKey
 		existing.Status = fleet.StatusActive
-		existing.Route = p.Route
 		if p.Name != "" {
 			existing.Name = p.Name
 		}
@@ -115,7 +113,6 @@ func Bootstrap(ctx context.Context, db *sql.DB, identity ssh.Identity, p Bootstr
 		SSHUser:    p.User,
 		SSHPort:    p.Port,
 		SSHHostKey: hostKey,
-		Route:      p.Route,
 		Status:     fleet.StatusActive,
 	})
 }

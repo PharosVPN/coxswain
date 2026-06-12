@@ -184,7 +184,6 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("POST /api/servers", admin(s.handleCreateServer))
 	mux.HandleFunc("DELETE /api/servers/{id}", admin(s.handleDeleteServer))
 	mux.HandleFunc("POST /api/servers/{id}/deploy", admin(s.handleDeployServer))
-	mux.HandleFunc("PATCH /api/servers/{id}/route", admin(s.handleSetServerRoute))
 
 	// Admins.
 	mux.HandleFunc("GET /api/admins", readonly(s.handleListAdmins))

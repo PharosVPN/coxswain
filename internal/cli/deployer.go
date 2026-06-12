@@ -68,13 +68,12 @@ func (d cliDeployer) Bootstrap(ctx context.Context, req api.BootstrapRequest) (f
 		User:     user,
 		Port:     req.Port,
 		Password: req.Password,
-		Route:    req.Route,
 		Dialer:   dialer,
 	})
 }
 
-func (d cliDeployer) DeployNode(ctx context.Context, serverID, name, region string) (fleet.Node, error) {
-	srv, bundle, id, dialer, err := d.deployContext(ctx, serverID)
+func (d cliDeployer) DeployNode(ctx context.Context, serverID, name, region string, route []string) (fleet.Node, error) {
+	srv, bundle, id, dialer, err := d.deployContext(ctx, serverID, route)
 	if err != nil {
 		return fleet.Node{}, err
 	}
@@ -94,7 +93,7 @@ func (d cliDeployer) DeployNode(ctx context.Context, serverID, name, region stri
 }
 
 func (d cliDeployer) DeployRelay(ctx context.Context, serverID string, req api.RelayDeployRequest) (fleet.Relay, error) {
-	srv, bundle, id, dialer, err := d.deployContext(ctx, serverID)
+	srv, bundle, id, dialer, err := d.deployContext(ctx, serverID, req.Route)
 	if err != nil {
 		return fleet.Relay{}, err
 	}
@@ -192,7 +191,9 @@ func (d cliDeployer) UpdateRelayAgent(ctx context.Context, relayID string) (flee
 	if err != nil {
 		return fleet.Relay{}, err
 	}
-	srv, _, id, dialer, err := d.deployContext(ctx, relay.ServerID)
+	// Lifecycle agent updates dial direct (no per-action route; the persisted
+	// onboard route was retired).
+	srv, _, id, dialer, err := d.deployContext(ctx, relay.ServerID, nil)
 	if err != nil {
 		return fleet.Relay{}, err
 	}
@@ -204,9 +205,10 @@ func (d cliDeployer) UpdateRelayAgent(ctx context.Context, relayID string) (flee
 	return deploy.UpdateRelayAgent(ctx, d.conn, remote, relay, spec)
 }
 
-// deployContext resolves a server and the shared CA/identity/dialer a deploy
-// needs.
-func (d cliDeployer) deployContext(ctx context.Context, serverID string) (fleet.Server, pki.Bundle, ssh.Identity, server.Dialer, error) {
+// deployContext resolves a server and the shared CA/identity a deploy needs,
+// plus an SSH dialer built from the transient per-action route (relay-id hops,
+// nil = direct). The route is not persisted — it applies only to this deploy.
+func (d cliDeployer) deployContext(ctx context.Context, serverID string, route []string) (fleet.Server, pki.Bundle, ssh.Identity, server.Dialer, error) {
 	srv, err := fleet.GetServer(ctx, d.conn, serverID)
 	if err != nil {
 		return fleet.Server{}, pki.Bundle{}, ssh.Identity{}, nil, err
@@ -219,8 +221,7 @@ func (d cliDeployer) deployContext(ctx context.Context, serverID string) (fleet.
 	if err != nil {
 		return fleet.Server{}, pki.Bundle{}, ssh.Identity{}, nil, err
 	}
-	// Reach the host the same way onboarding did — via its stored route (or direct).
-	dialer, err := egressDialerForRoute(ctx, d.conn, srv.Route)
+	dialer, err := egressDialerForRoute(ctx, d.conn, route)
 	if err != nil {
 		return fleet.Server{}, pki.Bundle{}, ssh.Identity{}, nil, err
 	}

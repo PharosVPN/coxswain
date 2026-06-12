@@ -176,7 +176,7 @@ func installSpec(binaryPath, url, defaultURL, configHint string) (deploy.Install
 }
 
 func newNodesAddCmd() *cobra.Command {
-	var cfgPath, region, name, user, binaryPath, url, srvID string
+	var cfgPath, region, name, user, binaryPath, url, srvID, viaCSV string
 	var port int
 	cmd := &cobra.Command{
 		Use:   "add [ssh-host]",
@@ -214,7 +214,8 @@ func newNodesAddCmd() *cobra.Command {
 				if iErr != nil {
 					return iErr
 				}
-				dialer, dErr := egressDialerForRoute(ctx, conn, srv.Route)
+				// Transient per-deploy route (relay hops, empty = direct); not stored.
+				dialer, dErr := egressDialerForRoute(ctx, conn, splitCSV(viaCSV))
 				if dErr != nil {
 					return dErr
 				}
@@ -268,6 +269,7 @@ func newNodesAddCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	cmd.Flags().StringVar(&srvID, "server", "", "deploy onto an onboarded server (see `cox servers list`); region defaults to the server's")
+	cmd.Flags().StringVar(&viaCSV, "via", "", "with --server: transient relay-id hops to SSH through for this deploy (empty = direct)")
 	cmd.Flags().StringVar(&region, "region", "", "region label for the node (required without --server)")
 	cmd.Flags().StringVar(&name, "name", "", "node name (generated from the region if empty)")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (defaults to node.ssh_user; ignored with --server)")

@@ -43,7 +43,7 @@ func hostOnly(addr string) string {
 }
 
 func newRelaysAddCmd() *cobra.Command {
-	var cfgPath, name, endpoint, hostname, user, binaryPath, url, region, srvID string
+	var cfgPath, name, endpoint, hostname, user, binaryPath, url, region, srvID, viaCSV string
 	var port, egressPort, egressHop, onionPort int
 	var egress, onion, noIngress bool
 	cmd := &cobra.Command{
@@ -145,7 +145,8 @@ func newRelaysAddCmd() *cobra.Command {
 				if iErr != nil {
 					return iErr
 				}
-				dialer, dErr := egressDialerForRoute(ctx, conn, srv.Route)
+				// Transient per-deploy route (relay hops, empty = direct); not stored.
+				dialer, dErr := egressDialerForRoute(ctx, conn, splitCSV(viaCSV))
 				if dErr != nil {
 					return dErr
 				}
@@ -194,6 +195,7 @@ func newRelaysAddCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", config.DefaultPath, "path to the config file")
 	cmd.Flags().StringVar(&srvID, "server", "", "deploy onto an onboarded server (see `cox servers list`); hostname/region default to the server's")
+	cmd.Flags().StringVar(&viaCSV, "via", "", "with --server: transient relay-id hops to SSH through for this deploy (empty = direct)")
 	cmd.Flags().StringVar(&name, "name", "", "relay name (generated if empty)")
 	cmd.Flags().StringVar(&region, "region", "", "region code for the map (e.g. nyc1)")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "the relay's reverse-tunnel address coxswain dials (required)")

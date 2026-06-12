@@ -83,9 +83,6 @@ export interface Server {
 	ssh_host: string;
 	is_self: boolean;
 	status: string;
-	// route is the ordered relay-id hops coxswain reaches this server through;
-	// empty = direct (the default).
-	route: string[];
 	version: number;
 	location?: GeoLocation;
 }
