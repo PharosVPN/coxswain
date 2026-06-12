@@ -112,6 +112,17 @@ export interface Path {
 	version: number;
 }
 
+// ControlPath is the fleet-wide route coxswain dials out through to reach every
+// node's control plane: an ordered chain of relay ids (empty = direct). Exactly
+// one is active at a time; activating another is a live swap.
+export interface ControlPath {
+	id: string;
+	name: string;
+	hops: string[];
+	active: boolean;
+	version: number;
+}
+
 // Site is one host on the fleet map — the aggregate of every role at an IP.
 export interface Site {
 	key: string;
