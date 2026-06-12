@@ -165,6 +165,13 @@ func NewServer(addr string, db *sql.DB, hub *live.Hub, provOpts provision.Option
 	mux.HandleFunc("DELETE /api/paths/{id}", admin(s.handleDeletePath))
 	mux.HandleFunc("POST /api/paths/{id}/provision", admin(s.handleProvisionPath))
 
+	// Control-plane paths — the fleet-wide route coxswain dials out through to
+	// reach nodes (exactly one active; activating another is a live swap).
+	mux.HandleFunc("GET /api/control-paths", readonly(s.handleListControlPaths))
+	mux.HandleFunc("POST /api/control-paths", admin(s.handleCreateControlPath))
+	mux.HandleFunc("POST /api/control-paths/{id}/activate", admin(s.handleActivateControlPath))
+	mux.HandleFunc("DELETE /api/control-paths/{id}", admin(s.handleDeleteControlPath))
+
 	// The controller itself — its public IP + resolved location, for the map.
 	mux.HandleFunc("GET /api/self", readonly(s.handleSelf))
 	// Active IP-geolocation source + the attribution its license requires (the UI

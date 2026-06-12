@@ -34,6 +34,7 @@ func newRootCmd() *cobra.Command {
 		newServersCmd(),
 		newNodesCmd(),
 		newPathsCmd(),
+		newControlPathsCmd(),
 		newRelaysCmd(),
 		newProfileCmd(),
 		newProfilesCmd(),
