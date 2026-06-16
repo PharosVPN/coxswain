@@ -90,6 +90,10 @@ type Deployer interface {
 	// in place (the dashboard's Update action), returning the refreshed record.
 	UpdateNodeAgent(ctx context.Context, nodeID string) (fleet.Node, error)
 	UpdateRelayAgent(ctx context.Context, relayID string) (fleet.Relay, error)
+	// TeardownServer SSHes to a server and stops + uninstalls the node/relay agents
+	// on it, so removing the server leaves nothing running behind. It returns an
+	// error when the host can't be reached — the caller then offers a force-remove.
+	TeardownServer(ctx context.Context, serverID string) error
 }
 
 // BootstrapRequest is the POST /api/servers body.
@@ -221,6 +225,21 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean removal: stop + uninstall the agents on the box before forgetting it.
+	// If that can't be done (host unreachable) and the caller didn't pass
+	// ?force=true, refuse — so the admin can retry, or explicitly force (drop the
+	// records and leave whatever is on the machine). A nil deployer (headless) has
+	// no SSH, so it falls straight through to the record delete.
+	force := r.URL.Query().Get("force") == "true"
+	if !force && s.deployer != nil {
+		if err := s.deployer.TeardownServer(ctx, id); err != nil {
+			s.audited(r, "server.rm", "server", id, map[string]any{"name": srv.Name, "stage": "teardown"}, err)
+			writeError(w, http.StatusConflict,
+				"couldn't cleanly remove the agents on "+srv.SSHHost+": "+err.Error()+" — retry, or force-remove to forget it anyway")
+			return
+		}
+	}
+
 	// Cascade: drop the components recorded on this server first.
 	for _, n := range nodes {
 		if n.ServerID == id {
@@ -240,7 +259,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete server")
 		return
 	}
-	s.audited(r, "server.rm", "server", id, map[string]any{"name": srv.Name}, nil)
+	s.audited(r, "server.rm", "server", id, map[string]any{"name": srv.Name, "forced": force}, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -244,6 +244,29 @@ func UpdateAgent(ctx context.Context, db *sql.DB, remote Remote, node fleet.Node
 	return fleet.UpdateNode(ctx, db, node)
 }
 
+// cmdUninstallAgents stops + disables and removes both the node and relay agents
+// (whichever are present) on a host: services, unit files, binaries, and the
+// config/cert dirs. It is best-effort per step (a missing unit/file is fine) so a
+// host with only one role, or a partial install, still cleans up — but the SSH
+// connection itself must succeed for any of it to run.
+const cmdUninstallAgents = `set -e
+systemctl disable --now node relay relay-egress relay-onion 2>/dev/null || true
+rm -f ` + nodeBinaryPath + ` ` + relayBinaryPath + `
+rm -f ` + unitPath + ` ` + relayUnitPath + ` ` + relayEgressUnitPath + ` ` + relayOnionUnitPath + `
+rm -rf /etc/node /etc/relay
+systemctl daemon-reload 2>/dev/null || true`
+
+// UninstallAgents stops and removes the node/relay agents on a host so a removed
+// server/component leaves nothing running behind. It returns an error when the
+// host can't be reached (or the command fails), which the caller surfaces as
+// "clean removal failed — force to remove anyway".
+func UninstallAgents(ctx context.Context, remote Remote) error {
+	if _, err := remote.Run(ctx, cmdUninstallAgents, nil); err != nil {
+		return fmt.Errorf("deploy: uninstall agents: %w", err)
+	}
+	return nil
+}
+
 // Service starts or stops the node service on a node. action is "start" or
 // "stop".
 func Service(ctx context.Context, remote Remote, action string) error {

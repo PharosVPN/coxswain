@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 The PharosVPN Authors -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, errorMessage } from '$lib/api';
+	import { api, errorMessage, isApiError } from '$lib/api';
 	import Modal from '$lib/components/Modal.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import RoleGlyph from '$lib/components/RoleGlyph.svelte';
@@ -110,7 +110,7 @@
 
 	// ───────── Add server ─────────
 	let adding = $state(false);
-	let method = $state<'password' | 'key'>('password');
+	let method = $state<'password' | 'key'>('key');
 	let sHost = $state('');
 	let sUser = $state('root');
 	let sPassword = $state('');
@@ -122,7 +122,7 @@
 
 	function openAdd() {
 		adding = true;
-		method = 'password';
+		method = 'key';
 		sHost = '';
 		sUser = 'root';
 		sPassword = '';
@@ -217,23 +217,31 @@
 	}
 
 	// ───────── Remove server ─────────
+	// Clean by default: the server first tries to stop + uninstall the agents on
+	// the box. If it can't reach the host it returns 409 — we then reveal a Force
+	// button that forgets the server anyway (?force=true).
 	let removing = $state<Server | null>(null);
 	let removeBusy = $state(false);
 	let removeError = $state('');
+	let removeForceable = $state(false);
 
-	async function confirmRemove() {
+	async function doRemoveServer(force: boolean) {
 		if (!removing) return;
 		removeBusy = true;
 		removeError = '';
 		try {
-			await api.del(`/api/servers/${removing.id}`);
+			await api.del(`/api/servers/${removing.id}${force ? '?force=true' : ''}`);
 			removing = null;
+			removeForceable = false;
 			await load();
 		} catch (e) {
 			removeError = errorMessage(e);
+			// A 409 from the clean attempt means the box was unreachable → offer force.
+			if (!force && isApiError(e) && e.status === 409) removeForceable = true;
 		}
 		removeBusy = false;
 	}
+	const confirmRemove = () => doRemoveServer(false);
 
 	// ───────── Component version actions (Update / Remove) ─────────
 	// busyId marks the in-flight component row; actionError surfaces a failed
@@ -328,7 +336,7 @@
 							onclick={() => openDeploy(c.server)}>Deploy component</button>
 
 						{#if !c.server.is_self}
-							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; }}>Remove</button>
+							<button class="btn btn-text btn-sm" style="color: var(--c-danger)" onclick={() => { removing = c.server; removeError = ''; removeForceable = false; }}>Remove</button>
 						{/if}
 					</div>
 				</div>
@@ -388,8 +396,8 @@
 {#if adding}
 	<Modal title="Add server" onclose={() => (adding = false)}>
 		<div class="seg" role="tablist">
-			<button type="button" role="tab" aria-selected={method === 'password'} class="seg-btn" class:seg-on={method === 'password'} onclick={() => (method = 'password')}>Password</button>
 			<button type="button" role="tab" aria-selected={method === 'key'} class="seg-btn" class:seg-on={method === 'key'} onclick={() => (method = 'key')}>SSH key</button>
+			<button type="button" role="tab" aria-selected={method === 'password'} class="seg-btn" class:seg-on={method === 'password'} onclick={() => (method = 'password')}>Password</button>
 		</div>
 		<p class="mt-3 text-sm text-ink-2">
 			{#if method === 'password'}
@@ -534,22 +542,34 @@
 
 <!-- Remove server -->
 {#if removing}
-	<Modal title="Remove server" onclose={() => (removing = null)}>
+	<Modal title="Remove server" onclose={() => { removing = null; removeForceable = false; }}>
 		<p class="text-sm text-ink-2">
-			Remove <span class="font-medium text-ink">{removing.name || removing.ssh_host}</span>
-			from the inventory? This forgets it from coxswain — it doesn't touch the machine.
+			Remove <span class="font-medium text-ink">{removing.name || removing.ssh_host}</span>?
+			coxswain stops and uninstalls the agents on the box, then forgets it.
 		</p>
 		{#if compCount(removing.id) > 0}
 			<p class="mt-2 text-sm" style="color: var(--c-warning)">
-				This also removes {compCount(removing.id)} component{compCount(removing.id) === 1 ? '' : 's'} deployed on it.
+				This removes {compCount(removing.id)} component{compCount(removing.id) === 1 ? '' : 's'} deployed on it.
 			</p>
 		{/if}
 		{#if removeError}<p class="field-error" role="alert">{removeError}</p>{/if}
+		{#if removeForceable}
+			<p class="mt-2 text-sm text-ink-2">
+				Couldn't reach the host to clean up. <b>Force remove</b> forgets it from coxswain anyway —
+				anything still installed on the machine is left running.
+			</p>
+		{/if}
 		<div class="mt-6 flex justify-end gap-3">
-			<button class="btn btn-secondary" onclick={() => (removing = null)}>Cancel</button>
-			<button class="btn btn-danger" onclick={confirmRemove} disabled={removeBusy}>
-				{removeBusy ? 'Removing…' : 'Remove'}
-			</button>
+			<button class="btn btn-secondary" onclick={() => { removing = null; removeForceable = false; }}>Cancel</button>
+			{#if removeForceable}
+				<button class="btn btn-danger" onclick={() => doRemoveServer(true)} disabled={removeBusy}>
+					{removeBusy ? 'Forcing…' : 'Force remove'}
+				</button>
+			{:else}
+				<button class="btn btn-danger" onclick={confirmRemove} disabled={removeBusy}>
+					{removeBusy ? 'Removing…' : 'Remove'}
+				</button>
+			{/if}
 		</div>
 	</Modal>
 {/if}

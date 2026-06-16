@@ -205,6 +205,22 @@ func (d cliDeployer) UpdateRelayAgent(ctx context.Context, relayID string) (flee
 	return deploy.UpdateRelayAgent(ctx, d.conn, remote, relay, spec)
 }
 
+// TeardownServer SSHes to a server (direct — onboard routes aren't persisted) and
+// uninstalls the node/relay agents on it. A dial failure is returned so the API
+// can offer a force-remove (forget the records without touching the box).
+func (d cliDeployer) TeardownServer(ctx context.Context, serverID string) error {
+	srv, _, id, dialer, err := d.deployContext(ctx, serverID, nil)
+	if err != nil {
+		return err
+	}
+	remote, err := server.DialServer(ctx, id, srv, dialer)
+	if err != nil {
+		return err
+	}
+	defer remote.Close()
+	return deploy.UninstallAgents(ctx, remote)
+}
+
 // deployContext resolves a server and the shared CA/identity a deploy needs,
 // plus an SSH dialer built from the transient per-action route (relay-id hops,
 // nil = direct). The route is not persisted — it applies only to this deploy.
